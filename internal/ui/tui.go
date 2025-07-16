@@ -19,8 +19,14 @@ type TUI struct {
 	taskList        *tview.List
 	outputView      *tview.TextView
 	statusBar       *tview.TextView
+	inputField      *tview.InputField
+	inputModal      *tview.Modal
+	mainLayout      *tview.Flex
 	currentCategory string
 	executor        *executor.Executor
+	scriptRunning   bool
+	interactiveMode bool
+	currentPrompt   string
 	mu              sync.RWMutex
 }
 
@@ -153,20 +159,26 @@ func (t *TUI) showCategory(categoryName string) {
 	for _, category := range categories {
 		if category.Name == categoryName {
 			for i, task := range category.Tasks {
-				t.taskList.AddItem(task.Name, task.Description, rune('1'+i), func() {
-					t.executeTask(task.Name)
-				})
+				t.taskList.AddItem(task.Name, task.Description, rune('1'+i), nil)
 			}
 			break
 		}
 	}
 
 	t.statusBar.SetText(fmt.Sprintf("Category: %s - Select a task to execute", categoryName))
+	// Automatically focus on task list when category is selected
+	t.app.SetFocus(t.taskList)
 }
 
 func (t *TUI) executeTask(taskName string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	if t.scriptRunning {
+		t.statusBar.SetText("Script already running - please wait for completion")
+		fmt.Fprintf(t.outputView, "[yellow]Another script is already running. Please wait for it to complete.[white]\n")
+		return
+	}
 
 	t.statusBar.SetText(fmt.Sprintf("Executing: %s", taskName))
 	t.outputView.Clear()
@@ -183,7 +195,17 @@ func (t *TUI) executeTask(taskName string) {
 					fmt.Fprintf(t.outputView, "[gray]Description: %s[white]\n\n", task.Description)
 
 					scriptPath := filepath.Join("scripts", t.getScriptFolder(t.currentCategory), task.Script)
-					go t.runScript(scriptPath)
+					t.scriptRunning = true
+
+					// Automatically focus on output view when task is selected
+					t.app.SetFocus(t.outputView)
+
+					// Check if this is an interactive script that needs special handling
+					if t.isInteractiveScript(task.Script) {
+						go t.runInteractiveScript(scriptPath, taskName)
+					} else {
+						go t.runScript(scriptPath)
+					}
 					return
 				}
 			}
@@ -192,6 +214,22 @@ func (t *TUI) executeTask(taskName string) {
 	}
 
 	t.statusBar.SetText(fmt.Sprintf("Task completed: %s", taskName))
+}
+
+func (t *TUI) isInteractiveScript(scriptName string) bool {
+	// List of scripts that require interactive input
+	interactiveScripts := []string{
+		"network_interfaces.sh",
+		"configure_ip.sh",
+		"device_config.sh",
+	}
+
+	for _, interactive := range interactiveScripts {
+		if scriptName == interactive {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *TUI) getScriptFolder(category string) string {
@@ -249,6 +287,12 @@ func (t *TUI) runScript(scriptPath string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 
+	defer func() {
+		t.mu.Lock()
+		t.scriptRunning = false
+		t.mu.Unlock()
+	}()
+
 	t.app.QueueUpdateDraw(func() {
 		fmt.Fprintf(t.outputView, "[cyan]Executing script: %s[white]\n\n", scriptPath)
 		t.statusBar.SetText("Script running...")
@@ -268,12 +312,16 @@ func (t *TUI) runScript(scriptPath string) {
 				t.app.QueueUpdateDraw(func() {
 					fmt.Fprintf(t.outputView, "\n[green]Script execution completed[white]\n")
 					t.statusBar.SetText("Script completed")
+					// Revert focus back to task list after script completion
+					t.app.SetFocus(t.taskList)
 				})
 				return
 			case <-ctx.Done():
 				t.app.QueueUpdateDraw(func() {
 					fmt.Fprintf(t.outputView, "\n[red]Script execution timed out[white]\n")
 					t.statusBar.SetText("Script timed out")
+					// Revert focus back to task list after script timeout
+					t.app.SetFocus(t.taskList)
 				})
 				return
 			}
@@ -285,6 +333,8 @@ func (t *TUI) runScript(scriptPath string) {
 		t.app.QueueUpdateDraw(func() {
 			fmt.Fprintf(t.outputView, "\n[red]Error executing script: %v[white]\n", err)
 			t.statusBar.SetText("Script failed")
+			// Revert focus back to task list after script error
+			t.app.SetFocus(t.taskList)
 		})
 		return
 	}
@@ -293,6 +343,78 @@ func (t *TUI) runScript(scriptPath string) {
 		t.app.QueueUpdateDraw(func() {
 			fmt.Fprintf(t.outputView, "\n[red]Script failed with error: %v[white]\n", result.Error)
 			t.statusBar.SetText("Script failed")
+			// Revert focus back to task list after script failure
+			t.app.SetFocus(t.taskList)
+		})
+	}
+}
+
+func (t *TUI) runInteractiveScript(scriptPath string, taskName string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	defer func() {
+		t.mu.Lock()
+		t.scriptRunning = false
+		t.mu.Unlock()
+	}()
+
+	t.app.QueueUpdateDraw(func() {
+		fmt.Fprintf(t.outputView, "[cyan]Executing interactive script: %s[white]\n", scriptPath)
+		fmt.Fprintf(t.outputView, "[yellow]Note: This script runs in non-interactive mode in the TUI.[white]\n")
+		fmt.Fprintf(t.outputView, "[yellow]For full interactive features, run the script directly in terminal.[white]\n\n")
+		t.statusBar.SetText("Running interactive script in non-interactive mode...")
+	})
+
+	go func() {
+		for {
+			select {
+			case output, ok := <-t.executor.GetOutputChannel():
+				if !ok {
+					return
+				}
+				t.app.QueueUpdateDraw(func() {
+					fmt.Fprintf(t.outputView, "%s\n", output)
+				})
+			case <-t.executor.GetDoneChannel():
+				t.app.QueueUpdateDraw(func() {
+					fmt.Fprintf(t.outputView, "\n[green]Script execution completed[white]\n")
+					fmt.Fprintf(t.outputView, "[blue]To use interactive features, run: sudo bash %s[white]\n", scriptPath)
+					t.statusBar.SetText("Script completed")
+					// Revert focus back to task list after script completion
+					t.app.SetFocus(t.taskList)
+				})
+				return
+			case <-ctx.Done():
+				t.app.QueueUpdateDraw(func() {
+					fmt.Fprintf(t.outputView, "\n[red]Script execution timed out[white]\n")
+					t.statusBar.SetText("Script timed out")
+					// Revert focus back to task list after script timeout
+					t.app.SetFocus(t.taskList)
+				})
+				return
+			}
+		}
+	}()
+
+	// Execute the script in non-interactive mode (stdin will be closed)
+	result, err := t.executor.ExecuteScript(ctx, scriptPath)
+	if err != nil {
+		t.app.QueueUpdateDraw(func() {
+			fmt.Fprintf(t.outputView, "\n[red]Error executing script: %v[white]\n", err)
+			t.statusBar.SetText("Script failed")
+			// Revert focus back to task list after script error
+			t.app.SetFocus(t.taskList)
+		})
+		return
+	}
+
+	if !result.Success {
+		t.app.QueueUpdateDraw(func() {
+			fmt.Fprintf(t.outputView, "\n[red]Script failed with error: %v[white]\n", result.Error)
+			t.statusBar.SetText("Script failed")
+			// Revert focus back to task list after script failure
+			t.app.SetFocus(t.taskList)
 		})
 	}
 }
