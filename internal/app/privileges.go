@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,8 +13,8 @@ func CheckRootAccess() error {
 		return nil
 	}
 
-	fmt.Println("This application requires root privileges.")
-	fmt.Println("Attempting to escalate privileges...")
+	fmt.Fprintf(os.Stderr, "This application requires root privileges.\n")
+	fmt.Fprintf(os.Stderr, "Attempting to escalate privileges...\n")
 
 	return escalatePrivileges()
 }
@@ -30,7 +31,8 @@ func escalatePrivileges() error {
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
 				os.Exit(status.ExitStatus())
 			}
