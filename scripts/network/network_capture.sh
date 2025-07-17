@@ -1,18 +1,18 @@
-#!/bin/bash
+#!/bin/sh
+
+# Source shared utility functions
+source "$(dirname "$0")/../common/utils.sh"
 
 echo "=== Network Packet Capture ==="
 echo
 
-echo "Available network interfaces:"
-ip link show | grep -E "^[0-9]+:" | cut -d: -f2 | sed 's/^ *//'
-
-echo
-read -p "Enter interface name for capture: " interface
-
-if ! ip link show "$interface" >/dev/null 2>&1; then
-    echo "Error: Interface $interface not found"
+interface=$(select_interface "Select interface for capture")
+if [ -z "$interface" ]; then
+    error_message "No interface selected"
     exit 1
 fi
+
+success_message "Selected interface: $interface"
 
 CAPTURE_DIR="${NETUTIL_WORKDIR:-$HOME}/captures"
 mkdir -p "$CAPTURE_DIR"
@@ -22,46 +22,71 @@ CAPTURE_FILE="$CAPTURE_DIR/capture_${interface}_${TIMESTAMP}.pcap"
 
 echo "Capture will be saved to: $CAPTURE_FILE"
 
-echo "Capture options:"
-echo "1. Capture for 10 minutes (default)"
-echo "2. Capture for custom duration"
-echo "3. Capture until stopped manually"
+echo "Capture duration options:"
+echo "1. 5 minutes"
+echo "2. 10 minutes (default)"
+echo "3. 30 minutes"
+echo "4. 1 hour"
+echo "5. Custom duration"
+echo "6. Manual stop (Ctrl+C)"
 
-read -p "Select option (1-3): " option
+read -p "Select option (1-6): " option
 
 case $option in
     1)
-        duration=600
+        duration=300
+        duration_text="5 minutes"
         ;;
     2)
-        read -p "Enter duration in seconds: " duration
-        if [[ ! $duration =~ ^[0-9]+$ ]]; then
-            echo "Error: Invalid duration"
-            exit 1
-        fi
+        duration=600
+        duration_text="10 minutes"
         ;;
     3)
+        duration=1800
+        duration_text="30 minutes"
+        ;;
+    4)
+        duration=3600
+        duration_text="1 hour"
+        ;;
+    5)
+        read -p "Enter duration in seconds: " duration
+        case "$duration" in
+            *[!0-9]*|'')
+                error_message "Invalid duration"
+                exit 1
+                ;;
+        esac
+            error_message "Invalid duration"
+            exit 1
+        fi
+        duration_text="$duration seconds"
+        ;;
+    6)
         duration=0
+        duration_text="manual stop"
         ;;
     *)
-        echo "Invalid option, using default 10 minutes"
+        warning_message "Invalid option, using default 10 minutes"
         duration=600
+        duration_text="10 minutes"
         ;;
 esac
 
 echo "Starting packet capture on interface $interface..."
+echo "Duration: $duration_text"
 echo "Capture file: $CAPTURE_FILE"
 
 if [ "$duration" -eq 0 ]; then
     echo "Press Ctrl+C to stop capture"
     tshark -i "$interface" -w "$CAPTURE_FILE" -q
 else
-    echo "Capturing for $duration seconds..."
+    echo "Capturing for $duration_text..."
     timeout "$duration" tshark -i "$interface" -w "$CAPTURE_FILE" -q
 fi
 
 echo
-echo "Capture completed!"
+success_message "Capture completed!"
 echo "Capture file: $CAPTURE_FILE"
 echo "File size: $(du -h "$CAPTURE_FILE" | cut -f1)"
 
@@ -81,20 +106,22 @@ if [ -s "$VLAN_FILE" ]; then
     echo "VLAN IDs saved to: $VLAN_FILE"
     
     echo
-    read -p "Create VLAN subinterfaces for detected VLANs? (y/N): " create_vlans
-    if [[ $create_vlans =~ ^[Yy]$ ]]; then
+    if confirm_action "Create VLAN subinterfaces for detected VLANs?"; then
         while read -r vlan_id; do
-            if [[ $vlan_id =~ ^[0-9]+$ ]]; then
-                vlan_interface="${interface}.${vlan_id}"
+            case "$vlan_id" in
+                *[!0-9]*|'') continue ;;
+                *)
+                    vlan_interface="${interface}.${vlan_id}"
                 if ! ip link show "$vlan_interface" >/dev/null 2>&1; then
                     echo "Creating VLAN interface: $vlan_interface"
                     ip link add link "$interface" name "$vlan_interface" type vlan id "$vlan_id"
                     ip link set "$vlan_interface" up
-                    echo "VLAN interface $vlan_interface created"
-                else
-                    echo "VLAN interface $vlan_interface already exists"
-                fi
-            fi
+                    success_message "VLAN interface $vlan_interface created"
+                    else
+                        warning_message "VLAN interface $vlan_interface already exists"
+                    fi
+                    ;;
+            esac
         done < "$VLAN_FILE"
     fi
 else

@@ -1,31 +1,21 @@
-#!/bin/bash
+#!/bin/sh
+
+# Source shared utility functions
+source "$(dirname "$0")/../common/utils.sh"
 
 echo "=== VLAN Extraction from Capture Files ==="
 echo
 
-CAPTURE_DIR="${NETUTIL_WORKDIR:-$HOME}/captures"
-
-if [ ! -d "$CAPTURE_DIR" ]; then
-    echo "Capture directory $CAPTURE_DIR not found"
+capture_file=$(select_capture_file)
+if [ -z "$capture_file" ]; then
+    error_message "No capture file selected"
     exit 1
 fi
 
-echo "Available capture files:"
-ls -la "$CAPTURE_DIR"/*.pcap 2>/dev/null || {
-    echo "No capture files found in $CAPTURE_DIR"
-    exit 1
-}
-
-echo
-read -p "Enter path to capture file: " capture_file
-
-if [ ! -f "$capture_file" ]; then
-    echo "Error: Capture file not found"
-    exit 1
-fi
-
+success_message "Selected capture file: $capture_file"
 echo "Analyzing capture file: $capture_file"
 
+CAPTURE_DIR="${NETUTIL_WORKDIR:-$HOME}/captures"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 VLAN_FILE="$CAPTURE_DIR/extracted_vlans_${TIMESTAMP}.txt"
 VLAN_DETAIL_FILE="$CAPTURE_DIR/vlan_details_${TIMESTAMP}.txt"
@@ -48,8 +38,10 @@ if [ -s "$VLAN_FILE" ]; then
     echo "--- VLAN Statistics ---" >> "$VLAN_DETAIL_FILE"
     
     while read -r vlan_id; do
-        if [[ $vlan_id =~ ^[0-9]+$ ]]; then
-            echo "VLAN $vlan_id:" >> "$VLAN_DETAIL_FILE"
+        case "$vlan_id" in
+            *[!0-9]*|'') continue ;;
+            *)
+                echo "VLAN $vlan_id:" >> "$VLAN_DETAIL_FILE"
             packet_count=$(tshark -r "$capture_file" -Y "vlan.id == $vlan_id" 2>/dev/null | wc -l)
             echo "  Packets: $packet_count" >> "$VLAN_DETAIL_FILE"
             
@@ -59,8 +51,9 @@ if [ -s "$VLAN_FILE" ]; then
             echo "  Destination IPs:" >> "$VLAN_DETAIL_FILE"
             tshark -r "$capture_file" -Y "vlan.id == $vlan_id" -T fields -e ip.dst 2>/dev/null | sort -u | head -10 | sed 's/^/    /' >> "$VLAN_DETAIL_FILE"
             
-            echo >> "$VLAN_DETAIL_FILE"
-        fi
+                echo >> "$VLAN_DETAIL_FILE"
+                ;;
+        esac
     done < "$VLAN_FILE"
     
     echo >> "$VLAN_DETAIL_FILE"
@@ -74,31 +67,30 @@ if [ -s "$VLAN_FILE" ]; then
     echo "  Detailed report: $VLAN_DETAIL_FILE"
     
     echo
-    echo "Available interfaces for VLAN configuration:"
-    ip link show | grep -E "^[0-9]+:" | cut -d: -f2 | sed 's/^ *//'
-    
-    echo
-    read -p "Create VLAN subinterfaces? (y/N): " create_vlans
-    if [[ $create_vlans =~ ^[Yy]$ ]]; then
-        read -p "Enter parent interface name: " parent_interface
-        
-        if ! ip link show "$parent_interface" >/dev/null 2>&1; then
-            echo "Error: Parent interface $parent_interface not found"
+    if confirm_action "Create VLAN subinterfaces?"; then
+        parent_interface=$(select_interface "Select parent interface for VLAN creation")
+        if [ -z "$parent_interface" ]; then
+            error_message "No interface selected"
             exit 1
         fi
         
+        success_message "Selected parent interface: $parent_interface"
+        
         while read -r vlan_id; do
-            if [[ $vlan_id =~ ^[0-9]+$ ]]; then
-                vlan_interface="${parent_interface}.${vlan_id}"
+            case "$vlan_id" in
+                *[!0-9]*|'') continue ;;
+                *)
+                    vlan_interface="${parent_interface}.${vlan_id}"
                 if ! ip link show "$vlan_interface" >/dev/null 2>&1; then
                     echo "Creating VLAN interface: $vlan_interface"
                     ip link add link "$parent_interface" name "$vlan_interface" type vlan id "$vlan_id"
                     ip link set "$vlan_interface" up
-                    echo "VLAN interface $vlan_interface created and brought up"
-                else
-                    echo "VLAN interface $vlan_interface already exists"
-                fi
-            fi
+                    success_message "VLAN interface $vlan_interface created and brought up"
+                    else
+                        warning_message "VLAN interface $vlan_interface already exists"
+                    fi
+                    ;;
+            esac
         done < "$VLAN_FILE"
         
         echo
