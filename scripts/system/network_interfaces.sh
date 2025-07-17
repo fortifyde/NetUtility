@@ -17,34 +17,8 @@ echo "2. Bring interface DOWN"
 echo "3. Show interface statistics"
 echo "4. Exit"
 
-# Check if stdin is available for interactive mode
-if [[ ! -t 0 ]]; then
-    echo "Non-interactive mode detected. Showing interface information only."
-    echo
-    echo "To interact with interfaces, run this script directly:"
-    echo "sudo bash $0"
-    exit 0
-fi
-
-# Handle interactive mode
 echo -n "Select action (1-4): "
-if ! read -t 30 action; then
-    echo
-    echo "Input timeout. Showing interface information only."
-    echo
-    echo "To interact with interfaces, run this script directly:"
-    echo "sudo bash $0"
-    exit 0
-fi
-
-# Handle empty input
-if [[ -z "$action" ]]; then
-    echo "No action selected. Showing interface information only."
-    echo
-    echo "To interact with interfaces, run this script directly:"
-    echo "sudo bash $0"
-    exit 0
-fi
+read action
 
 case $action in
     1)
