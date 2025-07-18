@@ -10,7 +10,7 @@ echo "Current VLAN interfaces:"
 ip link show | grep "@" || echo "No VLAN interfaces found"
 
 echo
-parent_interface=$(select_interface "Select parent interface")
+parent_interface=$(select_interface "Select parent interface" "vlan")
 if [ -z "$parent_interface" ]; then
     error_message "No interface selected"
     exit 1
@@ -43,9 +43,6 @@ case $option in
                 fi
                 ;;
         esac
-            error_message "Invalid VLAN ID. Must be between 1-4094"
-            exit 1
-        fi
         
         vlan_interface="${parent_interface}.${vlan_id}"
         

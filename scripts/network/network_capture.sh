@@ -6,7 +6,7 @@
 echo "=== Network Packet Capture ==="
 echo
 
-interface=$(select_interface "Select interface for capture")
+interface=$(select_interface "Select interface for capture" "capture")
 if [ -z "$interface" ]; then
     error_message "No interface selected"
     exit 1
@@ -57,9 +57,6 @@ case $option in
                 exit 1
                 ;;
         esac
-            error_message "Invalid duration"
-            exit 1
-        fi
         duration_text="$duration seconds"
         ;;
     6)
