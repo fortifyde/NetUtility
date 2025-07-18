@@ -24,6 +24,83 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 # Create workflow directory
 mkdir -p "$SESSION_DIR"
 
+# Function to prompt user for IP address choice with validation
+prompt_ip_choice() {
+    suggested_ip="$1"
+    network_base="$2"
+    vlan_interface="$3"
+    
+    echo "Choose IP assignment for VLAN interface $vlan_interface:"
+    echo "1) Accept suggested IP ($suggested_ip)"
+    echo "2) Provide custom IP address"
+    printf "Choice [1-2]: "
+    read -r choice
+    
+    case "$choice" in
+        1|"")
+            echo "$suggested_ip"
+            return 0
+            ;;
+        2)
+            while true; do
+                printf "Enter IP address (with CIDR, e.g., 192.168.1.100/24): "
+                read -r custom_ip
+                
+                # Basic validation
+                if [ -z "$custom_ip" ]; then
+                    echo "⚠ Empty IP address. Try again or press Ctrl+C to cancel."
+                    continue
+                fi
+                
+                # Check if it contains CIDR notation
+                if ! echo "$custom_ip" | grep -q "/"; then
+                    echo "⚠ IP address must include CIDR notation (e.g., /24). Try again."
+                    continue
+                fi
+                
+                # Extract IP part for validation
+                ip_part=$(echo "$custom_ip" | cut -d'/' -f1)
+                cidr_part=$(echo "$custom_ip" | cut -d'/' -f2)
+                
+                # Basic IP format validation
+                if ! echo "$ip_part" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+                    echo "⚠ Invalid IP format. Use format: X.X.X.X/XX"
+                    continue
+                fi
+                
+                # Basic CIDR validation
+                if ! echo "$cidr_part" | grep -qE '^[0-9]{1,2}$' || [ "$cidr_part" -lt 8 ] || [ "$cidr_part" -gt 30 ]; then
+                    echo "⚠ Invalid CIDR. Use range 8-30 (e.g., /24)"
+                    continue
+                fi
+                
+                # Check if IP is in same network (optional warning)
+                custom_network_base=$(echo "$ip_part" | cut -d'.' -f1-3)
+                if [ "$custom_network_base" != "$network_base" ]; then
+                    echo "⚠ Warning: Custom IP ($custom_network_base.X) differs from discovered network ($network_base.0)"
+                    printf "Continue anyway? [y/N]: "
+                    read -r confirm
+                    case "$confirm" in
+                        y|Y|yes|YES)
+                            ;;
+                        *)
+                            continue
+                            ;;
+                    esac
+                fi
+                
+                echo "$custom_ip"
+                return 0
+            done
+            ;;
+        *)
+            echo "⚠ Invalid choice. Using suggested IP: $suggested_ip"
+            echo "$suggested_ip"
+            return 0
+            ;;
+    esac
+}
+
 # Workflow report
 WORKFLOW_REPORT="$SESSION_DIR/integrated_workflow_report.txt"
 
@@ -222,15 +299,26 @@ if [ "$vlan_count" -gt 0 ]; then
                         suggested_ip="${network_base}.254/24"
                         
                         echo "  Discovered network: $network_base.0/24"
-                        echo "  Assigning IP: $suggested_ip"
+                        echo "  Suggested IP: $suggested_ip"
+                        echo
                         
-                        if ip addr add "$suggested_ip" dev "$vlan_interface" 2>/dev/null; then
-                            echo "✓ IP address $suggested_ip assigned to $vlan_interface"
-                            echo "    IP assigned: $suggested_ip" >> "$WORKFLOW_REPORT"
-                            log_config_change "IP assigned to VLAN interface" "$vlan_interface: $suggested_ip"
+                        # Prompt user for IP choice
+                        chosen_ip=$(prompt_ip_choice "$suggested_ip" "$network_base" "$vlan_interface")
+                        
+                        if [ -n "$chosen_ip" ]; then
+                            echo "  Assigning IP: $chosen_ip"
+                            
+                            if ip addr add "$chosen_ip" dev "$vlan_interface" 2>/dev/null; then
+                                echo "✓ IP address $chosen_ip assigned to $vlan_interface"
+                                echo "    IP assigned: $chosen_ip" >> "$WORKFLOW_REPORT"
+                                log_config_change "IP assigned to VLAN interface" "$vlan_interface: $chosen_ip"
+                            else
+                                echo "⚠ Failed to assign IP $chosen_ip to $vlan_interface"
+                                log_warn "Failed to assign IP $chosen_ip to $vlan_interface"
+                            fi
                         else
-                            echo "⚠ Failed to assign IP $suggested_ip to $vlan_interface"
-                            log_warn "Failed to assign IP $suggested_ip to $vlan_interface"
+                            echo "⚠ No valid IP provided, skipping IP assignment for $vlan_interface"
+                            log_warn "No valid IP provided for $vlan_interface"
                         fi
                     fi
                 else
