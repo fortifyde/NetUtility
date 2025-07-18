@@ -129,14 +129,67 @@ if [ "$dhcp_count" -gt 0 ]; then
 fi
 echo >> "$REPORT_FILE"
 
+echo "--- WINDOWS SECURITY ANALYSIS ---" >> "$REPORT_FILE"
+echo >> "$REPORT_FILE"
+
+echo "1. WPAD (Windows Proxy Auto-Discovery Protocol)" >> "$REPORT_FILE"
+wpad_dns_count=$(tshark -r "$capture_file" -Y 'dns.qry.name contains "wpad"' 2>/dev/null | wc -l)
+wpad_nbns_count=$(tshark -r "$capture_file" -Y 'nbns.name contains "wpad"' 2>/dev/null | wc -l)
+echo "WPAD DNS queries: $wpad_dns_count" >> "$REPORT_FILE"
+echo "WPAD NBNS queries: $wpad_nbns_count" >> "$REPORT_FILE"
+
+if [ "$wpad_dns_count" -gt 0 ] || [ "$wpad_nbns_count" -gt 0 ]; then
+    echo "Systems requesting WPAD:" >> "$REPORT_FILE"
+    tshark -r "$capture_file" -Y 'dns.qry.name contains "wpad"' -T fields -e ip.src 2>/dev/null | sort -u | sed 's/^/  /' >> "$REPORT_FILE"
+    tshark -r "$capture_file" -Y 'nbns.name contains "wpad"' -T fields -e ip.src 2>/dev/null | sort -u | sed 's/^/  /' >> "$REPORT_FILE"
+    echo "⚠️  CRITICAL: WPAD is vulnerable to man-in-the-middle attacks!" >> "$REPORT_FILE"
+    echo "Recommendation: Disable WPAD via Group Policy or registry" >> "$REPORT_FILE"
+fi
+echo >> "$REPORT_FILE"
+
+echo "2. Windows Domain/Workgroup Analysis (BROWSER Protocol)" >> "$REPORT_FILE"
+browser_count=$(tshark -r "$capture_file" -Y "browser" 2>/dev/null | wc -l)
+echo "Browser protocol packets: $browser_count" >> "$REPORT_FILE"
+if [ "$browser_count" -gt 0 ]; then
+    echo "Domain/Workgroup names:" >> "$REPORT_FILE"
+    tshark -r "$capture_file" -Y "browser" -T fields -e _ws.col.Info 2>/dev/null | \
+        grep -o "Domain/Workgroup Announcement [A-Za-z0-9_-]*" | \
+        awk '{print $3}' | sort -u | sed 's/^/  /' >> "$REPORT_FILE"
+    
+    echo "Domain Controllers:" >> "$REPORT_FILE"
+    tshark -r "$capture_file" -Y "browser" -T fields -e ip.src -e _ws.col.Info 2>/dev/null | \
+        grep "Domain Controller" | awk '{print $1}' | sort -u | sed 's/^/  /' >> "$REPORT_FILE"
+    
+    echo "SQL Servers (via BROWSER):" >> "$REPORT_FILE"
+    tshark -r "$capture_file" -Y "browser" -T fields -e ip.src -e _ws.col.Info 2>/dev/null | \
+        grep "SQL Server" | awk '{print $1}' | sort -u | sed 's/^/  /' >> "$REPORT_FILE"
+    
+    echo "ℹ️  Browser protocol reveals network architecture" >> "$REPORT_FILE"
+    echo "Consider: Network segmentation and service hardening" >> "$REPORT_FILE"
+fi
+echo >> "$REPORT_FILE"
+
+echo "3. NetBIOS Name Service (NBNS) Analysis" >> "$REPORT_FILE"
+nbns_count=$(tshark -r "$capture_file" -Y "nbns" 2>/dev/null | wc -l)
+echo "NBNS packets: $nbns_count" >> "$REPORT_FILE"
+if [ "$nbns_count" -gt 0 ]; then
+    echo "NetBIOS names queried:" >> "$REPORT_FILE"
+    tshark -r "$capture_file" -Y "nbns" -T fields -e nbns.name 2>/dev/null | \
+        sort -u | head -10 | sed 's/^/  /' >> "$REPORT_FILE"
+    echo "ℹ️  NBNS can reveal computer names and services" >> "$REPORT_FILE"
+fi
+echo >> "$REPORT_FILE"
+
 echo "--- SECURITY SUMMARY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 total_unsafe=$((http_count + ftp_count + telnet_count + smtp_count + pop3_count + imap_count + snmp_count))
 total_architecture=$((cdp_count + lldp_count + stp_count + dhcp_count))
+total_windows_security=$((wpad_dns_count + wpad_nbns_count + browser_count + nbns_count))
 
 echo "Total unsafe protocol packets: $total_unsafe" >> "$REPORT_FILE"
 echo "Total architecture revealing packets: $total_architecture" >> "$REPORT_FILE"
+echo "Total Windows security-related packets: $total_windows_security" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 if [ "$total_unsafe" -gt 0 ]; then
@@ -158,14 +211,33 @@ if [ "$total_architecture" -gt 0 ]; then
     echo "- Monitoring for reconnaissance activities" >> "$REPORT_FILE"
 fi
 
+if [ "$total_windows_security" -gt 0 ]; then
+    echo "WINDOWS SECURITY NOTICE: Windows-specific security issues detected!" >> "$REPORT_FILE"
+    echo "Recommendations:" >> "$REPORT_FILE"
+    if [ "$wpad_dns_count" -gt 0 ] || [ "$wpad_nbns_count" -gt 0 ]; then
+        echo "- Disable WPAD via Group Policy (Computer Configuration > Administrative Templates > Windows Components > Internet Explorer)" >> "$REPORT_FILE"
+        echo "- Set registry key: HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Internet Settings\\WinHttp\\DisableWPAD = 1" >> "$REPORT_FILE"
+    fi
+    if [ "$browser_count" -gt 0 ]; then
+        echo "- Consider disabling NetBIOS over TCP/IP if not required" >> "$REPORT_FILE"
+        echo "- Implement network segmentation to limit browser protocol propagation" >> "$REPORT_FILE"
+    fi
+    if [ "$nbns_count" -gt 0 ]; then
+        echo "- Consider disabling NetBIOS Name Service if not required" >> "$REPORT_FILE"
+        echo "- Use DNS for name resolution instead of NetBIOS" >> "$REPORT_FILE"
+    fi
+    echo >> "$REPORT_FILE"
+fi
+
 echo "Analysis complete!"
 echo "Report saved to: $REPORT_FILE"
 echo
 echo "Summary:"
 echo "- Unsafe protocol packets: $total_unsafe"
 echo "- Architecture revealing packets: $total_architecture"
+echo "- Windows security-related packets: $total_windows_security"
 
-if [ "$total_unsafe" -gt 0 ] || [ "$total_architecture" -gt 0 ]; then
+if [ "$total_unsafe" -gt 0 ] || [ "$total_architecture" -gt 0 ] || [ "$total_windows_security" -gt 0 ]; then
     echo
     echo "⚠️  Security issues detected! Review the full report for details."
 fi
