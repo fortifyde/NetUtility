@@ -25,7 +25,7 @@ func escalatePrivileges() error {
 		return fmt.Errorf("failed to get executable path: %w", err)
 	}
 
-	cmd := exec.Command("sudo", executable)
+	cmd := exec.Command("sudo", append([]string{executable}, os.Args[1:]...)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
