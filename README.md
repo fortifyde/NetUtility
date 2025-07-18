@@ -1,12 +1,10 @@
 # NetUtility
 
-A terminal-based network security toolkit that puts all your favorite pentesting and system administration tools in one convenient place. If you're tired of remembering dozens of command-line switches and constantly switching between different tools, this is for you.
+A comprehensive terminal-based network security and analysis toolkit designed for security professionals and network administrators. NetUtility combines advanced network discovery, packet analysis, and security assessment capabilities into a unified, easy-to-use platform.
 
 ## What does it do?
 
-NetUtility gives you a clean, organized menu system to run common network security tasks without having to remember all the syntax. It's designed for Kali Linux and focuses on the tools you actually use day-to-day.
-
-Think of it as your network toolkit dashboard - select what you want to do, and it handles the heavy lifting while showing you real-time output.
+NetUtility provides a sophisticated suite of network analysis tools accessible through both an interactive TUI and direct CLI commands. It automates complex network analysis workflows, from promiscuous packet capture and VLAN discovery to comprehensive security assessment and infrastructure configuration.
 
 ## Main Features
 
