@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 echo "=== Host Categorization ==="
 echo
@@ -18,7 +18,8 @@ ls -la "$RESULTS_DIR"/host_summary_*.txt 2>/dev/null || {
 }
 
 echo
-read -p "Enter path to host summary file: " summary_file
+echo -n "Enter path to host summary file: "
+read summary_file
 
 if [ ! -f "$summary_file" ]; then
     echo "Error: Summary file not found"
@@ -48,62 +49,62 @@ UNKNOWN_HOSTS="$RESULTS_DIR/hosts_unknown_${TIMESTAMP}.txt"
 echo "Categorizing hosts based on detected services and OS fingerprints..."
 
 grep -E "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$" "$summary_file" | while read -r host; do
-    if [[ $host =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    if echo "$host" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
         host_block=$(awk "/Host: $host/,/^$/" "$summary_file")
         
         category="unknown"
         confidence="low"
-        reasons=()
+        reasons=""
         
         if echo "$host_block" | grep -qi "microsoft\|windows\|win32"; then
             category="windows"
             confidence="high"
-            reasons+=("OS detection: Windows")
+            reasons="$reasons\nOS detection: Windows"
         elif echo "$host_block" | grep -qi "445/tcp.*open"; then
             category="windows"
             confidence="high"
-            reasons+=("Service: SMB (445/tcp)")
+            reasons="$reasons\nService: SMB (445/tcp)"
         elif echo "$host_block" | grep -qi "3389/tcp.*open"; then
             category="windows"
             confidence="high"
-            reasons+=("Service: RDP (3389/tcp)")
+            reasons="$reasons\nService: RDP (3389/tcp)"
         elif echo "$host_block" | grep -qi "139/tcp.*open"; then
             category="windows"
             confidence="medium"
-            reasons+=("Service: NetBIOS (139/tcp)")
+            reasons="$reasons\nService: NetBIOS (139/tcp)"
         elif echo "$host_block" | grep -qi "1433/tcp.*open"; then
             category="windows"
             confidence="medium"
-            reasons+=("Service: MSSQL (1433/tcp)")
+            reasons="$reasons\nService: MSSQL (1433/tcp)"
         elif echo "$host_block" | grep -qi "linux\|unix"; then
             category="linux"
             confidence="high"
-            reasons+=("OS detection: Linux/Unix")
+            reasons="$reasons\nOS detection: Linux/Unix"
         elif echo "$host_block" | grep -qi "22/tcp.*open.*ssh"; then
             category="linux"
             confidence="medium"
-            reasons+=("Service: SSH (22/tcp)")
+            reasons="$reasons\nService: SSH (22/tcp)"
         elif echo "$host_block" | grep -qi "5432/tcp.*open"; then
             category="linux"
             confidence="medium"
-            reasons+=("Service: PostgreSQL (5432/tcp)")
+            reasons="$reasons\nService: PostgreSQL (5432/tcp)"
         elif echo "$host_block" | grep -qi "cisco\|router\|switch"; then
             category="network_device"
             confidence="high"
-            reasons+=("OS detection: Network device")
+            reasons="$reasons\nOS detection: Network device"
         elif echo "$host_block" | grep -qi "23/tcp.*open.*telnet"; then
             category="network_device"
             confidence="medium"
-            reasons+=("Service: Telnet (23/tcp)")
+            reasons="$reasons\nService: Telnet (23/tcp)"
         elif echo "$host_block" | grep -qi "161/udp.*open.*snmp"; then
             category="network_device"
             confidence="medium"
-            reasons+=("Service: SNMP (161/udp)")
+            reasons="$reasons\nService: SNMP (161/udp)"
         elif echo "$host_block" | grep -qi "80/tcp.*open\|443/tcp.*open"; then
             if echo "$host_block" | grep -qi "apache\|nginx\|iis"; then
                 category="linux"
                 confidence="medium"
-                reasons+=("Web server detected")
+                reasons="$reasons\nWeb server detected"
             fi
         fi
         
@@ -126,8 +127,10 @@ grep -E "^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$" "$summary_file" | while read -r host;
         echo "  Category: $category" >> "$CATEGORIZED_REPORT"
         echo "  Confidence: $confidence" >> "$CATEGORIZED_REPORT"
         echo "  Reasons:" >> "$CATEGORIZED_REPORT"
-        for reason in "${reasons[@]}"; do
-            echo "    - $reason" >> "$CATEGORIZED_REPORT"
+        echo "$reasons" | while read -r reason; do
+            if [ -n "$reason" ]; then
+                echo "    - $reason" >> "$CATEGORIZED_REPORT"
+            fi
         done
         echo >> "$CATEGORIZED_REPORT"
     fi

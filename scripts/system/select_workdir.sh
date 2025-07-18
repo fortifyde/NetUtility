@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 echo "=== Working Directory Selection ==="
 echo "Current working directory: $(pwd)"

@@ -1,42 +1,59 @@
-#!/bin/bash
+#!/bin/sh
 
-# Global array to store interface names
-declare -a interfaces
+# Global variables to store interface data
+interfaces_data=""
+interfaces_count=0
 
 # Function to get filtered interfaces (excluding loopback)
 get_interfaces() {
-    interfaces=()
-    while read -r line; do
+    interfaces_data=""
+    interfaces_count=0
+    ip link show | while read -r line; do
         # Parse interface name and state from ip link show output
-        if [[ $line =~ ^[0-9]+:\ ([^:@]+).*state\ ([A-Z]+) ]]; then
-            iface_name="${BASH_REMATCH[1]}"
-            iface_state="${BASH_REMATCH[2]}"
+        if echo "$line" | grep -E '^[0-9]+: [^:@]+.*state [A-Z]+' >/dev/null; then
+            iface_name=$(echo "$line" | sed -n 's/^[0-9]*: \([^:@]*\).*/\1/p')
+            iface_state=$(echo "$line" | sed -n 's/.*state \([A-Z]*\).*/\1/p')
             
             # Skip loopback interface
-            if [[ "$iface_name" != "lo" ]]; then
-                interfaces+=("$iface_name:$iface_state")
+            if [ "$iface_name" != "lo" ]; then
+                if [ -z "$interfaces_data" ]; then
+                    interfaces_data="$iface_name:$iface_state"
+                else
+                    interfaces_data="$interfaces_data
+$iface_name:$iface_state"
+                fi
+                interfaces_count=$((interfaces_count + 1))
             fi
         fi
-    done < <(ip link show)
+    done
+    # Use temp file to preserve data from subshell
+    echo "$interfaces_data" > /tmp/netutil_interfaces.tmp
+    echo "$interfaces_count" > /tmp/netutil_interfaces_count.tmp
 }
 
 # Function to display interfaces in numbered format
 display_interfaces() {
     echo "Available network interfaces:"
-    for i in "${!interfaces[@]}"; do
-        IFS=':' read -r name state <<< "${interfaces[$i]}"
-        printf "%d. %-12s (%s)\n" "$((i+1))" "$name" "$state"
-    done
+    if [ -f /tmp/netutil_interfaces.tmp ]; then
+        i=1
+        while read -r line; do
+            name=$(echo "$line" | cut -d: -f1)
+            state=$(echo "$line" | cut -d: -f2)
+            printf "%d. %-12s (%s)\n" "$i" "$name" "$state"
+            i=$((i + 1))
+        done < /tmp/netutil_interfaces.tmp
+    fi
     echo
 }
 
 # Function to get interface name by number
 get_interface_name() {
-    local num=$1
-    local index=$((num-1))
+    num=$1
+    index=$((num-1))
+    count=$(cat /tmp/netutil_interfaces_count.tmp 2>/dev/null || echo "0")
     
-    if [[ $index -ge 0 && $index -lt ${#interfaces[@]} ]]; then
-        IFS=':' read -r name state <<< "${interfaces[$index]}"
+    if [ "$index" -ge 0 ] && [ "$index" -lt "$count" ] && [ -f /tmp/netutil_interfaces.tmp ]; then
+        name=$(sed -n "$((index+1))p" /tmp/netutil_interfaces.tmp | cut -d: -f1)
         echo "$name"
         return 0
     else
@@ -49,6 +66,13 @@ echo
 
 # Load and display interfaces
 get_interfaces
+# Read data back from temp files
+if [ -f /tmp/netutil_interfaces.tmp ]; then
+    interfaces_data=$(cat /tmp/netutil_interfaces.tmp)
+fi
+if [ -f /tmp/netutil_interfaces_count.tmp ]; then
+    interfaces_count=$(cat /tmp/netutil_interfaces_count.tmp)
+fi
 display_interfaces
 
 echo "Available actions:"
@@ -64,7 +88,8 @@ case $action in
     1)
         echo "Select interface to bring UP:"
         display_interfaces
-        read -p "Enter interface number: " interface_num
+        echo -n "Enter interface number: "
+        read interface_num
         if interface=$(get_interface_name "$interface_num"); then
             ip link set "$interface" up
             echo "Interface $interface brought UP"
@@ -78,7 +103,8 @@ case $action in
     2)
         echo "Select interface to bring DOWN:"
         display_interfaces
-        read -p "Enter interface number: " interface_num
+        echo -n "Enter interface number: "
+        read interface_num
         if interface=$(get_interface_name "$interface_num"); then
             ip link set "$interface" down
             echo "Interface $interface brought DOWN"
@@ -92,7 +118,8 @@ case $action in
     3)
         echo "Select interface for statistics:"
         display_interfaces
-        read -p "Enter interface number: " interface_num
+        echo -n "Enter interface number: "
+        read interface_num
         if interface=$(get_interface_name "$interface_num"); then
             echo "Statistics for $interface:"
             ip -s link show "$interface"

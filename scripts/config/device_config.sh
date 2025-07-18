@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 echo "=== Device Configuration Gathering ==="
 echo
@@ -9,12 +9,15 @@ mkdir -p "$RESULTS_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 echo "Device connection information:"
-read -p "Enter device IP address: " device_ip
-read -p "Enter username: " username
-read -s -p "Enter password: " password
+echo -n "Enter device IP address: "
+read device_ip
+echo -n "Enter username: "
+read username
+echo -n "Enter password: "
+read password
 echo
 
-if [[ ! $device_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if ! echo "$device_ip" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
     echo "Error: Invalid IP address format"
     exit 1
 fi
@@ -22,8 +25,9 @@ fi
 echo "Testing connectivity to $device_ip..."
 if ! ping -c 1 "$device_ip" >/dev/null 2>&1; then
     echo "Warning: Device $device_ip is not responding to ping"
-    read -p "Continue anyway? (y/N): " continue_anyway
-    if [[ ! $continue_anyway =~ ^[Yy]$ ]]; then
+    echo -n "Continue anyway? (y/N): "
+    read continue_anyway
+    if ! echo "$continue_anyway" | grep -E '^[Yy]$' >/dev/null; then
         echo "Aborting..."
         exit 1
     fi
@@ -46,7 +50,7 @@ echo "Phase 1: Testing SSH connectivity..."
 
 ssh_test=$(timeout 10 sshpass -p "$password" ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no "$username@$device_ip" "echo 'SSH_TEST_SUCCESS'" 2>/dev/null)
 
-if [[ $ssh_test == *"SSH_TEST_SUCCESS"* ]]; then
+if echo "$ssh_test" | grep -q "SSH_TEST_SUCCESS"; then
     echo "SSH connection successful"
     connection_method="ssh"
 else
@@ -65,7 +69,7 @@ else
         expect eof
     " 2>/dev/null)
     
-    if [[ $telnet_test == *"TELNET_TEST_SUCCESS"* ]]; then
+    if echo "$telnet_test" | grep -q "TELNET_TEST_SUCCESS"; then
         echo "Telnet connection successful"
         connection_method="telnet"
     else
@@ -80,8 +84,8 @@ echo >> "$REPORT_FILE"
 echo "Phase 2: Vendor detection..."
 
 detect_vendor() {
-    local commands_output="$1"
-    local vendor="unknown"
+    commands_output="$1"
+    vendor="unknown"
     
     if echo "$commands_output" | grep -qi "cisco"; then
         vendor="cisco"
@@ -143,8 +147,8 @@ echo >> "$REPORT_FILE"
 echo "Phase 3: Gathering device configuration..."
 
 run_command_set() {
-    local vendor="$1"
-    local method="$2"
+    vendor="$1"
+    method="$2"
     
     case $vendor in
         "cisco")

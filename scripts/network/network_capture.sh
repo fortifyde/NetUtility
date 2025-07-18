@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Source shared utility functions
-source "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/utils.sh"
 
 echo "=== Network Packet Capture ==="
 echo
