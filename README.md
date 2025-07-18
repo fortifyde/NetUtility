@@ -36,7 +36,7 @@ Think of it as your network toolkit dashboard - select what you want to do, and 
 
 ## Getting Started
 
-You'll need Kali Linux with the standard tools (tshark, nmap, fping, ssh). Most of what you need is already there.
+You'll need Linux with networking tools (tshark, nmap, fping, ssh). Depending on your Distribution, most of what you need may already be there.
 
 ```bash
 git clone https://github.com/fortifyde/NetUtility.git
@@ -45,6 +45,44 @@ go build -o netutil ./cmd/netutil
 chmod +x scripts/*/*.sh
 sudo ./netutil
 ```
+
+### Enhanced CLI Usage
+
+NetUtility now supports direct command execution without the TUI:
+
+```bash
+# Run commands directly
+./netutil scan                    # Network enumeration
+./netutil capture                 # Packet capture
+./netutil vuln                    # Vulnerability scan
+
+# Use numeric shortcuts
+./netutil 1                       # Most common task (eg: network enum)
+./netutil 2                       # Second most common (eg: capture)
+
+# Fuzzy matching works too
+./netutil cap                     # Matches "capture"
+./netutil enum                    # Matches "enumeration"
+
+# Get help and info
+./netutil --help                  # Show help
+./netutil --list                  # List all commands
+./netutil --recent                # Show recent commands
+```
+
+### Bash Completion
+
+Enable bash completion for better productivity:
+
+```bash
+# Install completion (add to ~/.bashrc)
+source scripts/completion/netutil_completion.bash
+
+# Or install system-wide
+sudo cp scripts/completion/netutil_completion.bash /etc/bash_completion.d/netutil
+```
+
+With completion enabled, you can press Tab to autocomplete commands and options.
 
 The interface is pretty straightforward - use arrow keys to navigate, tab to switch between panels, enter to select things, and escape to exit.
 

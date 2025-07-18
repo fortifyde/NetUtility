@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Source shared utility functions
+. "$(dirname "$0")/../common/utils.sh"
+
 echo "=== IP Address Configuration ==="
 echo
 
@@ -7,14 +10,17 @@ echo "Current IP configuration:"
 ip addr show
 
 echo
-echo "Available interfaces:"
-ip link show | grep -E "^[0-9]+:" | cut -d: -f2 | sed 's/^ *//'
 
-echo
-read -p "Enter interface name: " interface
+interface=$(select_interface "Select interface for IP configuration" "ip")
+if [ -z "$interface" ]; then
+    error_message "No interface selected"
+    exit 1
+fi
+
+success_message "Selected interface: $interface"
 
 if ! ip link show "$interface" >/dev/null 2>&1; then
-    echo "Error: Interface $interface not found"
+    error_message "Interface $interface not found"
     exit 1
 fi
 
