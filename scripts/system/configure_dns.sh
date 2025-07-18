@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 echo "=== DNS Configuration ==="
 echo
@@ -27,7 +27,7 @@ read -p "Select option (1-6): " option
 case $option in
     1)
         read -p "Enter nameserver IP: " nameserver
-        if [[ ! $nameserver =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        if ! echo "$nameserver" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
             exit 1
         fi
@@ -41,7 +41,7 @@ case $option in
         ;;
     2)
         read -p "Enter nameserver IP to remove: " nameserver
-        if [[ ! $nameserver =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        if ! echo "$nameserver" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
             exit 1
         fi
@@ -55,7 +55,7 @@ case $option in
         ;;
     3)
         read -p "Enter search domain (e.g., example.com): " domain
-        if [[ ! $domain =~ ^[a-zA-Z0-9.-]+$ ]]; then
+        if ! echo "$domain" | grep -E '^[a-zA-Z0-9.-]+$' >/dev/null; then
             echo "Error: Invalid domain format"
             exit 1
         fi

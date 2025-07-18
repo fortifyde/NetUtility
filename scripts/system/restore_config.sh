@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 echo "=== Network Configuration Restore ==="
 echo
@@ -30,7 +30,7 @@ tar -tzf "$backup_file"
 
 echo
 read -p "Are you sure you want to restore this configuration? (y/N): " confirm
-if [[ ! $confirm =~ ^[Yy]$ ]]; then
+if ! echo "$confirm" | grep -E '^[Yy]$' >/dev/null; then
     echo "Restore cancelled"
     exit 0
 fi
@@ -49,7 +49,7 @@ echo "Restoring network configuration..."
 
 echo "WARNING: This will modify your current network configuration!"
 read -p "Continue? (y/N): " final_confirm
-if [[ ! $final_confirm =~ ^[Yy]$ ]]; then
+if ! echo "$final_confirm" | grep -E '^[Yy]$' >/dev/null; then
     echo "Restore cancelled"
     rm -rf "$TEMP_DIR"
     exit 0

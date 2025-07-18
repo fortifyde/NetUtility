@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 echo "=== IP Route Configuration ==="
 echo
@@ -23,12 +23,12 @@ case $option in
         read -p "Enter gateway IP: " gateway
         read -p "Enter interface (optional, press Enter to skip): " interface
         
-        if [[ ! $dest_network =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
+        if ! echo "$dest_network" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
             echo "Error: Invalid network format"
             exit 1
         fi
         
-        if [[ ! $gateway =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        if ! echo "$gateway" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid gateway IP format"
             exit 1
         fi
@@ -49,7 +49,7 @@ case $option in
         echo "Deleting a route:"
         read -p "Enter destination network to delete (e.g., 192.168.2.0/24): " dest_network
         
-        if [[ ! $dest_network =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
+        if ! echo "$dest_network" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
             echo "Error: Invalid network format"
             exit 1
         fi
@@ -71,7 +71,7 @@ case $option in
         ;;
     4)
         read -p "Enter destination IP: " dest_ip
-        if [[ ! $dest_ip =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+        if ! echo "$dest_ip" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
             exit 1
         fi

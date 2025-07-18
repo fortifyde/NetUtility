@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 echo "=== Network Enumeration ==="
 echo
@@ -14,7 +14,8 @@ echo "2. Detailed network scan"
 echo "3. Custom IP range scan"
 echo "4. Exit"
 
-read -p "Select option (1-4): " option
+echo -n "Select option (1-4): "
+read option
 
 case $option in
     1)
@@ -43,8 +44,9 @@ case $option in
         echo "Networks to scan: $networks"
         ;;
     3)
-        read -p "Enter IP range (e.g., 192.168.1.0/24): " custom_range
-        if [[ ! $custom_range =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
+        echo -n "Enter IP range (e.g., 192.168.1.0/24): "
+        read custom_range
+        if ! echo "$custom_range" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP range format"
             exit 1
         fi
@@ -105,7 +107,7 @@ echo "--- PORT SCAN RESULTS ---" >> "$HOST_SUMMARY"
 echo >> "$HOST_SUMMARY"
 
 while read -r host; do
-    if [[ $host =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    if echo "$host" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
         echo "Scanning $host..."
         
         echo "Host: $host" >> "$HOST_SUMMARY"
@@ -136,7 +138,7 @@ echo "--- REVERSE DNS ---" >> "$HOST_SUMMARY"
 echo >> "$HOST_SUMMARY"
 
 while read -r host; do
-    if [[ $host =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    if echo "$host" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
         hostname=$(nslookup "$host" 2>/dev/null | grep "name = " | awk '{print $4}' | sed 's/\.$//')
         if [ -n "$hostname" ]; then
             echo "$host -> $hostname" >> "$HOST_SUMMARY"
@@ -158,7 +160,7 @@ UNKNOWN_HOSTS="$RESULTS_DIR/hosts_unknown_${TIMESTAMP}.txt"
 > "$UNKNOWN_HOSTS"
 
 while read -r host; do
-    if [[ $host =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    if echo "$host" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
         host_info=$(grep -A 20 "Host: $host" "$HOST_SUMMARY")
         
         if echo "$host_info" | grep -qi "microsoft\|windows\|3389/tcp\|445/tcp\|139/tcp"; then

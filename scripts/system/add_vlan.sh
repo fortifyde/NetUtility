@@ -1,7 +1,7 @@
 #!/bin/sh
 
 # Source shared utility functions
-source "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/utils.sh"
 
 echo "=== VLAN Interface Management ==="
 echo
@@ -24,11 +24,13 @@ echo "2. Remove VLAN interface"
 echo "3. List VLAN interfaces"
 echo "4. Exit"
 
-read -p "Select option (1-4): " option
+echo -n "Select option (1-4): "
+read option
 
 case $option in
     1)
-        read -p "Enter VLAN ID (1-4094): " vlan_id
+        echo -n "Enter VLAN ID (1-4094): "
+        read vlan_id
         case "$vlan_id" in
             *[!0-9]*|'')
                 error_message "Invalid VLAN ID. Must be between 1-4094"
@@ -58,7 +60,8 @@ case $option in
         success_message "VLAN interface $vlan_interface created and brought up"
         
         if confirm_action "Configure IP address for $vlan_interface?"; then
-            read -p "Enter IP address with CIDR (e.g., 192.168.100.1/24): " ip_addr
+            echo -n "Enter IP address with CIDR (e.g., 192.168.100.1/24): "
+            read ip_addr
             case "$ip_addr" in
                 [0-9]*.[0-9]*.[0-9]*.[0-9]*/[0-9]*)
                     # Basic IP/CIDR validation

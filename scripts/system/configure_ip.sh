@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/sh
 
 echo "=== IP Address Configuration ==="
 echo
@@ -33,7 +33,7 @@ read -p "Select option (1-4): " option
 case $option in
     1)
         read -p "Enter IP address with CIDR (e.g., 192.168.1.100/24): " ip_addr
-        if [[ $ip_addr =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
+        if echo "$ip_addr" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
             ip addr add "$ip_addr" dev "$interface"
             echo "IP address $ip_addr added to $interface"
             ip addr show "$interface"
@@ -44,7 +44,7 @@ case $option in
         ;;
     2)
         read -p "Enter IP address with CIDR to remove: " ip_addr
-        if [[ $ip_addr =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$ ]]; then
+        if echo "$ip_addr" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
             ip addr del "$ip_addr" dev "$interface"
             echo "IP address $ip_addr removed from $interface"
             ip addr show "$interface"
@@ -55,7 +55,7 @@ case $option in
         ;;
     3)
         read -p "Are you sure you want to flush all IP addresses from $interface? (y/N): " confirm
-        if [[ $confirm =~ ^[Yy]$ ]]; then
+        if echo "$confirm" | grep -E '^[Yy]$' >/dev/null; then
             ip addr flush dev "$interface"
             echo "All IP addresses flushed from $interface"
             ip addr show "$interface"
