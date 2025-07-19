@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -226,4 +227,213 @@ func (c *Config) GetShortPath(fullPath string) string {
 	}
 
 	return fullPath
+}
+
+// ValidateConfig performs comprehensive validation of configuration values
+func (c *Config) ValidateConfig() error {
+	var errors []string
+
+	// Validate workspace directory
+	if c.WorkspaceDir != "" {
+		if !filepath.IsAbs(c.WorkspaceDir) {
+			errors = append(errors, "workspace_dir must be an absolute path")
+		}
+
+		// Check if parent directory exists
+		parentDir := filepath.Dir(c.WorkspaceDir)
+		if _, err := os.Stat(parentDir); os.IsNotExist(err) {
+			errors = append(errors, fmt.Sprintf("workspace_dir parent directory does not exist: %s", parentDir))
+		}
+	}
+
+	// Validate interface names
+	for category, iface := range c.LastUsedInterface {
+		if !isValidInterfaceName(iface) {
+			errors = append(errors, fmt.Sprintf("invalid interface name for category %s: %s", category, iface))
+		}
+	}
+
+	// Validate recent targets
+	for i, target := range c.RecentTargets {
+		if !isValidTarget(target) {
+			errors = append(errors, fmt.Sprintf("invalid recent target at index %d: %s", i, target))
+		}
+	}
+
+	// Validate recent commands
+	for i, cmd := range c.RecentCommands {
+		if strings.TrimSpace(cmd.Command) == "" {
+			errors = append(errors, fmt.Sprintf("empty command at index %d", i))
+		}
+
+		if cmd.Timestamp.IsZero() {
+			errors = append(errors, fmt.Sprintf("invalid timestamp for command at index %d", i))
+		}
+	}
+
+	// Validate default interface
+	if c.DefaultInterface != "" && !isValidInterfaceName(c.DefaultInterface) {
+		errors = append(errors, fmt.Sprintf("invalid default interface: %s", c.DefaultInterface))
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("configuration validation failed: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
+}
+
+// isValidInterfaceName checks if an interface name is valid
+func isValidInterfaceName(name string) bool {
+	if name == "" {
+		return false
+	}
+
+	// Interface names should contain only alphanumeric characters, dots, and hyphens
+	for _, char := range name {
+		if !((char >= 'a' && char <= 'z') ||
+			(char >= 'A' && char <= 'Z') ||
+			(char >= '0' && char <= '9') ||
+			char == '.' || char == '-' || char == '_') {
+			return false
+		}
+	}
+
+	return true
+}
+
+// isValidTarget checks if a target specification is valid
+func isValidTarget(target string) bool {
+	if target == "" {
+		return false
+	}
+
+	// Check for file input format
+	if strings.HasPrefix(target, "-iL ") {
+		filePath := strings.TrimSpace(target[4:])
+		return filePath != "" && !strings.ContainsAny(filePath, ";<>&|`$")
+	}
+
+	// Basic validation for IP addresses and ranges
+	// This is a simplified check - more comprehensive validation would be in the validation package
+	if strings.Contains(target, "/") {
+		// CIDR notation
+		parts := strings.Split(target, "/")
+		if len(parts) != 2 {
+			return false
+		}
+		return isValidIPAddress(parts[0]) && isValidCIDRPrefix(parts[1])
+	}
+
+	// Single IP address
+	return isValidIPAddress(target)
+}
+
+// isValidIPAddress performs basic IP address validation
+func isValidIPAddress(ip string) bool {
+	parts := strings.Split(ip, ".")
+	if len(parts) != 4 {
+		return false
+	}
+
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+
+		// Check if part contains only digits
+		for _, char := range part {
+			if char < '0' || char > '9' {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+// isValidCIDRPrefix checks if a CIDR prefix is valid
+func isValidCIDRPrefix(prefix string) bool {
+	if prefix == "" {
+		return false
+	}
+
+	// Check if prefix contains only digits
+	for _, char := range prefix {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+
+	return true
+}
+
+// SanitizeConfig removes invalid entries and fixes common issues
+func (c *Config) SanitizeConfig() {
+	// Remove invalid interface entries
+	for category, iface := range c.LastUsedInterface {
+		if !isValidInterfaceName(iface) {
+			delete(c.LastUsedInterface, category)
+		}
+	}
+
+	// Filter invalid recent targets
+	validTargets := make([]string, 0, len(c.RecentTargets))
+	for _, target := range c.RecentTargets {
+		if isValidTarget(target) {
+			validTargets = append(validTargets, target)
+		}
+	}
+	c.RecentTargets = validTargets
+
+	// Filter invalid recent commands
+	validCommands := make([]RecentCommand, 0, len(c.RecentCommands))
+	for _, cmd := range c.RecentCommands {
+		if strings.TrimSpace(cmd.Command) != "" && !cmd.Timestamp.IsZero() {
+			validCommands = append(validCommands, cmd)
+		}
+	}
+	c.RecentCommands = validCommands
+
+	// Validate default interface
+	if c.DefaultInterface != "" && !isValidInterfaceName(c.DefaultInterface) {
+		c.DefaultInterface = ""
+	}
+
+	// Ensure workspace directory is absolute
+	if c.WorkspaceDir != "" && !filepath.IsAbs(c.WorkspaceDir) {
+		if homeDir, err := os.UserHomeDir(); err == nil {
+			c.WorkspaceDir = filepath.Join(homeDir, "netutil-workspace")
+		}
+	}
+}
+
+// GetConfigStatus returns a summary of the configuration status
+func (c *Config) GetConfigStatus() map[string]interface{} {
+	status := make(map[string]interface{})
+
+	status["workspace_dir"] = c.WorkspaceDir
+	status["workspace_exists"] = false
+	if c.WorkspaceDir != "" {
+		if _, err := os.Stat(c.WorkspaceDir); err == nil {
+			status["workspace_exists"] = true
+		}
+	}
+
+	status["recent_targets_count"] = len(c.RecentTargets)
+	status["recent_commands_count"] = len(c.RecentCommands)
+	status["remembered_interfaces_count"] = len(c.LastUsedInterface)
+	status["default_interface"] = c.DefaultInterface
+	status["auto_create_workspace"] = c.AutoCreateWorkspace
+	status["show_paths_short"] = c.ShowPathsShort
+
+	// Validation status
+	if err := c.ValidateConfig(); err != nil {
+		status["validation_status"] = "invalid"
+		status["validation_error"] = err.Error()
+	} else {
+		status["validation_status"] = "valid"
+	}
+
+	return status
 }

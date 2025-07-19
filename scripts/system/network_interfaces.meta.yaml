@@ -1,0 +1,69 @@
+script:
+  name: "Network Interfaces"
+  description: "Manage and configure network interface settings"
+  category: "system"
+  subcategory: "networking"
+  
+  file: "network_interfaces.sh"
+  requires_root: true
+  estimated_duration: "1-5 minutes"
+  
+  cli_shortcuts:
+    - "interfaces"
+    - "if"
+    - "netif"
+  keywords:
+    - "interfaces"
+    - "network"
+    - "ethernet"
+    - "wifi"
+    - "configuration"
+  
+  parameters:
+    - name: "operation"
+      type: "choice"
+      description: "Interface operation to perform"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "List all interfaces"
+          - value: "2"
+            description: "Enable/disable interface"
+          - value: "3"
+            description: "Configure interface"
+          - value: "4"
+            description: "Show interface details"
+  
+  dependencies:
+    tools:
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+      - name: "ifconfig"
+        package: "net-tools"
+        check_command: "which ifconfig"
+  
+  output:
+    creates_files: false
+    workspace_subdirs: []
+  
+  tags:
+    - "interfaces"
+    - "networking"
+    - "ethernet"
+    - "wifi"
+  risk_level: "medium"
+  network_access: false
+  modifies_system: true
+  
+  examples:
+    - description: "Manage network interfaces"
+      command: "netutil interfaces"
+    - description: "Configure network interface"
+      command: "netutil if"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

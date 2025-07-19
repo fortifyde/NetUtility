@@ -1,0 +1,76 @@
+script:
+  name: "Integrated Workflow"
+  description: "Automated multi-phase network assessment workflow"
+  category: "network"
+  subcategory: "automation"
+  
+  file: "integrated_workflow.sh"
+  requires_root: true
+  estimated_duration: "15-45 minutes"
+  
+  cli_shortcuts:
+    - "workflow"
+    - "auto-scan"
+    - "full-assessment"
+  keywords:
+    - "workflow"
+    - "automation"
+    - "assessment"
+    - "comprehensive"
+    - "multi-phase"
+  
+  parameters:
+    - name: "target"
+      type: "target"
+      description: "Target network or IP range"
+      required: false
+    - name: "workflow_type"
+      type: "choice"
+      description: "Type of workflow to run"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Quick assessment"
+          - value: "2"
+            description: "Comprehensive scan"
+          - value: "3"
+            description: "Security audit"
+  
+  dependencies:
+    tools:
+      - name: "nmap"
+        package: "nmap"
+        check_command: "which nmap"
+      - name: "fping"
+        package: "fping"
+        check_command: "which fping"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "workflow_report_*.txt"
+      - "assessment_summary_*.html"
+      - "findings_*.csv"
+    workspace_subdirs:
+      - "workflow-results"
+  
+  tags:
+    - "workflow"
+    - "automation"
+    - "assessment"
+    - "comprehensive"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+  
+  examples:
+    - description: "Run integrated workflow"
+      command: "netutil workflow"
+    - description: "Automated network assessment"
+      command: "netutil auto-scan"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

@@ -1,0 +1,79 @@
+script:
+  name: "Multi-Phase Discovery"
+  description: "Advanced multi-stage network discovery with progressive scanning techniques"
+  category: "network"
+  subcategory: "discovery"
+  
+  file: "multi_phase_discovery.sh"
+  requires_root: true
+  estimated_duration: "10-30 minutes"
+  
+  cli_shortcuts:
+    - "multi-discovery"
+    - "phased-scan"
+    - "progressive-scan"
+  keywords:
+    - "discovery"
+    - "multi-phase"
+    - "progressive"
+    - "advanced"
+    - "scanning"
+  
+  parameters:
+    - name: "target"
+      type: "target"
+      description: "Target network or IP range"
+      required: false
+    - name: "phases"
+      type: "choice"
+      description: "Number of discovery phases"
+      required: true
+      default: "3"
+      validation:
+        choices:
+          - value: "2"
+            description: "2-phase discovery"
+          - value: "3"
+            description: "3-phase discovery"
+          - value: "4"
+            description: "4-phase comprehensive"
+  
+  dependencies:
+    tools:
+      - name: "nmap"
+        package: "nmap"
+        check_command: "which nmap"
+      - name: "fping"
+        package: "fping"
+        check_command: "which fping"
+      - name: "masscan"
+        package: "masscan"
+        check_command: "which masscan"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "phase*_results_*.txt"
+      - "discovery_summary_*.txt"
+      - "progressive_scan_*.xml"
+    workspace_subdirs:
+      - "multi-phase"
+  
+  tags:
+    - "discovery"
+    - "multi-phase"
+    - "advanced-scanning"
+    - "progressive"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+  
+  examples:
+    - description: "Run multi-phase discovery"
+      command: "netutil multi-discovery"
+    - description: "Progressive network scan"
+      command: "netutil phased-scan"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

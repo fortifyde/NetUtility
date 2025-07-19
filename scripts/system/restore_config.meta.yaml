@@ -1,0 +1,57 @@
+script:
+  name: "Restore Configuration"
+  description: "Restore network configuration from backup archives"
+  category: "system"
+  subcategory: "backup"
+  
+  file: "restore_config.sh"
+  requires_root: true
+  estimated_duration: "1-3 minutes"
+  
+  cli_shortcuts:
+    - "restore"
+    - "restore-config"
+  keywords:
+    - "restore"
+    - "configuration"
+    - "backup"
+    - "recover"
+    - "network"
+  
+  parameters:
+    - name: "backup_file"
+      type: "file"
+      description: "Backup file to restore from"
+      required: false
+  
+  dependencies:
+    tools:
+      - name: "tar"
+        package: "tar"
+        check_command: "which tar"
+      - name: "gzip"
+        package: "gzip"
+        check_command: "which gzip"
+  
+  output:
+    creates_files: false
+    workspace_subdirs: []
+  
+  tags:
+    - "restore"
+    - "configuration"
+    - "backup"
+    - "recovery"
+  risk_level: "high"
+  network_access: false
+  modifies_system: true
+  
+  examples:
+    - description: "Restore network configuration"
+      command: "netutil restore"
+    - description: "Restore from backup"
+      command: "netutil restore-config"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

@@ -1,0 +1,81 @@
+script:
+  name: "Add VLAN Interface"
+  description: "Create and configure VLAN subinterfaces on network adapters"
+  category: "system"
+  subcategory: "networking"
+  
+  file: "add_vlan.sh"
+  requires_root: true
+  estimated_duration: "1-2 minutes"
+  
+  cli_shortcuts:
+    - "vlan"
+    - "add-vlan"
+  keywords:
+    - "vlan"
+    - "interface"
+    - "subinterface"
+    - "tagging"
+    - "802.1q"
+  
+  parameters:
+    - name: "parent_interface"
+      type: "interface"
+      description: "Parent interface for VLAN creation"
+      required: true
+    - name: "operation"
+      type: "choice"
+      description: "VLAN operation to perform"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Add VLAN interface"
+          - value: "2"
+            description: "Remove VLAN interface"
+          - value: "3"
+            description: "List VLAN interfaces"
+    - name: "vlan_id"
+      type: "number"
+      description: "VLAN ID (1-4094)"
+      required: false
+      validation:
+        range:
+          min: 1
+          max: 4094
+    - name: "ip_address"
+      type: "ip_address"
+      description: "IP address with CIDR for the VLAN interface"
+      required: false
+      validation:
+        pattern: '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'
+  
+  dependencies:
+    tools:
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+  
+  output:
+    creates_files: false
+    workspace_subdirs: []
+  
+  tags:
+    - "vlan"
+    - "networking"
+    - "interface-management"
+    - "layer2"
+  risk_level: "medium"
+  network_access: false
+  modifies_system: true
+  
+  examples:
+    - description: "Create VLAN interface"
+      command: "netutil vlan"
+    - description: "Add VLAN using full command"
+      command: "netutil add-vlan"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-18"

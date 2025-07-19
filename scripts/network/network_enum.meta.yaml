@@ -1,0 +1,83 @@
+script:
+  name: "Network Enumeration"
+  description: "Comprehensive network discovery and host enumeration using nmap and fping"
+  category: "network"
+  subcategory: "discovery"
+  
+  file: "network_enum.sh"
+  requires_root: true
+  estimated_duration: "2-10 minutes"
+  
+  cli_shortcuts:
+    - "scan"
+    - "enum"
+    - "discovery"
+  keywords:
+    - "network"
+    - "enumerate"
+    - "discovery"
+    - "hosts"
+    - "nmap"
+    - "fping"
+  
+  parameters:
+    - name: "scan_type"
+      type: "choice"
+      description: "Type of network scan to perform"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Quick network discovery"
+          - value: "2" 
+            description: "Detailed network scan"
+          - value: "3"
+            description: "Custom IP range scan"
+    - name: "custom_range"
+      type: "ip_range"
+      description: "Custom IP range in CIDR notation"
+      required: false
+      validation:
+        pattern: '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'
+  
+  dependencies:
+    tools:
+      - name: "nmap"
+        package: "nmap"
+        check_command: "which nmap"
+      - name: "fping"
+        package: "fping"
+        check_command: "which fping"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "ping_results_*.txt"
+      - "nmap_results_*.txt"
+      - "host_summary_*.txt"
+      - "hosts_windows_*.txt"
+      - "hosts_linux_*.txt"
+      - "hosts_network_devices_*.txt"
+      - "hosts_unknown_*.txt"
+    workspace_subdirs:
+      - "enumeration"
+  
+  tags:
+    - "reconnaissance"
+    - "discovery"
+    - "enumeration"
+    - "network-mapping"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+  
+  examples:
+    - description: "Quick network discovery"
+      command: "netutil scan"
+    - description: "Network enumeration using numeric shortcut"
+      command: "netutil 1"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-18"

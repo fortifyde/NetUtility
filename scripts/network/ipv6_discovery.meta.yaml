@@ -1,0 +1,77 @@
+script:
+  name: "IPv6 Discovery"
+  description: "Discover IPv6 hosts and services on the network using advanced IPv6 scanning techniques"
+  category: "network"
+  subcategory: "discovery"
+  
+  file: "ipv6_discovery.sh"
+  requires_root: true
+  estimated_duration: "3-15 minutes"
+  
+  cli_shortcuts:
+    - "ipv6"
+    - "ipv6-discovery"
+    - "ipv6-scan"
+  keywords:
+    - "ipv6"
+    - "discovery"
+    - "scan"
+    - "hosts"
+    - "services"
+    - "network"
+  
+  parameters:
+    - name: "target"
+      type: "target"
+      description: "IPv6 network or host to scan"
+      required: true
+    - name: "scan_type"
+      type: "choice"
+      description: "Type of IPv6 scan to perform"
+      required: false
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Basic IPv6 host discovery"
+          - value: "2"
+            description: "IPv6 service discovery"
+          - value: "3"
+            description: "Comprehensive IPv6 scan"
+  
+  dependencies:
+    tools:
+      - name: "nmap"
+        package: "nmap"
+        check_command: "which nmap"
+      - name: "ping6"
+        package: "iputils-ping"
+        check_command: "which ping6"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "ipv6_discovery_*.txt"
+      - "ipv6_hosts_*.txt"
+      - "ipv6_services_*.txt"
+    workspace_subdirs:
+      - "ipv6-discovery"
+  
+  tags:
+    - "ipv6"
+    - "discovery"
+    - "reconnaissance"
+    - "scanning"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+  
+  examples:
+    - description: "Discover IPv6 hosts"
+      command: "netutil ipv6"
+    - description: "IPv6 network discovery"
+      command: "netutil ipv6-discovery"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-07-19"

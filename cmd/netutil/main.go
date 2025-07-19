@@ -9,6 +9,7 @@ import (
 
 	"netutil/internal/app"
 	"netutil/internal/config"
+	"netutil/internal/metadata"
 	"netutil/internal/ui"
 )
 
@@ -18,6 +19,25 @@ func main() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
 		cfg = config.GetDefaultConfig()
+	}
+
+	// Validate and sanitize configuration
+	if err := cfg.ValidateConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Configuration validation failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Sanitizing configuration...\n")
+		cfg.SanitizeConfig()
+
+		// Save sanitized config
+		if saveErr := cfg.SaveConfig(); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to save sanitized config: %v\n", saveErr)
+		}
+	}
+
+	// Initialize script registry
+	registry := metadata.NewScriptRegistry("scripts")
+	if err := registry.LoadMetadata(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load script metadata: %v\n", err)
+		registry = nil // Will fall back to hardcoded commands
 	}
 
 	// Create workspace if auto-create is enabled
@@ -37,7 +57,7 @@ func main() {
 		if command == "help" || command == "--help" || command == "-h" ||
 			command == "list" || command == "--list" || command == "-l" ||
 			command == "recent" || command == "--recent" || command == "-r" {
-			handleCLICommand(os.Args[1:], cfg)
+			handleCLICommand(os.Args[1:], cfg, registry)
 			return
 		}
 
@@ -47,7 +67,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		handleCLICommand(os.Args[1:], cfg)
+		handleCLICommand(os.Args[1:], cfg, registry)
 		return
 	}
 
@@ -57,24 +77,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Default TUI mode
-	for {
-		tui := ui.NewTUI()
-
-		if err := tui.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Check if a script was selected for execution
-		scriptPath, scriptName := tui.GetScriptToRun()
-		if scriptPath != "" {
-			// Run the script directly in terminal
-			runScriptDirect(scriptPath, scriptName)
-		} else {
-			// User exited normally, break the loop
-			break
-		}
+	// Default TUI mode - now with integrated streaming execution
+	tui := ui.NewTUI()
+	if err := tui.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -122,7 +129,7 @@ type ScriptInfo struct {
 }
 
 // handleCLICommand processes command line arguments
-func handleCLICommand(args []string, cfg *config.Config) {
+func handleCLICommand(args []string, cfg *config.Config, registry *metadata.ScriptRegistry) {
 	if len(args) == 0 {
 		showHelp()
 		return
@@ -143,6 +150,27 @@ func handleCLICommand(args []string, cfg *config.Config) {
 		return
 	}
 
+	// Use metadata registry if available, otherwise fall back to hardcoded mappings
+	if registry != nil {
+		// Try exact shortcut match first
+		if script, exists := registry.GetScriptByShortcut(command); exists {
+			success := executeScriptFromMetadata(script, cfg, registry)
+			cfg.AddRecentCommand(command, success)
+			cfg.SaveConfig()
+			return
+		}
+
+		// Try fuzzy matching with metadata
+		if script, exists := registry.FuzzyMatchScript(command); exists {
+			fmt.Printf("Did you mean '%s'? Running %s...\n\n", script.Script.Name, script.Script.Name)
+			success := executeScriptFromMetadata(script, cfg, registry)
+			cfg.AddRecentCommand(command, success)
+			cfg.SaveConfig()
+			return
+		}
+	}
+
+	// Fallback to hardcoded mappings
 	// Check numeric shortcuts first
 	if scriptInfo, exists := numericShortcuts[command]; exists {
 		success := executeScript(scriptInfo.Path, scriptInfo.Name, cfg)
@@ -191,6 +219,19 @@ func findFuzzyMatch(input string) *ScriptInfo {
 	}
 
 	return nil
+}
+
+// executeScriptFromMetadata runs a script using metadata information
+func executeScriptFromMetadata(script metadata.ScriptMetadata, cfg *config.Config, registry *metadata.ScriptRegistry) bool {
+	scriptPath := registry.GetScriptPath(script)
+
+	// Validate script before execution
+	if err := registry.ValidateScript(script); err != nil {
+		fmt.Printf("Error: Script validation failed: %v\n", err)
+		return false
+	}
+
+	return runScriptDirect(scriptPath, script.Script.Name)
 }
 
 // executeScript runs a script directly without TUI

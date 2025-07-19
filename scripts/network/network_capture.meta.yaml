@@ -1,0 +1,74 @@
+script:
+  name: "Network Capture"
+  description: "Capture and analyze network traffic using tcpdump with advanced filtering options"
+  category: "network"
+  subcategory: "capture"
+  
+  file: "network_capture.sh"
+  requires_root: true
+  estimated_duration: "5-30 minutes"
+  
+  cli_shortcuts:
+    - "capture"
+    - "cap"
+    - "tcpdump"
+  keywords:
+    - "capture"
+    - "tcpdump"
+    - "packets"
+    - "traffic"
+    - "network"
+    - "sniff"
+  
+  parameters:
+    - name: "interface"
+      type: "interface"
+      description: "Network interface to capture from"
+      required: true
+    - name: "duration"
+      type: "number"
+      description: "Capture duration in seconds"
+      required: false
+      default: "60"
+      validation:
+        range:
+          min: 1
+          max: 3600
+    - name: "filter"
+      type: "text"
+      description: "BPF filter expression"
+      required: false
+      default: ""
+  
+  dependencies:
+    tools:
+      - name: "tcpdump"
+        package: "tcpdump"
+        check_command: "which tcpdump"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "capture_*.pcap"
+      - "capture_summary_*.txt"
+    workspace_subdirs:
+      - "captures"
+  
+  tags:
+    - "capture"
+    - "analysis"
+    - "traffic"
+    - "monitoring"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+  
+  examples:
+    - description: "Capture network traffic"
+      command: "netutil capture"
+    - description: "Packet capture using shortcut"
+      command: "netutil cap"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-07-19"

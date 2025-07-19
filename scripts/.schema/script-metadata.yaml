@@ -1,0 +1,74 @@
+# NetUtility Script Metadata Schema
+# This file defines the structure for script metadata files
+
+# Each script should have a corresponding .meta.yaml file
+# Example: network_enum.sh -> network_enum.meta.yaml
+
+script:
+  # Basic Information
+  name: string              # Display name for the script
+  description: string       # Brief description of what the script does
+  category: string          # Primary category (system, network, vulnerability, config)
+  subcategory: string       # Optional subcategory for better organization
+  
+  # Script Properties
+  file: string              # Script filename (e.g., "network_enum.sh")
+  requires_root: boolean    # Whether script needs root privileges
+  estimated_duration: string # Rough estimate (e.g., "2-5 minutes", "10-30 seconds")
+  
+  # CLI Integration
+  cli_shortcuts:            # CLI command shortcuts
+    - string                # Primary shortcut (e.g., "scan")
+    - string                # Alternative shortcuts (e.g., "enum")
+  keywords:                 # Keywords for fuzzy matching
+    - string
+  
+  # Parameters (interactive prompts the script accepts)
+  parameters:
+    - name: string          # Parameter name
+      type: string          # Type: interface, target, duration, port_range, ip_address, file_path, choice, text
+      description: string   # Description of the parameter
+      required: boolean     # Whether parameter is required
+      default: string       # Default value (optional)
+      validation:           # Validation rules
+        pattern: string     # Regex pattern for validation
+        range:              # For numeric inputs
+          min: number
+          max: number
+        choices:            # For choice-type parameters
+          - value: string
+            description: string
+  
+  # Dependencies
+  dependencies:
+    tools:                  # Required external tools
+      - name: string        # Tool name (e.g., "nmap", "tshark")
+        package: string     # Package name for installation
+        check_command: string # Command to verify tool exists
+    scripts:                # Other scripts this depends on
+      - string
+  
+  # Output Information
+  output:
+    creates_files: boolean  # Whether script creates output files
+    file_patterns:          # Output file patterns
+      - string              # e.g., "scan_results_*.txt"
+    workspace_subdirs:      # Workspace subdirectories used
+      - string              # e.g., "enumeration", "captures"
+  
+  # Tags and Metadata
+  tags:                     # Tags for filtering and searching
+    - string
+  risk_level: string        # low, medium, high (for potentially dangerous operations)
+  network_access: boolean   # Whether script accesses network
+  modifies_system: boolean  # Whether script modifies system configuration
+  
+  # Examples and Help
+  examples:                 # Usage examples
+    - description: string
+      command: string       # CLI command example
+  
+  # Version and Maintenance
+  version: string           # Script version
+  author: string            # Script author
+  last_updated: string      # Date of last update

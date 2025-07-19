@@ -1,0 +1,69 @@
+script:
+  name: "Advanced Packet Analysis"
+  description: "Deep protocol analysis with statistical reports and security assessment"
+  category: "network"
+  subcategory: "analysis"
+  
+  file: "advanced_packet_analysis.sh"
+  requires_root: true
+  estimated_duration: "5-15 minutes"
+  
+  cli_shortcuts:
+    - "advanced-analysis"
+    - "packet-analysis"
+    - "deep-analysis"
+  keywords:
+    - "packet"
+    - "analysis"
+    - "protocol"
+    - "statistics"
+    - "security"
+    - "wireshark"
+  
+  parameters:
+    - name: "capture_file"
+      type: "file"
+      description: "Packet capture file to analyze (optional)"
+      required: false
+    - name: "interface"
+      type: "interface"
+      description: "Network interface for live analysis"
+      required: false
+  
+  dependencies:
+    tools:
+      - name: "tshark"
+        package: "wireshark"
+        check_command: "which tshark"
+      - name: "tcpdump"
+        package: "tcpdump"
+        check_command: "which tcpdump"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "analysis_report_*.txt"
+      - "protocol_stats_*.csv"
+      - "security_assessment_*.txt"
+    workspace_subdirs:
+      - "analysis"
+  
+  tags:
+    - "packet-analysis"
+    - "protocol-analysis"
+    - "security"
+    - "statistics"
+    - "wireshark"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+  
+  examples:
+    - description: "Perform advanced packet analysis"
+      command: "netutil advanced-analysis"
+    - description: "Analyze packet capture"
+      command: "netutil packet-analysis"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

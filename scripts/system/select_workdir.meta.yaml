@@ -1,0 +1,55 @@
+script:
+  name: "Select Working Directory"
+  description: "Choose and configure the working directory for NetUtility operations"
+  category: "system"
+  subcategory: "configuration"
+  
+  file: "select_workdir.sh"
+  requires_root: false
+  estimated_duration: "1 minute"
+  
+  cli_shortcuts:
+    - "workdir"
+    - "workspace"
+    - "dir"
+  keywords:
+    - "workdir"
+    - "workspace"
+    - "directory"
+    - "configuration"
+    - "setup"
+  
+  parameters:
+    - name: "directory_path"
+      type: "directory"
+      description: "Path to working directory"
+      required: false
+  
+  dependencies:
+    tools:
+      - name: "mkdir"
+        package: "coreutils"
+        check_command: "which mkdir"
+  
+  output:
+    creates_files: false
+    workspace_subdirs: []
+  
+  tags:
+    - "workspace"
+    - "configuration"
+    - "setup"
+    - "directory"
+  risk_level: "low"
+  network_access: false
+  modifies_system: false
+  
+  examples:
+    - description: "Select working directory"
+      command: "netutil workdir"
+    - description: "Configure workspace"
+      command: "netutil workspace"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

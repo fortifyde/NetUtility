@@ -1,0 +1,75 @@
+script:
+  name: "Configure IP Address"
+  description: "Configure IP addresses and network settings for interfaces"
+  category: "system"
+  subcategory: "networking"
+  
+  file: "configure_ip.sh"
+  requires_root: true
+  estimated_duration: "1-3 minutes"
+  
+  cli_shortcuts:
+    - "config-ip"
+    - "ip"
+    - "configure-ip"
+  keywords:
+    - "ip"
+    - "address"
+    - "configure"
+    - "interface"
+    - "network"
+    - "static"
+  
+  parameters:
+    - name: "interface"
+      type: "interface"
+      description: "Network interface to configure"
+      required: true
+    - name: "operation"
+      type: "choice"
+      description: "Configuration operation"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Configure static IP"
+          - value: "2"
+            description: "Enable DHCP"
+          - value: "3"
+            description: "Show current configuration"
+    - name: "ip_address"
+      type: "ip_address"
+      description: "IP address with CIDR notation"
+      required: false
+      validation:
+        pattern: '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'
+  
+  dependencies:
+    tools:
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+  
+  output:
+    creates_files: false
+    workspace_subdirs: []
+  
+  tags:
+    - "networking"
+    - "configuration"
+    - "ip-address"
+    - "interface"
+  risk_level: "medium"
+  network_access: false
+  modifies_system: true
+  
+  examples:
+    - description: "Configure IP address"
+      command: "netutil config-ip"
+    - description: "IP configuration using numeric shortcut"
+      command: "netutil 4"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

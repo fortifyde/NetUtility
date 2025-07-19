@@ -1,0 +1,67 @@
+script:
+  name: "Extract VLANs"
+  description: "Extract and analyze VLAN information from network traffic and devices"
+  category: "network"
+  subcategory: "discovery"
+  
+  file: "extract_vlans.sh"
+  requires_root: true
+  estimated_duration: "3-10 minutes"
+  
+  cli_shortcuts:
+    - "vlans"
+    - "extract-vlans"
+    - "vlan-discovery"
+  keywords:
+    - "vlan"
+    - "extract"
+    - "discovery"
+    - "802.1q"
+    - "tagging"
+  
+  parameters:
+    - name: "interface"
+      type: "interface"
+      description: "Network interface to monitor"
+      required: false
+    - name: "capture_file"
+      type: "file"
+      description: "Packet capture file to analyze"
+      required: false
+  
+  dependencies:
+    tools:
+      - name: "tcpdump"
+        package: "tcpdump"
+        check_command: "which tcpdump"
+      - name: "tshark"
+        package: "wireshark"
+        check_command: "which tshark"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "vlan_discovery_*.txt"
+      - "vlan_traffic_*.pcap"
+      - "vlan_analysis_*.csv"
+    workspace_subdirs:
+      - "vlan-discovery"
+  
+  tags:
+    - "vlan"
+    - "discovery"
+    - "802.1q"
+    - "network-analysis"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+  
+  examples:
+    - description: "Extract VLAN information"
+      command: "netutil vlans"
+    - description: "Discover VLANs on network"
+      command: "netutil extract-vlans"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"
