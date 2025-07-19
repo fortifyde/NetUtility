@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -35,27 +38,26 @@ func GetDefaultConfig() *Config {
 	return &Config{
 		LastUsedInterface:   make(map[string]string),
 		RecentTargets:       []string{},
-		WorkspaceDir:        filepath.Join(os.Getenv("HOME"), "netutil-workspace"),
+		WorkspaceDir:        "", // No default workspace - user must configure
 		RecentCommands:      []RecentCommand{},
 		DefaultInterface:    "",
-		AutoCreateWorkspace: true,
+		AutoCreateWorkspace: false, // Only create after user sets workspace
 		ShowPathsShort:      true,
 	}
 }
 
-// GetConfigPath returns the path to the config file
+// GetConfigPath returns the path to the config file (stored alongside executable)
 func GetConfigPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	// Get executable directory
+	execPath, err := os.Executable()
 	if err != nil {
-		return "", fmt.Errorf("failed to get home directory: %w", err)
+		return "", fmt.Errorf("failed to get executable path: %w", err)
 	}
 
-	configDir := filepath.Join(homeDir, ConfigDir)
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return "", fmt.Errorf("failed to create config directory: %w", err)
-	}
+	execDir := filepath.Dir(execPath)
 
-	return filepath.Join(configDir, ConfigFile), nil
+	// Use netutil-config.json in executable directory
+	return filepath.Join(execDir, "netutil-config.json"), nil
 }
 
 // LoadConfig loads configuration from file or returns defaults if file doesn't exist
@@ -89,6 +91,11 @@ func LoadConfig() (*Config, error) {
 	}
 	if config.RecentCommands == nil {
 		config.RecentCommands = []RecentCommand{}
+	}
+
+	// Normalize workspace directory path to remove trailing slashes
+	if config.WorkspaceDir != "" {
+		config.WorkspaceDir = strings.TrimRight(config.WorkspaceDir, "/")
 	}
 
 	return &config, nil
@@ -179,12 +186,12 @@ func (c *Config) CreateWorkspace() error {
 		return fmt.Errorf("workspace directory not configured")
 	}
 
-	// Create main workspace directory
+	// Create main workspace directory with permissions that allow root access
 	if err := os.MkdirAll(c.WorkspaceDir, 0755); err != nil {
 		return fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
-	// Create subdirectories
+	// Create subdirectories with more permissive permissions for root access
 	subdirs := []string{
 		"captures",
 		"enumeration",
@@ -195,14 +202,15 @@ func (c *Config) CreateWorkspace() error {
 
 	for _, subdir := range subdirs {
 		path := filepath.Join(c.WorkspaceDir, subdir)
-		if err := os.MkdirAll(path, 0755); err != nil {
+		// Use 0777 permissions so root can write to user's workspace
+		if err := os.MkdirAll(path, 0777); err != nil {
 			return fmt.Errorf("failed to create subdirectory %s: %w", subdir, err)
 		}
 	}
 
 	// Create symbolic links for latest results
 	latestDir := filepath.Join(c.WorkspaceDir, "latest")
-	if err := os.MkdirAll(latestDir, 0755); err != nil {
+	if err := os.MkdirAll(latestDir, 0777); err != nil {
 		return fmt.Errorf("failed to create latest directory: %w", err)
 	}
 
@@ -436,4 +444,169 @@ func (c *Config) GetConfigStatus() map[string]interface{} {
 	}
 
 	return status
+}
+
+// IsWorkspaceConfigured returns true if workspace directory is set and valid
+func (c *Config) IsWorkspaceConfigured() bool {
+	return c.WorkspaceDir != "" && filepath.IsAbs(c.WorkspaceDir)
+}
+
+// SetWorkspaceDir sets the workspace directory and validates it
+func (c *Config) SetWorkspaceDir(workspaceDir string) error {
+	if workspaceDir == "" {
+		return fmt.Errorf("workspace directory cannot be empty")
+	}
+
+	// Normalize path - remove trailing slashes for consistent concatenation
+	workspaceDir = strings.TrimRight(workspaceDir, "/")
+
+	if !filepath.IsAbs(workspaceDir) {
+		return fmt.Errorf("workspace directory must be an absolute path")
+	}
+
+	// Check if parent directory exists
+	parentDir := filepath.Dir(workspaceDir)
+	if _, err := os.Stat(parentDir); os.IsNotExist(err) {
+		return fmt.Errorf("parent directory does not exist: %s", parentDir)
+	}
+
+	c.WorkspaceDir = workspaceDir
+	return nil
+}
+
+// NeedsFirstTimeSetup returns true if this is a first-time run
+func (c *Config) NeedsFirstTimeSetup() bool {
+	return !c.IsWorkspaceConfigured()
+}
+
+// GetOriginalUser returns the original user info when running as root via sudo
+func GetOriginalUser() (*user.User, error) {
+	// Check if running as root via sudo
+	if os.Geteuid() == 0 {
+		// Check for SUDO_UID and SUDO_GID environment variables
+		if sudoUID := os.Getenv("SUDO_UID"); sudoUID != "" {
+			uid, err := strconv.Atoi(sudoUID)
+			if err == nil {
+				return user.LookupId(strconv.Itoa(uid))
+			}
+		}
+	}
+
+	// Fallback to current user
+	return user.Current()
+}
+
+// FixWorkspaceOwnership fixes workspace ownership when running as root
+func (c *Config) FixWorkspaceOwnership() error {
+	if !c.IsWorkspaceConfigured() {
+		return fmt.Errorf("workspace not configured")
+	}
+
+	// Only fix ownership if running as root
+	if os.Geteuid() != 0 {
+		return nil // No need to fix ownership
+	}
+
+	// Get original user
+	originalUser, err := GetOriginalUser()
+	if err != nil {
+		return fmt.Errorf("failed to get original user: %w", err)
+	}
+
+	// Parse user and group IDs
+	uid, err := strconv.Atoi(originalUser.Uid)
+	if err != nil {
+		return fmt.Errorf("invalid user ID: %w", err)
+	}
+
+	gid, err := strconv.Atoi(originalUser.Gid)
+	if err != nil {
+		return fmt.Errorf("invalid group ID: %w", err)
+	}
+
+	// Fix ownership of workspace directory and subdirectories
+	return filepath.Walk(c.WorkspaceDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // Skip files with errors
+		}
+
+		// Change ownership to original user
+		if chownErr := syscall.Chown(path, uid, gid); chownErr != nil {
+			// Log but don't fail - some files might not be changeable
+			fmt.Fprintf(os.Stderr, "Warning: Failed to change ownership of %s: %v\n", path, chownErr)
+		}
+
+		return nil
+	})
+}
+
+// FixWorkspacePermissions ensures workspace directories have correct permissions for root access
+func (c *Config) FixWorkspacePermissions() error {
+	if !c.IsWorkspaceConfigured() {
+		return fmt.Errorf("workspace not configured")
+	}
+
+	// Set permissions on workspace subdirectories to allow root write access
+	subdirs := []string{
+		"captures",
+		"enumeration",
+		"vulnerability",
+		"configs",
+		"logs",
+		"latest",
+	}
+
+	for _, subdir := range subdirs {
+		dirPath := filepath.Join(c.WorkspaceDir, subdir)
+
+		// Check if directory exists
+		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+			continue // Skip non-existent directories
+		}
+
+		// Set permissions to 0777 so root can write to user-owned directories
+		if err := os.Chmod(dirPath, 0777); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to set permissions on %s: %v\n", dirPath, err)
+		}
+	}
+
+	// Also fix permissions on the main workspace directory
+	if err := os.Chmod(c.WorkspaceDir, 0777); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to set permissions on workspace root: %v\n", err)
+	}
+
+	return nil
+}
+
+// EnsureWorkspaceWritable ensures workspace is writable by current process
+func (c *Config) EnsureWorkspaceWritable() error {
+	if !c.IsWorkspaceConfigured() {
+		return fmt.Errorf("workspace not configured")
+	}
+
+	// Create workspace if it doesn't exist
+	if err := c.CreateWorkspace(); err != nil {
+		return fmt.Errorf("failed to create workspace: %w", err)
+	}
+
+	// Fix permissions for existing directories (needed for root access)
+	if err := c.FixWorkspacePermissions(); err != nil {
+		return fmt.Errorf("failed to fix workspace permissions: %w", err)
+	}
+
+	// Fix ownership if running as root
+	if err := c.FixWorkspaceOwnership(); err != nil {
+		return fmt.Errorf("failed to fix workspace ownership: %w", err)
+	}
+
+	// Test write access by creating a temporary file
+	testFile := filepath.Join(c.WorkspaceDir, ".netutil_write_test")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		return fmt.Errorf("workspace not writable: %w", err)
+	}
+
+	// Clean up test file
+	os.Remove(testFile)
+
+	return nil
 }

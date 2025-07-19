@@ -135,8 +135,31 @@ log_info "Selected interface for integrated workflow: $target_interface"
 # Workflow configuration
 echo
 echo "Workflow configuration:"
-read -p "Capture duration in minutes (default 5): " capture_duration
-capture_duration=${capture_duration:-5}
+echo "The integrated workflow will capture network traffic in promiscuous mode"
+echo "to discover VLANs and network topology before performing discovery."
+echo
+echo "Capture duration options:"
+echo "  • 2 minutes  - Quick scan for basic VLAN discovery"
+echo "  • 5 minutes  - Standard capture"
+echo "  • 10 minutes - Extended capture (recommended)"
+echo "  • 15+ minutes - Comprehensive capture for complex environments"
+echo
+read -p "Enter capture duration in minutes (default 10): " capture_duration
+capture_duration=${capture_duration:-10}
+
+# Validate capture duration
+case "$capture_duration" in
+    ''|*[!0-9]*)
+        echo "Invalid duration. Using default 10 minutes."
+        capture_duration=10
+        ;;
+    *)
+        if [ "$capture_duration" -lt 1 ] || [ "$capture_duration" -gt 60 ]; then
+            echo "Duration must be between 1 and 60 minutes. Using default 10 minutes."
+            capture_duration=10
+        fi
+        ;;
+esac
 
 echo "Capture duration: $capture_duration minutes"
 log_info "Workflow capture duration: $capture_duration minutes"
@@ -173,9 +196,37 @@ echo "Starting promiscuous capture for $capture_duration minutes..."
 echo "Capture file: $capture_file"
 
 if command -v tshark >/dev/null 2>&1; then
-    # Use tshark for capture
+    # Use tshark for capture - first attempt
     timeout $((capture_duration * 60)) tshark -i "$target_interface" -w "$capture_file" -q 2>/dev/null
     capture_exit_code=$?
+    
+    # If tshark failed with permission issue and we're root, try fallback location
+    if [ $capture_exit_code -ne 0 ] && [ $capture_exit_code -ne 124 ] && [ "$(id -u)" -eq 0 ]; then
+        echo "Capture failed in workflow directory, trying fallback location..."
+        FALLBACK_DIR="/tmp/netutil-captures"
+        mkdir -p "$FALLBACK_DIR"
+        chmod 755 "$FALLBACK_DIR"
+        FALLBACK_FILE="$FALLBACK_DIR/promiscuous_capture_$(date +%Y%m%d_%H%M%S).pcap"
+        
+        echo "Fallback capture file: $FALLBACK_FILE"
+        timeout $((capture_duration * 60)) tshark -i "$target_interface" -w "$FALLBACK_FILE" -q 2>/dev/null
+        capture_exit_code=$?
+        
+        # If successful in fallback location, copy to workflow directory
+        if ([ $capture_exit_code -eq 0 ] || [ $capture_exit_code -eq 124 ]) && [ -f "$FALLBACK_FILE" ]; then
+            echo "Capture successful in fallback location, copying to workflow directory..."
+            if cp "$FALLBACK_FILE" "$capture_file" 2>/dev/null; then
+                echo "✓ Capture copied to workflow directory"
+                # Update file permissions for original user if running as root
+                if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
+                    chown "$SUDO_UID:$SUDO_GID" "$capture_file" 2>/dev/null || true
+                fi
+            else
+                echo "⚠ Failed to copy to workflow directory, using fallback location"
+                capture_file="$FALLBACK_FILE"
+            fi
+        fi
+    fi
     
     if [ $capture_exit_code -eq 0 ] || [ $capture_exit_code -eq 124 ]; then  # 124 = timeout
         echo "✓ Promiscuous capture completed successfully"

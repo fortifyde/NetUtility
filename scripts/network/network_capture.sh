@@ -14,11 +14,56 @@ fi
 
 success_message "Selected interface: $interface"
 
-CAPTURE_DIR="${NETUTIL_WORKDIR:-$HOME}/captures"
-mkdir -p "$CAPTURE_DIR"
+# Normalize workspace path to avoid double slashes
+WORKSPACE_DIR="${NETUTIL_WORKDIR:-$HOME}"
+WORKSPACE_DIR="${WORKSPACE_DIR%/}"  # Remove trailing slash
+CAPTURE_DIR="$WORKSPACE_DIR/captures"
 
+# Ensure capture directory exists and is writable
+if ! mkdir -p "$CAPTURE_DIR" 2>/dev/null; then
+    warning_message "Failed to create capture directory: $CAPTURE_DIR"
+    # Fallback to system temp directory
+    CAPTURE_DIR="/tmp/netutil-captures"
+    mkdir -p "$CAPTURE_DIR"
+    warning_message "Using fallback directory: $CAPTURE_DIR"
+fi
+
+# Additional fallback for permission issues - use /tmp directly for root
+if [ "$(id -u)" -eq 0 ]; then
+    # Test if we can actually write to the current capture directory
+    test_capture_file="$CAPTURE_DIR/test_$(date +%s).pcap"
+    if ! touch "$test_capture_file" 2>/dev/null; then
+        warning_message "Root cannot write to $CAPTURE_DIR, using /tmp/netutil-captures"
+        CAPTURE_DIR="/tmp/netutil-captures"
+        mkdir -p "$CAPTURE_DIR"
+        chmod 755 "$CAPTURE_DIR"
+    else
+        rm -f "$test_capture_file"
+    fi
+fi
+
+# Test write permissions
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 CAPTURE_FILE="$CAPTURE_DIR/capture_${interface}_${TIMESTAMP}.pcap"
+
+# If running as root, temporarily change ownership of capture directory
+if [ "$(id -u)" -eq 0 ]; then
+    echo "Running as root - adjusting capture directory ownership..."
+    chown root:root "$CAPTURE_DIR" 2>/dev/null || true
+fi
+
+# Test if we can write to the directory
+TEST_FILE="$CAPTURE_DIR/.netutil_write_test"
+if ! touch "$TEST_FILE" 2>/dev/null; then
+    error_message "Cannot write to capture directory: $CAPTURE_DIR"
+    echo "This may be due to permission issues when running as root."
+    echo "Please ensure the workspace directory is accessible."
+    exit 1
+fi
+rm -f "$TEST_FILE"
+
+# Remove any existing capture file to let tshark create it fresh
+rm -f "$CAPTURE_FILE"
 
 echo "Capture will be saved to: $CAPTURE_FILE"
 
@@ -73,13 +118,64 @@ esac
 echo "Starting packet capture on interface $interface..."
 echo "Duration: $duration_text"
 echo "Capture file: $CAPTURE_FILE"
+echo "Running as user: $(whoami)"
+echo "File exists before capture: $(ls -la "$CAPTURE_FILE" 2>/dev/null || echo "File not found (this is expected)")"
+echo "Directory permissions: $(ls -ld "$CAPTURE_DIR")"
 
-if [ "$duration" -eq 0 ]; then
-    echo "Press Ctrl+C to stop capture"
-    tshark -i "$interface" -w "$CAPTURE_FILE" -q
-else
-    echo "Capturing for $duration_text..."
-    timeout "$duration" tshark -i "$interface" -w "$CAPTURE_FILE" -q
+# Try tshark capture - if it fails with permission denied, retry in /tmp
+run_tshark_capture() {
+    if [ "$duration" -eq 0 ]; then
+        echo "Press Ctrl+C to stop capture"
+        echo "Running: tshark -i \"$interface\" -w \"$1\" -q"
+        tshark -i "$interface" -w "$1" -q
+    else
+        echo "Capturing for $duration_text..."
+        echo "Running: timeout \"$duration\" tshark -i \"$interface\" -w \"$1\" -q"
+        timeout "$duration" tshark -i "$interface" -w "$1" -q
+    fi
+}
+
+# First attempt with original location
+run_tshark_capture "$CAPTURE_FILE"
+capture_exit_code=$?
+
+# If tshark failed and we're running as root, try fallback location
+if [ $capture_exit_code -ne 0 ] && [ "$(id -u)" -eq 0 ]; then
+    echo "Capture failed in workspace directory, trying fallback location..."
+    FALLBACK_DIR="/tmp/netutil-captures"
+    mkdir -p "$FALLBACK_DIR"
+    chmod 755 "$FALLBACK_DIR"
+    FALLBACK_FILE="$FALLBACK_DIR/capture_${interface}_${TIMESTAMP}.pcap"
+    
+    echo "Fallback capture file: $FALLBACK_FILE"
+    run_tshark_capture "$FALLBACK_FILE"
+    capture_exit_code=$?
+    
+    # If successful (exit code 0 or 124 for timeout), copy to original location
+    if ([ $capture_exit_code -eq 0 ] || [ $capture_exit_code -eq 124 ]) && [ -f "$FALLBACK_FILE" ]; then
+        echo "Capture successful in fallback location, copying to workspace..."
+        if cp "$FALLBACK_FILE" "$CAPTURE_FILE" 2>/dev/null; then
+            success_message "Capture copied to workspace: $CAPTURE_FILE"
+            # Update file permissions for original user if running as root
+            if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
+                chown "$SUDO_UID:$SUDO_GID" "$CAPTURE_FILE" 2>/dev/null || true
+            fi
+        else
+            warning_message "Failed to copy to workspace, using fallback location"
+            CAPTURE_FILE="$FALLBACK_FILE"
+        fi
+        success_message "Capture completed in fallback location: $FALLBACK_FILE"
+    fi
+fi
+
+echo "tshark exit code: $capture_exit_code"
+
+# Restore original ownership if we changed it
+if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
+    echo "Restoring original ownership of capture directory..."
+    chown "$SUDO_UID:$SUDO_GID" "$CAPTURE_DIR" 2>/dev/null || true
+    # Also fix ownership of any files we created
+    chown "$SUDO_UID:$SUDO_GID" "$CAPTURE_FILE" 2>/dev/null || true
 fi
 
 echo
