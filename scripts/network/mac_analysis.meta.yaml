@@ -1,0 +1,75 @@
+script:
+  name: "MAC Address Analysis"
+  description: "Analyze MAC addresses to identify device vendors, detect anomalies, and map network topology"
+  category: "network"
+  subcategory: "analysis"
+  
+  file: "mac_analysis.sh"
+  requires_root: false
+  estimated_duration: "2-5 minutes"
+  
+  cli_shortcuts:
+    - "mac"
+    - "mac-analysis"
+    - "vendor"
+  keywords:
+    - "mac"
+    - "vendor"
+    - "analysis"
+    - "topology"
+    - "devices"
+    - "oui"
+  
+  parameters:
+    - name: "input_source"
+      type: "choice"
+      description: "Source of MAC addresses to analyze"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Analyze current ARP table"
+          - value: "2"
+            description: "Analyze from capture file"
+          - value: "3"
+            description: "Analyze from text file"
+    - name: "input_file"
+      type: "file"
+      description: "Input file (for options 2 and 3)"
+      required: false
+  
+  dependencies:
+    tools:
+      - name: "arp"
+        package: "net-tools"
+        check_command: "which arp"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "mac_analysis_*.txt"
+      - "vendor_report_*.txt"
+      - "device_topology_*.txt"
+    workspace_subdirs:
+      - "mac-analysis"
+  
+  tags:
+    - "mac"
+    - "vendor"
+    - "analysis"
+    - "topology"
+    - "forensics"
+  risk_level: "low"
+  network_access: false
+  modifies_system: false
+  
+  examples:
+    - description: "Analyze MAC addresses"
+      command: "netutil mac"
+    - description: "Device vendor analysis"
+      command: "netutil vendor"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-07-19"

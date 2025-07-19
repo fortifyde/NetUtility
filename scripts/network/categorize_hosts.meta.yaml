@@ -1,0 +1,69 @@
+script:
+  name: "Categorize Hosts"
+  description: "Analyze and categorize discovered network hosts by type and function"
+  category: "network"
+  subcategory: "analysis"
+  
+  file: "categorize_hosts.sh"
+  requires_root: false
+  estimated_duration: "2-5 minutes"
+  
+  cli_shortcuts:
+    - "categorize"
+    - "classify-hosts"
+    - "host-types"
+  keywords:
+    - "categorize"
+    - "classify"
+    - "hosts"
+    - "analysis"
+    - "identification"
+  
+  parameters:
+    - name: "hosts_file"
+      type: "file"
+      description: "File containing host information (optional)"
+      required: false
+    - name: "scan_results"
+      type: "directory"
+      description: "Directory with scan results to analyze"
+      required: false
+  
+  dependencies:
+    tools:
+      - name: "nmap"
+        package: "nmap"
+        check_command: "which nmap"
+      - name: "grep"
+        package: "grep"
+        check_command: "which grep"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "hosts_windows_*.txt"
+      - "hosts_linux_*.txt"
+      - "hosts_network_devices_*.txt"
+      - "hosts_unknown_*.txt"
+      - "categorization_report_*.txt"
+    workspace_subdirs:
+      - "categorization"
+  
+  tags:
+    - "categorization"
+    - "host-analysis"
+    - "identification"
+    - "classification"
+  risk_level: "low"
+  network_access: false
+  modifies_system: false
+  
+  examples:
+    - description: "Categorize discovered hosts"
+      command: "netutil categorize"
+    - description: "Classify host types"
+      command: "netutil classify-hosts"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

@@ -1,0 +1,56 @@
+script:
+  name: "Backup Configuration"
+  description: "Create backup of network configuration files and settings"
+  category: "system"
+  subcategory: "backup"
+  
+  file: "backup_config.sh"
+  requires_root: true
+  estimated_duration: "1-2 minutes"
+  
+  cli_shortcuts:
+    - "backup"
+    - "backup-config"
+  keywords:
+    - "backup"
+    - "configuration"
+    - "save"
+    - "archive"
+    - "network"
+  
+  parameters: []
+  
+  dependencies:
+    tools:
+      - name: "tar"
+        package: "tar"
+        check_command: "which tar"
+      - name: "gzip"
+        package: "gzip"
+        check_command: "which gzip"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "network_config_*.tar.gz"
+    workspace_subdirs:
+      - "netutil_backups"
+  
+  tags:
+    - "backup"
+    - "configuration"
+    - "archive"
+    - "network-config"
+  risk_level: "low"
+  network_access: false
+  modifies_system: false
+  
+  examples:
+    - description: "Create network configuration backup"
+      command: "netutil backup"
+    - description: "Backup network config"
+      command: "netutil backup-config"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

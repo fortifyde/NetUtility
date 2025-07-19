@@ -1,0 +1,71 @@
+script:
+  name: "Log Management"
+  description: "View and manage system and network logs"
+  category: "system"
+  subcategory: "logging"
+  
+  file: "log_management.sh"
+  requires_root: true
+  estimated_duration: "1-5 minutes"
+  
+  cli_shortcuts:
+    - "logs"
+    - "logmgmt"
+  keywords:
+    - "logs"
+    - "logging"
+    - "syslog"
+    - "journalctl"
+    - "management"
+  
+  parameters:
+    - name: "operation"
+      type: "choice"
+      description: "Log operation to perform"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "View recent system logs"
+          - value: "2"
+            description: "View network logs"
+          - value: "3"
+            description: "Search logs"
+          - value: "4"
+            description: "Export logs"
+  
+  dependencies:
+    tools:
+      - name: "journalctl"
+        package: "systemd"
+        check_command: "which journalctl"
+      - name: "grep"
+        package: "grep"
+        check_command: "which grep"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "logs_export_*.txt"
+    workspace_subdirs:
+      - "logs"
+  
+  tags:
+    - "logs"
+    - "system"
+    - "monitoring"
+    - "troubleshooting"
+  risk_level: "low"
+  network_access: false
+  modifies_system: false
+  
+  examples:
+    - description: "View and manage logs"
+      command: "netutil logs"
+    - description: "Log management"
+      command: "netutil logmgmt"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

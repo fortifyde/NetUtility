@@ -1,0 +1,76 @@
+script:
+  name: "Unsafe Protocols"
+  description: "Detect and analyze unsafe network protocols and security weaknesses"
+  category: "network"
+  subcategory: "security"
+  
+  file: "unsafe_protocols.sh"
+  requires_root: true
+  estimated_duration: "5-15 minutes"
+  
+  cli_shortcuts:
+    - "protocols"
+    - "unsafe-protocols"
+    - "security-scan"
+  keywords:
+    - "protocols"
+    - "unsafe"
+    - "security"
+    - "vulnerable"
+    - "detection"
+  
+  parameters:
+    - name: "target"
+      type: "target"
+      description: "Target network or IP range"
+      required: false
+    - name: "scan_type"
+      type: "choice"
+      description: "Type of protocol scan"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Common unsafe protocols"
+          - value: "2"
+            description: "Comprehensive protocol scan"
+          - value: "3"
+            description: "Legacy protocol detection"
+  
+  dependencies:
+    tools:
+      - name: "nmap"
+        package: "nmap"
+        check_command: "which nmap"
+      - name: "netstat"
+        package: "net-tools"
+        check_command: "which netstat"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "unsafe_protocols_*.txt"
+      - "security_findings_*.csv"
+      - "protocol_report_*.html"
+    workspace_subdirs:
+      - "protocol-analysis"
+  
+  tags:
+    - "protocols"
+    - "security"
+    - "vulnerability"
+    - "detection"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+  
+  examples:
+    - description: "Scan for unsafe protocols"
+      command: "netutil protocols"
+    - description: "Security protocol analysis"
+      command: "netutil unsafe-protocols"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

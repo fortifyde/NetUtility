@@ -221,6 +221,9 @@ init_logging() {
     log_info "Log directory: $LOG_DIR" "logging.sh"
 }
 
+# Set loaded marker
+NETUTIL_LOGGING_LOADED=1
+
 # Auto-initialize if sourced
 if [ "${0##*/}" != "logging.sh" ]; then
     init_logging

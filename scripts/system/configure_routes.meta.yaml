@@ -1,0 +1,64 @@
+script:
+  name: "Configure Routes"
+  description: "Manage IP routing table entries and network routes"
+  category: "system"
+  subcategory: "networking"
+  
+  file: "configure_routes.sh"
+  requires_root: true
+  estimated_duration: "1-2 minutes"
+  
+  cli_shortcuts:
+    - "routes"
+    - "routing"
+  keywords:
+    - "routes"
+    - "routing"
+    - "ip"
+    - "table"
+    - "gateway"
+  
+  parameters:
+    - name: "operation"
+      type: "choice"
+      description: "Route operation to perform"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Add route"
+          - value: "2"
+            description: "Delete route"
+          - value: "3"
+            description: "Show detailed routing table"
+          - value: "4"
+            description: "Show route to destination"
+  
+  dependencies:
+    tools:
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+  
+  output:
+    creates_files: false
+    workspace_subdirs: []
+  
+  tags:
+    - "routing"
+    - "networking"
+    - "ip-routes"
+  risk_level: "medium"
+  network_access: false
+  modifies_system: true
+  
+  examples:
+    - description: "Manage routing table"
+      command: "netutil routes"
+    - description: "Configure routing"
+      command: "netutil routing"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

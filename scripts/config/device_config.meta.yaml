@@ -1,0 +1,77 @@
+script:
+  name: "Device Configuration"
+  description: "Configure and manage network device settings and parameters"
+  category: "config"
+  subcategory: "devices"
+  
+  file: "device_config.sh"
+  requires_root: true
+  estimated_duration: "3-10 minutes"
+  
+  cli_shortcuts:
+    - "device-config"
+    - "devconfig"
+    - "configure-device"
+  keywords:
+    - "device"
+    - "configuration"
+    - "network"
+    - "settings"
+    - "management"
+  
+  parameters:
+    - name: "device_type"
+      type: "choice"
+      description: "Type of device to configure"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Network interface"
+          - value: "2"
+            description: "Wireless device"
+          - value: "3"
+            description: "Bridge device"
+          - value: "4"
+            description: "Virtual device"
+    - name: "device_name"
+      type: "interface"
+      description: "Device/interface name"
+      required: false
+  
+  dependencies:
+    tools:
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+      - name: "iwconfig"
+        package: "wireless-tools"
+        check_command: "which iwconfig"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "device_config_*.txt"
+      - "interface_backup_*.conf"
+    workspace_subdirs:
+      - "device-configs"
+  
+  tags:
+    - "device"
+    - "configuration"
+    - "network-management"
+    - "interfaces"
+  risk_level: "medium"
+  network_access: false
+  modifies_system: true
+  
+  examples:
+    - description: "Configure network device"
+      command: "netutil device-config"
+    - description: "Device configuration management"
+      command: "netutil devconfig"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

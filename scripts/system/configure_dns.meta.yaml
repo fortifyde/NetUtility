@@ -1,0 +1,62 @@
+script:
+  name: "Configure DNS"
+  description: "Manage DNS configuration and nameserver settings"
+  category: "system"
+  subcategory: "networking"
+  
+  file: "configure_dns.sh"
+  requires_root: true
+  estimated_duration: "1-3 minutes"
+  
+  cli_shortcuts:
+    - "dns"
+    - "nameserver"
+  keywords:
+    - "dns"
+    - "nameserver"
+    - "resolv"
+    - "systemd-resolved"
+    - "configuration"
+  
+  parameters:
+    - name: "operation"
+      type: "choice"
+      description: "DNS operation to perform"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Add nameserver"
+          - value: "2"
+            description: "Remove nameserver"
+          - value: "3"
+            description: "Set search domain"
+  
+  dependencies:
+    tools:
+      - name: "systemctl"
+        package: "systemd"
+        check_command: "which systemctl"
+  
+  output:
+    creates_files: false
+    workspace_subdirs: []
+  
+  tags:
+    - "dns"
+    - "networking"
+    - "system-configuration"
+  risk_level: "medium"
+  network_access: false
+  modifies_system: true
+  
+  examples:
+    - description: "Configure DNS settings"
+      command: "netutil dns"
+    - description: "Manage nameservers"
+      command: "netutil nameserver"
+  
+  version: "1.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-19"

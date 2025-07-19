@@ -1,0 +1,104 @@
+script:
+  name: "Enhanced Network Enumeration"
+  description: "Advanced network discovery with progress tracking, cancellation support, and comprehensive reporting"
+  category: "network"
+  subcategory: "discovery"
+  
+  file: "network_enum_enhanced.sh"
+  requires_root: true
+  estimated_duration: "2-15 minutes"
+  
+  cli_shortcuts:
+    - "scan-enhanced"
+    - "enum-v2"
+    - "discover-enhanced"
+  keywords:
+    - "network"
+    - "enumerate"
+    - "discovery"
+    - "enhanced"
+    - "progress"
+    - "cancellation"
+    - "comprehensive"
+  
+  parameters:
+    - name: "target"
+      type: "target"
+      description: "Target IP, range, or host file"
+      required: false
+    - name: "scan_type"
+      type: "choice"
+      description: "Type of scan to perform"
+      required: false
+      default: "detailed"
+      validation:
+        choices:
+          - value: "quick"
+            description: "Fast discovery scan (30s)"
+          - value: "detailed"
+            description: "Standard enumeration (2-5 min)"
+          - value: "comprehensive"
+            description: "Full enumeration (10+ min)"
+    - name: "timeout"
+      type: "number"
+      description: "Timeout in seconds"
+      required: false
+      default: "300"
+      validation:
+        range:
+          min: 30
+          max: 3600
+  
+  dependencies:
+    tools:
+      - name: "nmap"
+        package: "nmap"
+        check_command: "which nmap"
+      - name: "fping"
+        package: "fping"
+        check_command: "which fping"
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+    scripts:
+      - "../common/logging.sh"
+      - "../common/utils.sh"
+      - "../common/validation.sh"
+      - "../common/progress.sh"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "ping_results_*.txt"
+      - "nmap_results_*.txt"
+      - "enhanced_enum_report_*.txt"
+      - "hosts_windows_*.txt"
+      - "hosts_linux_*.txt"
+      - "hosts_network_devices_*.txt"
+      - "hosts_unknown_*.txt"
+    workspace_subdirs:
+      - "enumeration"
+  
+  tags:
+    - "reconnaissance"
+    - "discovery"
+    - "enumeration"
+    - "enhanced"
+    - "progress-tracking"
+    - "cancellable"
+    - "comprehensive"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+  
+  examples:
+    - description: "Interactive enhanced enumeration"
+      command: "netutil scan-enhanced"
+    - description: "Quick scan of network range"
+      command: "netutil scan-enhanced -t 192.168.1.0/24 -s quick"
+    - description: "Comprehensive scan with custom timeout"
+      command: "netutil scan-enhanced -t 10.0.0.0/24 -s comprehensive --timeout 1800"
+  
+  version: "2.0"
+  author: "NetUtility Team"
+  last_updated: "2025-01-18"
