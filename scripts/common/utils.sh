@@ -11,11 +11,12 @@
 # Function to get filtered interfaces with enhanced information
 get_interfaces() {
     # Clear previous interface data
-    rm -f /tmp/netutil_interfaces.$$
+    rm -f "./netutil_interfaces.$$"
     interface_count=0
     
     # Create temporary file with interface information
-    ip link show > /tmp/netutil_ip_output.$$
+    # Use current directory instead of /tmp to avoid system restrictions
+    ip link show > "./netutil_ip_output.$$"
     
     # Parse interface information using POSIX-compliant pattern matching
     while read -r line; do
@@ -73,21 +74,21 @@ get_interfaces() {
             fi
             
             interface_count=$((interface_count + 1))
-            echo "$interface_count:$interface_name:$state:$ip_info:$interface_type:$smart_alias" >> /tmp/netutil_interfaces.$$
+            echo "$interface_count:$interface_name:$state:$ip_info:$interface_type:$smart_alias" >> "./netutil_interfaces.$$"
         fi
-    done < /tmp/netutil_ip_output.$$
+    done < "./netutil_ip_output.$$"
     
     # Clean up temporary file
-    rm -f /tmp/netutil_ip_output.$$
+    rm -f "./netutil_ip_output.$$"
 }
 
 # Function to display interfaces in numbered format with smart aliases
 display_interfaces() {
     echo "Available network interfaces:" >&2
-    if [ -f /tmp/netutil_interfaces.$$ ]; then
+    if [ -f ./netutil_interfaces.$$ ]; then
         while IFS=':' read -r num name state ip_info interface_type smart_alias; do
             printf "%d. %s\n" "$num" "$smart_alias" >&2
-        done < /tmp/netutil_interfaces.$$
+        done < ./netutil_interfaces.$$
     fi
     echo >&2
 }
@@ -96,13 +97,13 @@ display_interfaces() {
 get_interface_name() {
     requested_num=$1
     
-    if [ -f /tmp/netutil_interfaces.$$ ]; then
+    if [ -f ./netutil_interfaces.$$ ]; then
         while IFS=':' read -r num name state ip_info interface_type smart_alias; do
             if [ "$num" = "$requested_num" ]; then
                 echo "$name"
                 return 0
             fi
-        done < /tmp/netutil_interfaces.$$
+        done < ./netutil_interfaces.$$
     fi
     return 1
 }
@@ -121,12 +122,12 @@ validate_interface_number() {
     
     # Count available interfaces
     max_num=0
-    if [ -f /tmp/netutil_interfaces.$$ ]; then
+    if [ -f ./netutil_interfaces.$$ ]; then
         while IFS=':' read -r num name state ip_info interface_type smart_alias; do
             if [ "$num" -gt "$max_num" ]; then
                 max_num=$num
             fi
-        done < /tmp/netutil_interfaces.$$
+        done < ./netutil_interfaces.$$
     fi
     
     if [ "$input_num" -lt 1 ] || [ "$input_num" -gt "$max_num" ]; then
@@ -145,7 +146,7 @@ select_interface() {
     get_interfaces
     
     # Check if any interfaces were found
-    if [ ! -f /tmp/netutil_interfaces.$$ ] || [ ! -s /tmp/netutil_interfaces.$$ ]; then
+    if [ ! -f ./netutil_interfaces.$$ ] || [ ! -s ./netutil_interfaces.$$ ]; then
         echo "Error: No network interfaces found" >&2
         return 1
     fi
@@ -161,7 +162,7 @@ select_interface() {
                 default_option="$num"
                 break
             fi
-        done < /tmp/netutil_interfaces.$$
+        done < ./netutil_interfaces.$$
     fi
     
     # If no last used interface, try to find best default
@@ -172,7 +173,7 @@ select_interface() {
                 default_option="$num"
                 break
             fi
-        done < /tmp/netutil_interfaces.$$
+        done < ./netutil_interfaces.$$
     fi
     
     display_interfaces
@@ -183,7 +184,7 @@ select_interface() {
         if [ "$num" -gt "$max_num" ]; then
             max_num=$num
         fi
-    done < /tmp/netutil_interfaces.$$
+    done < ./netutil_interfaces.$$
     
     # Show smart default prompt
     if [ -n "$default_option" ]; then
@@ -207,7 +208,7 @@ select_interface() {
                 save_last_used_interface "$category" "$selected_interface"
                 echo "$selected_interface"
                 # Clean up temp file
-                rm -f /tmp/netutil_interfaces.$$
+                rm -f ./netutil_interfaces.$$
                 return 0
             else
                 echo "Error: Invalid interface selection" >&2
@@ -737,4 +738,84 @@ error_message() {
 # Function to display warning message
 warning_message() {
     echo "⚠ Warning: $1" >&2
+}
+
+# Function to get network range for an interface
+get_network_range() {
+    interface=$1
+    
+    if [ -z "$interface" ]; then
+        return 1
+    fi
+    
+    # Get IP address and CIDR from interface
+    ip_info=$(ip addr show "$interface" 2>/dev/null | grep "inet " | head -1 | awk '{print $2}')
+    
+    if [ -n "$ip_info" ]; then
+        # Extract IP and prefix
+        ip=$(echo "$ip_info" | cut -d'/' -f1)
+        prefix=$(echo "$ip_info" | cut -d'/' -f2)
+        
+        # Calculate network address if ipcalc is available
+        if command -v ipcalc >/dev/null 2>&1; then
+            network=$(ipcalc -n "$ip_info" 2>/dev/null | cut -d= -f2 2>/dev/null)
+            if [ -n "$network" ]; then
+                echo "$network/$prefix"
+                return 0
+            fi
+        fi
+        
+        # Fallback method - simple network calculation for common prefixes
+        case "$prefix" in
+            24)
+                # /24 network - zero out last octet
+                network=$(echo "$ip" | cut -d'.' -f1-3).0
+                echo "$network/24"
+                return 0
+                ;;
+            16)
+                # /16 network - zero out last two octets
+                network=$(echo "$ip" | cut -d'.' -f1-2).0.0
+                echo "$network/16"
+                return 0
+                ;;
+            8)
+                # /8 network - zero out last three octets
+                network=$(echo "$ip" | cut -d'.' -f1).0.0.0
+                echo "$network/8"
+                return 0
+                ;;
+            *)
+                # For other prefixes, just return the IP with prefix
+                echo "$ip_info"
+                return 0
+                ;;
+        esac
+    fi
+    
+    return 1
+}
+
+# Function to prompt for manual network range input
+prompt_network_range() {
+    echo "Could not automatically determine network range."
+    echo "Please enter the network range to scan manually."
+    echo
+    echo "Examples:"
+    echo "  192.168.1.0/24   (Class C network)"
+    echo "  10.0.0.0/8       (Class A network)"
+    echo "  172.16.0.0/16    (Class B network)"
+    echo
+    
+    while true; do
+        printf "Enter network range (CIDR notation): "
+        read network_range
+        
+        if [ -n "$network_range" ] && validate_ip_range "$network_range"; then
+            echo "$network_range"
+            return 0
+        else
+            echo "Invalid network range format. Please use CIDR notation (e.g., 192.168.1.0/24)"
+        fi
+    done
 }

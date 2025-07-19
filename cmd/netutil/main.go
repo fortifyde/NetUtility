@@ -33,6 +33,27 @@ func main() {
 		}
 	}
 
+	// Check if this is first-time setup
+	if cfg.NeedsFirstTimeSetup() {
+		fmt.Println("=== Welcome to NetUtility ===")
+		fmt.Println("First-time setup required.")
+		fmt.Println()
+		fmt.Println("NetUtility needs a workspace directory to store:")
+		fmt.Println("  • Network captures and analysis results")
+		fmt.Println("  • Vulnerability scan data")
+		fmt.Println("  • Configuration backups")
+		fmt.Println("  • Log files")
+		fmt.Println()
+
+		if err := runFirstTimeSetup(cfg); err != nil {
+			fmt.Fprintf(os.Stderr, "Setup failed: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Println("Setup complete! Starting NetUtility...")
+		fmt.Println()
+	}
+
 	// Initialize script registry
 	registry := metadata.NewScriptRegistry("scripts")
 	if err := registry.LoadMetadata(); err != nil {
@@ -40,10 +61,11 @@ func main() {
 		registry = nil // Will fall back to hardcoded commands
 	}
 
-	// Create workspace if auto-create is enabled
-	if cfg.AutoCreateWorkspace {
-		if err := cfg.CreateWorkspace(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to create workspace: %v\n", err)
+	// Set up workspace environment
+	if cfg.IsWorkspaceConfigured() {
+		// Ensure workspace is writable (handles creation and ownership)
+		if err := cfg.EnsureWorkspaceWritable(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to ensure workspace is writable: %v\n", err)
 		} else {
 			// Set NETUTIL_WORKDIR environment variable
 			os.Setenv("NETUTIL_WORKDIR", cfg.WorkspaceDir)
@@ -115,6 +137,34 @@ var commandMappings = map[string]ScriptInfo{
 }
 
 // Numeric shortcuts (most frequently used)
+// runFirstTimeSetup handles the initial workspace configuration
+func runFirstTimeSetup(cfg *config.Config) error {
+	fmt.Print("Enter workspace directory path (absolute path): ")
+
+	var workspaceDir string
+	if _, err := fmt.Scanln(&workspaceDir); err != nil {
+		return fmt.Errorf("failed to read workspace directory: %w", err)
+	}
+
+	// Validate and set workspace directory
+	if err := cfg.SetWorkspaceDir(workspaceDir); err != nil {
+		return fmt.Errorf("invalid workspace directory: %w", err)
+	}
+
+	// Create workspace structure
+	if err := cfg.CreateWorkspace(); err != nil {
+		return fmt.Errorf("failed to create workspace: %w", err)
+	}
+
+	// Save configuration
+	if err := cfg.SaveConfig(); err != nil {
+		return fmt.Errorf("failed to save configuration: %w", err)
+	}
+
+	fmt.Printf("Workspace created at: %s\n", cfg.WorkspaceDir)
+	return nil
+}
+
 var numericShortcuts = map[string]ScriptInfo{
 	"1": {"scripts/network/network_enum.sh", "Network Enumeration"},
 	"2": {"scripts/network/network_capture.sh", "Network Capture"},

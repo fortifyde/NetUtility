@@ -50,7 +50,12 @@ case "$discovery_mode" in
         if [ -z "$network_range" ]; then
             echo "Could not determine network range for $selected_interface"
             log_error "Could not determine network range for $selected_interface"
-            exit 1
+            # Prompt user for manual input instead of failing
+            network_range=$(prompt_network_range)
+            if [ -z "$network_range" ]; then
+                echo "No network range provided. Exiting."
+                exit 1
+            fi
         fi
         echo "Network range: $network_range"
         log_info "Network range: $network_range"
@@ -86,6 +91,15 @@ case "$discovery_mode" in
             echo "No network ranges could be determined. Falling back to standard discovery."
             discovery_type="standard"
             network_range=$(get_network_range "$selected_interface")
+            if [ -z "$network_range" ]; then
+                echo "Could not determine network range for standard fallback either."
+                # Prompt user for manual input
+                network_range=$(prompt_network_range)
+                if [ -z "$network_range" ]; then
+                    echo "No network range provided. Exiting."
+                    exit 1
+                fi
+            fi
         else
             echo "Will scan networks: $network_ranges"
             log_info "VLAN-aware discovery networks: $network_ranges"
@@ -95,6 +109,15 @@ case "$discovery_mode" in
         echo "Invalid selection. Using standard discovery."
         discovery_type="standard"
         network_range=$(get_network_range "$selected_interface")
+        if [ -z "$network_range" ]; then
+            echo "Could not determine network range for $selected_interface"
+            # Prompt user for manual input
+            network_range=$(prompt_network_range)
+            if [ -z "$network_range" ]; then
+                echo "No network range provided. Exiting."
+                exit 1
+            fi
+        fi
         ;;
 esac
 
