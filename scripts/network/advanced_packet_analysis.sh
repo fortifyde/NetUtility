@@ -14,19 +14,33 @@ ANALYSIS_DIR="${NETUTIL_WORKDIR:-$HOME}/analysis"
 # Create analysis directory if it doesn't exist
 mkdir -p "$ANALYSIS_DIR"
 
-if [ ! -d "$CAPTURE_DIR" ]; then
-    echo "Capture directory $CAPTURE_DIR not found"
-    exit 1
+# Parse command line arguments or read from stdin
+provided_file="$1"
+
+if [ -n "$provided_file" ]; then
+    # Use provided file path
+    capture_file="$provided_file"
+    echo "Using provided capture file: $capture_file"
+elif [ ! -t 0 ]; then
+    # Read from stdin (piped input)
+    read -r capture_file
+    echo "Using piped capture file: $capture_file"
+else
+    # Interactive mode - show available files and prompt for selection
+    if [ ! -d "$CAPTURE_DIR" ]; then
+        echo "Capture directory $CAPTURE_DIR not found"
+        exit 1
+    fi
+
+    echo "Available capture files:"
+    ls -la "$CAPTURE_DIR"/*.pcap 2>/dev/null || {
+        echo "No capture files found in $CAPTURE_DIR"
+        exit 1
+    }
+
+    echo
+    capture_file=$(select_file "$CAPTURE_DIR" "*.pcap" "Select capture file for analysis:")
 fi
-
-echo "Available capture files:"
-ls -la "$CAPTURE_DIR"/*.pcap 2>/dev/null || {
-    echo "No capture files found in $CAPTURE_DIR"
-    exit 1
-}
-
-echo
-capture_file=$(select_file "$CAPTURE_DIR" "*.pcap" "Select capture file for analysis:")
 
 if [ ! -f "$capture_file" ]; then
     echo "Error: Capture file not found"
