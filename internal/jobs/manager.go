@@ -168,30 +168,41 @@ func (jm *JobManager) monitorJob(job *Job) {
 
 // CancelJob cancels a running job
 func (jm *JobManager) CancelJob(jobID string) error {
-	jm.mu.Lock()
-	defer jm.mu.Unlock()
-
+	// First, get the job reference without holding the manager lock
+	jm.mu.RLock()
 	job, exists := jm.jobs[jobID]
 	if !exists {
+		jm.mu.RUnlock()
 		return fmt.Errorf("job %s not found", jobID)
 	}
 
-	if job.Status != JobStatusRunning {
+	// Check job status without holding manager lock
+	job.mu.RLock()
+	isRunning := job.Status == JobStatusRunning
+	executor := job.Executor
+	job.mu.RUnlock()
+	jm.mu.RUnlock()
+
+	if !isRunning {
 		return fmt.Errorf("job %s is not running", jobID)
 	}
 
-	// Stop the executor
-	if job.Executor != nil {
-		job.Executor.Stop()
+	// Stop the executor (this should interrupt any waiting operations)
+	if executor != nil {
+		executor.Stop()
 	}
 
+	// Update job status
 	job.mu.Lock()
 	job.Status = JobStatusCancelled
 	job.EndTime = time.Now()
 	job.Duration = job.EndTime.Sub(job.StartTime)
 	job.mu.Unlock()
 
+	// Update manager running count
+	jm.mu.Lock()
 	jm.runningCount--
+	jm.mu.Unlock()
 
 	return nil
 }

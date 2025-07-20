@@ -203,7 +203,7 @@ func (t *TUI) setupUI() {
 	headerText := fmt.Sprintf(`[::b]%s %s[::-]
 Network Security Toolkit
 
-[yellow]Keys:[::-] Tab=Switch [yellow]hjkl[::-]=Navigate [yellow]/[::-]=Search [yellow]J[::-]=Jobs [yellow]C[::-]=Correlate [yellow]?[::-]=Help [yellow]q[::-]=Quit`, AppName, AppVersion)
+[yellow]Keys:[::-] Tab=Switch [yellow]hjkl[::-]=Navigate [yellow]/[::-]=Search [yellow]J[::-]=Jobs [yellow]C[::-]=Correlate [yellow]Ctrl+Home[::-]=Home [yellow]?[::-]=Help [yellow]q[::-]=Quit`, AppName, AppVersion)
 	t.headerPane.SetText(headerText)
 	t.headerPane.SetTextAlign(tview.AlignCenter)
 
@@ -366,8 +366,8 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 		t.showCorrelationViewer()
 		return nil
 	}
-	if event.Key() == tcell.KeyCtrlH {
-		// Global Home - return to main TUI from anywhere
+	if event.Key() == tcell.KeyHome && event.Modifiers()&tcell.ModCtrl != 0 {
+		// Global Home - return to main TUI from anywhere (Ctrl+Home)
 		t.returnToMain()
 		return nil
 	}
@@ -695,6 +695,19 @@ func (t *TUI) startSearch() {
 
 	form.SetBorder(true).SetTitle("Search Tasks")
 
+	// Get the input field and add input capture for escape key only
+	searchInput := form.GetFormItem(0).(*tview.InputField)
+	searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyEscape:
+			t.pages.RemovePage("search")
+			t.app.SetFocus(t.taskPane)
+			return nil
+		}
+		// Let all other keys pass through
+		return event
+	})
+
 	t.pages.AddPage("search", form, true, true)
 	t.app.SetFocus(form)
 }
@@ -813,7 +826,7 @@ func (t *TUI) updateInfoPanel() {
 		if t.currentCategory != "" {
 			content.WriteString(fmt.Sprintf("[yellow]%s Tasks:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Execute Task [white]Tab/h[::-]=Back to Categories\n", t.currentCategory))
 			content.WriteString("[yellow]Execution:[::-] Live output viewer • Up to 3 concurrent jobs • [white]Ctrl+J[::-]=Jobs [white]Ctrl+B[::-]=Background\n")
-			content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+R[::-]=Correlations [white]Ctrl+H[::-]=Home [white]/[::-]=Search [white]q[::-]=Quit")
+			content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+R[::-]=Correlations [white]Ctrl+Home[::-]=Home [white]/[::-]=Search [white]q[::-]=Quit")
 		} else {
 			content.WriteString("[yellow]Tasks Panel:[::-] [white]Tab/h[::-]=Select Category First [white]/[::-]=Search [white]?[::-]=Help\n")
 			content.WriteString("[yellow]Features:[::-] Real-time execution • Background job management • Result correlation\n")
@@ -823,7 +836,7 @@ func (t *TUI) updateInfoPanel() {
 		// Default/general help
 		content.WriteString("[yellow]Essential:[::-] [white]Tab[::-]=Switch Panels [white]Enter[::-]=Select [white]q[::-]=Quit [white]?[::-]=Full Help\n")
 		content.WriteString("[yellow]Navigate:[::-] [white]h[::-]=Categories [white]l[::-]=Tasks [white]j/k[::-]=Move Up/Down [white]/[::-]=Search\n")
-		content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+R[::-]=Correlations [white]Ctrl+H[::-]=Home [white]r[::-]=Refresh")
+		content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+R[::-]=Correlations [white]Ctrl+Home[::-]=Home [white]r[::-]=Refresh")
 	}
 
 	t.infoPane.SetText(content.String())
