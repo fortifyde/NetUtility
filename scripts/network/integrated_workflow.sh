@@ -233,8 +233,31 @@ if command -v tshark >/dev/null 2>&1; then
         echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
         log_network_operation "Promiscuous capture" "$target_interface" "Completed - $(du -h "$capture_file" | cut -f1)"
         
+        # Copy capture file to captures directory for compatibility with analysis scripts
+        CAPTURES_DIR="${NETUTIL_WORKDIR:-$HOME}/captures"
+        mkdir -p "$CAPTURES_DIR"
+        CAPTURES_FILE="$CAPTURES_DIR/$(basename "$capture_file")"
+        if cp "$capture_file" "$CAPTURES_FILE" 2>/dev/null; then
+            echo "✓ Capture file also saved to: $CAPTURES_FILE"
+            # Update file permissions for original user if running as root
+            if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
+                chown "$SUDO_UID:$SUDO_GID" "$CAPTURES_FILE" 2>/dev/null || true
+            fi
+            # Update capture_file variable to point to captures location for subsequent operations
+            capture_file="$CAPTURES_FILE"
+        else
+            echo "⚠ Warning: Failed to copy capture file to captures directory"
+            log_warn "Failed to copy capture file to captures directory: $CAPTURES_DIR"
+        fi
+        
         # Get basic capture stats
-        packet_count=$(tshark -r "$capture_file" -q -z io,stat,0 2>/dev/null | grep -o "frames:[0-9]*" | cut -d: -f2 | head -1)
+        if command -v capinfos >/dev/null 2>&1; then
+            # Use capinfos for more reliable packet count
+            packet_count=$(capinfos -c "$capture_file" 2>/dev/null | grep "Number of packets" | awk '{print $4}')
+        else
+            # Fallback to tshark method
+            packet_count=$(tshark -r "$capture_file" -q -z io,stat,0 2>/dev/null | grep -o "frames:[0-9]*" | cut -d: -f2 | head -1)
+        fi
         echo "Packets captured: ${packet_count:-unknown}"
         echo "Capture size: $(du -h "$capture_file" | cut -f1)"
         echo "Packets captured: ${packet_count:-unknown}" >> "$WORKFLOW_REPORT"
@@ -409,10 +432,10 @@ if [ -x "$discovery_script" ]; then
     # Run discovery in VLAN-aware mode if VLANs were configured
     if [ "$interfaces_configured" -gt 0 ]; then
         echo "Running VLAN-aware discovery..."
-        echo -e "$target_interface\n2\n" | "$discovery_script" > "$TEMP_DIR/discovery_output.txt" 2>&1
+        "$discovery_script" "$target_interface" "2" > "$TEMP_DIR/discovery_output.txt" 2>&1
     else
         echo "Running standard discovery..."
-        echo -e "$target_interface\n1\n" | "$discovery_script" > "$TEMP_DIR/discovery_output.txt" 2>&1
+        "$discovery_script" "$target_interface" "1" > "$TEMP_DIR/discovery_output.txt" 2>&1
     fi
     
     discovery_exit_code=$?
@@ -422,10 +445,14 @@ if [ -x "$discovery_script" ]; then
         echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
         
         # Link discovery results to workflow directory
-        latest_discovery=$(ls -t "${NETUTIL_WORKDIR:-$HOME}/discovery/discovery_"* 2>/dev/null | head -1)
-        if [ -n "$latest_discovery" ]; then
+        latest_discovery=$(ls -t "${NETUTIL_WORKDIR:-$HOME}/discovery/discovery_"* 2>/dev/null | head -1 | tr -d '\n\r:')
+        if [ -n "$latest_discovery" ] && [ -d "$latest_discovery" ]; then
             ln -sf "$latest_discovery" "$SESSION_DIR/discovery_results"
             echo "Discovery results linked: $SESSION_DIR/discovery_results"
+            echo "Linked to: $latest_discovery"
+        else
+            echo "⚠ Warning: Could not find or link discovery results directory"
+            log_warn "Discovery results directory not found or not accessible: $latest_discovery"
         fi
     else
         echo "✗ Network discovery failed"
@@ -458,7 +485,7 @@ echo "Running advanced packet analysis..."
 analysis_script="$(dirname "$0")/advanced_packet_analysis.sh"
 
 if [ -x "$analysis_script" ]; then
-    echo "$capture_file" | "$analysis_script" > "$TEMP_DIR/analysis_output.txt" 2>&1
+    "$analysis_script" "$capture_file" > "$TEMP_DIR/analysis_output.txt" 2>&1
     analysis_exit_code=$?
     
     if [ $analysis_exit_code -eq 0 ]; then

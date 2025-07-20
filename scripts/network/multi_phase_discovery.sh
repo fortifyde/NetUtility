@@ -22,13 +22,24 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 # Create discovery directory
 mkdir -p "$DISCOVERY_DIR"
 
-# Get current interface and network
-echo "Available network interfaces:"
-selected_interface=$(select_interface)
+# Parse command line arguments for non-interactive mode
+# Usage: multi_phase_discovery.sh [interface] [discovery_mode]
+# discovery_mode: 1=standard, 2=vlan_aware
+provided_interface="$1"
+provided_discovery_mode="$2"
 
-if [ -z "$selected_interface" ]; then
-    echo "No interface selected"
-    exit 1
+# Get current interface and network
+if [ -n "$provided_interface" ]; then
+    selected_interface="$provided_interface"
+    echo "Using provided interface: $selected_interface"
+else
+    echo "Available network interfaces:"
+    selected_interface=$(select_interface)
+    
+    if [ -z "$selected_interface" ]; then
+        echo "No interface selected"
+        exit 1
+    fi
 fi
 
 echo "Selected interface: $selected_interface"
@@ -36,11 +47,16 @@ log_info "Selected interface: $selected_interface"
 
 # Check for VLAN interfaces and offer VLAN-aware discovery
 echo
-echo "Discovery mode options:"
-echo "1. Standard discovery (single network)"
-echo "2. VLAN-aware discovery (scan multiple VLANs)"
-echo
-read -p "Select discovery mode (1-2): " discovery_mode
+if [ -n "$provided_discovery_mode" ]; then
+    discovery_mode="$provided_discovery_mode"
+    echo "Using provided discovery mode: $discovery_mode"
+else
+    echo "Discovery mode options:"
+    echo "1. Standard discovery (single network)"
+    echo "2. VLAN-aware discovery (scan multiple VLANs)"
+    echo
+    read -p "Select discovery mode (1-2): " discovery_mode
+fi
 
 case "$discovery_mode" in
     1)
@@ -166,9 +182,9 @@ if [ "$discovery_type" = "vlan_aware" ]; then
         if [ -n "$interface" ]; then
             echo "  Scanning interface: $interface" >> "$REPORT_FILE"
             if command -v arp-scan >/dev/null 2>&1; then
-                arp-scan --local --interface="$interface" 2>/dev/null | grep -E "([0-9]+\.){3}[0-9]+" | \
+                arp-scan --local --interface="$interface" 2>/dev/null | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
                     awk -v iface="$interface" '{print $1 "\t" $2 "\t" $3 "\t" iface}' >> "$REPORT_FILE"
-                arp-scan --local --interface="$interface" 2>/dev/null | grep -E "([0-9]+\.){3}[0-9]+" | \
+                arp-scan --local --interface="$interface" 2>/dev/null | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
                     awk '{print $1}' >> "$TEMP_DIR/arp_hosts.txt"
             else
                 ip neighbor show dev "$interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
@@ -181,9 +197,9 @@ if [ "$discovery_type" = "vlan_aware" ]; then
 else
     if command -v arp-scan >/dev/null 2>&1; then
         echo "Using arp-scan for Layer 2 discovery..." >> "$REPORT_FILE"
-        arp-scan --local --interface="$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
+        arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
             awk '{print $1}' > "$TEMP_DIR/arp_hosts.txt"
-        arp-scan --local --interface="$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
+        arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
             awk '{print $1 "\t" $2 "\t" $3}' >> "$REPORT_FILE"
     else
         echo "arp-scan not available, using IP neighbor discovery..." >> "$REPORT_FILE"
