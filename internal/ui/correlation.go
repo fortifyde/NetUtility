@@ -150,6 +150,20 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 			}
 		}
 	})
+
+	// Add mouse support to hosts table
+	cv.hostsList.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick {
+			// Get click position relative to table
+			_, y := event.Position()
+			// Approximate row calculation
+			row := y
+			if row > 0 && row < cv.hostsList.GetRowCount() {
+				cv.hostsList.Select(row, 0)
+			}
+		}
+		return action, event
+	})
 }
 
 // updateHostsList refreshes the hosts table
@@ -215,6 +229,11 @@ func (cv *CorrelationViewer) updateHostsList() {
 		cv.hostsList.SetCell(row, 3, tview.NewTableCell(riskScore).SetTextColor(riskColor))
 		cv.hostsList.SetCell(row, 4, tview.NewTableCell(lastScan))
 		cv.hostsList.SetCell(row, 5, tview.NewTableCell(status).SetTextColor(statusColor))
+	}
+
+	// Set initial selection to enable navigation (skip header row)
+	if cv.hostsList.GetRowCount() > 1 {
+		cv.hostsList.Select(1, 0)
 	}
 }
 
@@ -458,6 +477,11 @@ func (cv *CorrelationViewer) filterHighRisk() {
 		cv.hostsList.SetCell(row, 3, tview.NewTableCell(riskScore).SetTextColor(riskColor))
 		cv.hostsList.SetCell(row, 4, tview.NewTableCell(lastScan))
 		cv.hostsList.SetCell(row, 5, tview.NewTableCell(status).SetTextColor(statusColor))
+	}
+
+	// Set initial selection to enable navigation (skip header row)
+	if cv.hostsList.GetRowCount() > 1 {
+		cv.hostsList.Select(1, 0)
 	}
 
 	cv.hostsList.SetTitle(fmt.Sprintf("High-Risk Hosts (%d)", len(highRiskHosts)))

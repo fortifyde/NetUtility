@@ -170,6 +170,20 @@ func (d *Dashboard) setupKeyBindings() {
 		return event
 	})
 
+	// Add mouse support to hosts table
+	d.hostsTable.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick {
+			// Get click position relative to table
+			_, y := event.Position()
+			// Approximate row calculation
+			row := y
+			if row > 0 && row < d.hostsTable.GetRowCount() {
+				d.hostsTable.Select(row, 0)
+			}
+		}
+		return action, event
+	})
+
 	// Activity list key bindings
 	d.activityList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
@@ -580,6 +594,11 @@ func (d *Dashboard) updateHostsTable() {
 		d.hostsTable.SetCell(row, 2, tview.NewTableCell(vulnCount))
 		d.hostsTable.SetCell(row, 3, tview.NewTableCell(serviceCount))
 		d.hostsTable.SetCell(row, 4, tview.NewTableCell(status))
+	}
+
+	// Set initial selection to enable navigation (skip header row)
+	if d.hostsTable.GetRowCount() > 1 {
+		d.hostsTable.Select(1, 0)
 	}
 }
 

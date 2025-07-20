@@ -9,13 +9,15 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"netutil/internal/executor"
+	"netutil/internal/jobs"
 )
 
 // OutputViewer displays real-time script output with interactive input
 type OutputViewer struct {
 	*tview.Flex
-	app   *tview.Application
-	pages *tview.Pages
+	app        *tview.Application
+	pages      *tview.Pages
+	jobManager *jobs.JobManager
 
 	// UI Components
 	outputView *tview.TextView
@@ -25,6 +27,7 @@ type OutputViewer struct {
 	executor    *executor.StreamingExecutor
 	result      *executor.StreamingResult
 	outputLines []executor.OutputLine
+	scriptPath  string // Store script path for title updates
 
 	// Display settings
 	showTimestamp bool
@@ -47,7 +50,7 @@ type OutputViewer struct {
 }
 
 // NewOutputViewer creates a new output viewer
-func NewOutputViewer(app *tview.Application, pages *tview.Pages) *OutputViewer {
+func NewOutputViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager) *OutputViewer {
 	// Create output view
 	outputView := tview.NewTextView().
 		SetDynamicColors(true).
@@ -64,7 +67,7 @@ func NewOutputViewer(app *tview.Application, pages *tview.Pages) *OutputViewer {
 	// Create status line
 	statusLine := tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("[green]Ready[::-] - Press Tab to switch focus, Esc to close, Enter to send input")
+		SetText("[green]Ready[::-] - Tab=Switch | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home | Esc=Close")
 
 	// Create flex layout
 	flex := tview.NewFlex().
@@ -77,6 +80,7 @@ func NewOutputViewer(app *tview.Application, pages *tview.Pages) *OutputViewer {
 		Flex:          flex,
 		app:           app,
 		pages:         pages,
+		jobManager:    jobManager,
 		outputView:    outputView,
 		inputField:    inputField,
 		statusLine:    statusLine,
@@ -108,10 +112,13 @@ func (ov *OutputViewer) setupKeyBindings() {
 		case tcell.KeyCtrlC:
 			ov.Stop()
 			return nil
+		case tcell.KeyCtrlB:
+			ov.BackgroundTask()
+			return nil
 		case tcell.KeyTab:
 			// Switch focus to input field
 			ov.app.SetFocus(ov.inputField)
-			ov.statusLine.SetText("[yellow]Input Mode[::-] - Type your response and press Enter")
+			ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home")
 			return nil
 		}
 
@@ -149,7 +156,7 @@ func (ov *OutputViewer) setupKeyBindings() {
 			case 'l':
 				// Switch focus to input field
 				ov.app.SetFocus(ov.inputField)
-				ov.statusLine.SetText("[yellow]Input Mode[::-] - Type your response and press Enter")
+				ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home")
 				return nil
 			}
 		}
@@ -171,10 +178,13 @@ func (ov *OutputViewer) setupInputField() {
 		case tcell.KeyCtrlC:
 			ov.Stop()
 			return nil
+		case tcell.KeyCtrlB:
+			ov.BackgroundTask()
+			return nil
 		case tcell.KeyTab:
 			// Switch focus to output view
 			ov.app.SetFocus(ov.outputView)
-			ov.statusLine.SetText("[green]View Mode[::-] - Press Tab to switch focus, Esc to close")
+			ov.statusLine.SetText("[green]View Mode[::-] - Tab=Input | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home | Esc=Close")
 			return nil
 		case tcell.KeyEnter:
 			// Check if script is completed - if so, return to main TUI
@@ -225,7 +235,7 @@ func (ov *OutputViewer) sendInputToScript(input string) {
 
 			// Update status to show input was sent (asynchronously)
 			ov.app.QueueUpdateDraw(func() {
-				ov.statusLine.SetText("[green]Input sent[::-] - Waiting for script response...")
+				ov.statusLine.SetText("[green]Input sent[::-] - Waiting for response | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home")
 			})
 		}
 	}
@@ -250,9 +260,41 @@ func (ov *OutputViewer) StartScript(scriptPath string) error {
 	ov.errorChan = errorChan
 	ov.running = true
 	ov.outputLines = make([]executor.OutputLine, 0)
+	ov.scriptPath = scriptPath
 
-	// Set initial title
-	ov.SetTitle(fmt.Sprintf("Script Output - %s [Running]", scriptPath))
+	// Set initial title with job count
+	ov.updateTitle(scriptPath, "Running")
+
+	// Start output processing
+	go ov.processOutput()
+
+	return nil
+}
+
+// ConnectToJob connects the OutputViewer to an existing running job
+func (ov *OutputViewer) ConnectToJob(job *jobs.Job) error {
+	ov.mu.Lock()
+	defer ov.mu.Unlock()
+
+	if ov.running {
+		return fmt.Errorf("viewer is already connected to a job")
+	}
+
+	if !job.IsRunning() {
+		return fmt.Errorf("job is not running")
+	}
+
+	// Connect to the existing job's executor and channels
+	ov.executor = job.Executor
+	ov.result = job.Result
+	ov.outputChan = job.OutputChan
+	ov.errorChan = job.ErrorChan
+	ov.running = true
+	ov.outputLines = make([]executor.OutputLine, 0)
+	ov.scriptPath = job.ScriptPath
+
+	// Set initial title with job count
+	ov.updateTitle(job.ScriptPath, "Running")
 
 	// Start output processing
 	go ov.processOutput()
@@ -291,11 +333,11 @@ func (ov *OutputViewer) processOutput() {
 			})
 
 			ov.app.QueueUpdateDraw(func() {
-				ov.SetTitle(fmt.Sprintf("Script Output [%s] - Duration: %v",
-					status, ov.result.Duration.Round(time.Second)))
+				// Update title with job count and completion status
+				ov.updateTitle(ov.scriptPath, fmt.Sprintf("%s - Duration: %v", status, ov.result.Duration.Round(time.Second)))
 
 				// Update status line and input field for completion mode
-				ov.statusLine.SetText(fmt.Sprintf("[%s]Press ENTER to continue or ESC to close[::-]", statusColor))
+				ov.statusLine.SetText(fmt.Sprintf("[%s]ENTER=Continue | Ctrl+J=Jobs | Ctrl+H=Home | ESC=Close[::-]", statusColor))
 			})
 		}
 	}()
@@ -358,7 +400,7 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 		ov.waitingInput = true
 		ov.app.QueueUpdateDraw(func() {
 			ov.app.SetFocus(ov.inputField)
-			ov.statusLine.SetText("[yellow]Waiting for input[::-] - Enter your selection and press Enter")
+			ov.statusLine.SetText("[yellow]Waiting for input[::-] - Enter selection + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home")
 		})
 	}
 
@@ -688,4 +730,59 @@ Script Control:
 		})
 
 	ov.pages.AddPage("output-help", helpModal, true, true)
+}
+
+// BackgroundTask minimizes the current script output and returns to main TUI
+// while keeping the script running in the background
+func (ov *OutputViewer) BackgroundTask() {
+	ov.mu.Lock()
+	defer ov.mu.Unlock()
+
+	if !ov.running {
+		// If script is not running, just close the output viewer
+		ov.pages.RemovePage("output")
+		return
+	}
+
+	// Disconnect from the job output but don't stop the job itself
+	// The job continues running in JobManager and can be reconnected later
+	ov.running = false
+
+	// Signal our output processing goroutine to stop
+	select {
+	case ov.stopChan <- struct{}{}:
+	default:
+	}
+
+	// Clear our references but don't stop the actual job execution
+	ov.executor = nil
+	ov.result = nil
+	ov.outputChan = nil
+	ov.errorChan = nil
+
+	// Remove the output viewer and return to main TUI
+	ov.pages.RemovePage("output")
+}
+
+// updateTitle updates the output viewer title with job count information
+func (ov *OutputViewer) updateTitle(scriptPath, status string) {
+	var title string
+
+	if ov.jobManager != nil {
+		stats := ov.jobManager.GetStats()
+		jobCount := fmt.Sprintf("[%d/%d Jobs]", stats.RunningJobs, stats.MaxConcurrent)
+
+		// Extract just the script name from the path
+		scriptName := scriptPath
+		if idx := strings.LastIndex(scriptPath, "/"); idx != -1 {
+			scriptName = scriptPath[idx+1:]
+		}
+
+		title = fmt.Sprintf("Script Output %s - %s [%s]", jobCount, scriptName, status)
+	} else {
+		// Fallback if no job manager
+		title = fmt.Sprintf("Script Output - %s [%s]", scriptPath, status)
+	}
+
+	ov.SetTitle(title)
 }
