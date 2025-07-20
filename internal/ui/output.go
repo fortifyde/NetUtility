@@ -67,7 +67,7 @@ func NewOutputViewer(app *tview.Application, pages *tview.Pages, jobManager *job
 	// Create status line
 	statusLine := tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("[green]Ready[::-] - Tab=Switch | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home | Esc=Close")
+		SetText("[green]Ready[::-] - Tab=Switch | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home | Esc=Close")
 
 	// Create flex layout
 	flex := tview.NewFlex().
@@ -118,7 +118,7 @@ func (ov *OutputViewer) setupKeyBindings() {
 		case tcell.KeyTab:
 			// Switch focus to input field
 			ov.app.SetFocus(ov.inputField)
-			ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home")
+			ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
 			return nil
 		}
 
@@ -156,7 +156,7 @@ func (ov *OutputViewer) setupKeyBindings() {
 			case 'l':
 				// Switch focus to input field
 				ov.app.SetFocus(ov.inputField)
-				ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home")
+				ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
 				return nil
 			}
 		}
@@ -184,7 +184,7 @@ func (ov *OutputViewer) setupInputField() {
 		case tcell.KeyTab:
 			// Switch focus to output view
 			ov.app.SetFocus(ov.outputView)
-			ov.statusLine.SetText("[green]View Mode[::-] - Tab=Input | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home | Esc=Close")
+			ov.statusLine.SetText("[green]View Mode[::-] - Tab=Input | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home | Esc=Close")
 			return nil
 		case tcell.KeyEnter:
 			// Check if script is completed - if so, return to main TUI
@@ -235,7 +235,7 @@ func (ov *OutputViewer) sendInputToScript(input string) {
 
 			// Update status to show input was sent (asynchronously)
 			ov.app.QueueUpdateDraw(func() {
-				ov.statusLine.SetText("[green]Input sent[::-] - Waiting for response | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home")
+				ov.statusLine.SetText("[green]Input sent[::-] - Waiting for response | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
 			})
 		}
 	}
@@ -337,7 +337,7 @@ func (ov *OutputViewer) processOutput() {
 				ov.updateTitle(ov.scriptPath, fmt.Sprintf("%s - Duration: %v", status, ov.result.Duration.Round(time.Second)))
 
 				// Update status line and input field for completion mode
-				ov.statusLine.SetText(fmt.Sprintf("[%s]ENTER=Continue | Ctrl+J=Jobs | Ctrl+H=Home | ESC=Close[::-]", statusColor))
+				ov.statusLine.SetText(fmt.Sprintf("[%s]ENTER=Continue | Ctrl+J=Jobs | Ctrl+Home=Home | ESC=Close[::-]", statusColor))
 			})
 		}
 	}()
@@ -400,7 +400,7 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 		ov.waitingInput = true
 		ov.app.QueueUpdateDraw(func() {
 			ov.app.SetFocus(ov.inputField)
-			ov.statusLine.SetText("[yellow]Waiting for input[::-] - Enter selection + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+H=Home")
+			ov.statusLine.SetText("[yellow]Waiting for input[::-] - Enter selection + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
 		})
 	}
 
@@ -614,6 +614,18 @@ func (ov *OutputViewer) StartSearch() {
 			ov.pages.RemovePage("search")
 			ov.app.SetFocus(ov)
 		})
+
+	// Add input capture for escape key only
+	searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyEscape:
+			ov.pages.RemovePage("search")
+			ov.app.SetFocus(ov)
+			return nil
+		}
+		// Let all other keys pass through
+		return event
+	})
 
 	modal := tview.NewModal().
 		SetText("Enter search query:").

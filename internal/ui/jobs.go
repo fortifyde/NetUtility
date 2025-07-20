@@ -355,10 +355,9 @@ func (jv *JobsViewer) setMaxConcurrent(max int) {
 
 // refresh updates all UI components
 func (jv *JobsViewer) refresh() {
-	jv.app.QueueUpdateDraw(func() {
-		jv.updateJobsList()
-		jv.updateStats()
-	})
+	// Update directly - we're already on the UI thread when called from key handlers
+	jv.updateJobsList()
+	jv.updateStats()
 }
 
 // startRefreshTimer starts automatic refresh
@@ -368,7 +367,11 @@ func (jv *JobsViewer) startRefreshTimer() {
 		for {
 			select {
 			case <-jv.refreshTicker.C:
-				jv.refresh()
+				// Use QueueUpdateDraw for background goroutine updates
+				jv.app.QueueUpdateDraw(func() {
+					jv.updateJobsList()
+					jv.updateStats()
+				})
 			case <-jv.stopChan:
 				return
 			}
