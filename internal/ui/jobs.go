@@ -24,6 +24,7 @@ type JobsViewer struct {
 
 	// State
 	selectedJob   string
+	jobIDMapping  map[int]string // Maps table row to actual job ID
 	refreshTicker *time.Ticker
 	stopChan      chan struct{}
 }
@@ -31,11 +32,12 @@ type JobsViewer struct {
 // NewJobsViewer creates a new jobs viewer
 func NewJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager) *JobsViewer {
 	jv := &JobsViewer{
-		Flex:       tview.NewFlex(),
-		app:        app,
-		pages:      pages,
-		jobManager: jobManager,
-		stopChan:   make(chan struct{}),
+		Flex:         tview.NewFlex(),
+		app:          app,
+		pages:        pages,
+		jobManager:   jobManager,
+		jobIDMapping: make(map[int]string),
+		stopChan:     make(chan struct{}),
 	}
 
 	jv.setupUI()
@@ -130,11 +132,27 @@ func (jv *JobsViewer) setupKeyBindings() {
 
 	jv.jobsList.SetSelectionChangedFunc(func(row, column int) {
 		if row > 0 { // Skip header row
-			cell := jv.jobsList.GetCell(row, 0)
-			if cell != nil {
-				jv.selectedJob = cell.Text
+			// Use the actual job ID from our mapping instead of truncated display text
+			if actualJobID, exists := jv.jobIDMapping[row]; exists {
+				jv.selectedJob = actualJobID
+			} else {
+				jv.selectedJob = ""
 			}
 		}
+	})
+
+	// Add mouse support to jobs table
+	jv.jobsList.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick {
+			// Get click position relative to table
+			_, y := event.Position()
+			// Approximate row calculation (y-1 to account for border, assuming each row is 1 line)
+			row := y
+			if row > 0 && row < jv.jobsList.GetRowCount() {
+				jv.jobsList.Select(row, 0)
+			}
+		}
+		return action, event
 	})
 }
 
@@ -142,6 +160,8 @@ func (jv *JobsViewer) setupKeyBindings() {
 func (jv *JobsViewer) updateJobsList() {
 	// Clear existing rows (except header)
 	jv.jobsList.Clear()
+	// Clear job ID mapping
+	jv.jobIDMapping = make(map[int]string)
 
 	// Reset headers
 	headers := []string{"ID", "Name", "Status", "Duration", "Progress"}
@@ -178,12 +198,20 @@ func (jv *JobsViewer) updateJobsList() {
 
 		progress := jv.getJobProgress(job)
 
-		// Set table cells
+		// Set table cells (jobID is truncated for display)
 		jv.jobsList.SetCell(row, 0, tview.NewTableCell(jobID))
 		jv.jobsList.SetCell(row, 1, tview.NewTableCell(jobName))
 		jv.jobsList.SetCell(row, 2, tview.NewTableCell(status).SetTextColor(statusColor))
 		jv.jobsList.SetCell(row, 3, tview.NewTableCell(duration))
 		jv.jobsList.SetCell(row, 4, tview.NewTableCell(progress))
+
+		// Store mapping from row to actual full job ID
+		jv.jobIDMapping[row] = job.ID
+	}
+
+	// Set initial selection to enable navigation (skip header row)
+	if jv.jobsList.GetRowCount() > 1 {
+		jv.jobsList.Select(1, 0)
 	}
 }
 
@@ -284,19 +312,15 @@ func (jv *JobsViewer) viewJobOutput() {
 	}
 
 	// Create output viewer for the job
-	outputViewer := NewOutputViewer(jv.app, jv.pages)
+	outputViewer := NewOutputViewer(jv.app, jv.pages, jv.jobManager)
 
-	// Manually set up the viewer with job's channels
-	outputViewer.executor = job.Executor
-	outputViewer.result = job.Result
-	outputViewer.outputChan = job.OutputChan
-	outputViewer.errorChan = job.ErrorChan
-	outputViewer.running = true
+	// Connect to the existing job
+	if err := outputViewer.ConnectToJob(job); err != nil {
+		jv.showError(fmt.Sprintf("Failed to connect to job: %v", err))
+		return
+	}
 
-	// Set title
-	outputViewer.SetTitle(fmt.Sprintf("Job Output - %s [%s]", job.Name, job.ID))
-
-	// Add to pages
+	// Add to pages and focus
 	jv.pages.AddPage("job-output", outputViewer, true, true)
 	jv.app.SetFocus(outputViewer)
 }

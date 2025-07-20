@@ -29,6 +29,7 @@ type TUI struct {
 	headerPane   *tview.TextView
 	categoryPane *tview.List
 	taskPane     *tview.List
+	infoPane     *tview.TextView
 
 	// State management
 	currentCategory string
@@ -185,6 +186,7 @@ func NewTUI() *TUI {
 		headerPane:   tview.NewTextView(),
 		categoryPane: tview.NewList(),
 		taskPane:     tview.NewList(),
+		infoPane:     tview.NewTextView(),
 		executor:     executor.NewExecutor(),
 		registry:     registry,
 		jobManager:   jobs.NewJobManager(3),         // Allow 3 concurrent jobs
@@ -225,19 +227,114 @@ Network Security Toolkit
 		t.showCategory(mainText)
 	})
 
+	// Add mouse support diagnostic
+	t.categoryPane.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick {
+			// Manual handling for mouse clicks
+			_, y := event.Position()
+			// Convert screen coordinates to list item (approximate)
+			if y > 0 && y <= t.categoryPane.GetItemCount() {
+				itemIndex := y - 1
+				if itemIndex >= 0 && itemIndex < t.categoryPane.GetItemCount() {
+					t.categoryPane.SetCurrentItem(itemIndex)
+					mainText, _ := t.categoryPane.GetItemText(itemIndex)
+					t.showCategory(mainText)
+				}
+			}
+		}
+		return action, event
+	})
+
 	// Set task selection handler
 	t.taskPane.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
 		t.executeTask(mainText)
 	})
+
+	// Add mouse support to task pane
+	t.taskPane.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+		if action == tview.MouseLeftClick {
+			// Manual handling for mouse clicks
+			_, y := event.Position()
+			// Convert screen coordinates to list item (approximate)
+			if y > 0 && y <= t.taskPane.GetItemCount() {
+				itemIndex := y - 1
+				if itemIndex >= 0 && itemIndex < t.taskPane.GetItemCount() {
+					t.taskPane.SetCurrentItem(itemIndex)
+					mainText, _ := t.taskPane.GetItemText(itemIndex)
+					t.executeTask(mainText)
+				}
+			}
+		}
+		return action, event
+	})
+
+	// Add j/k navigation support to category pane
+	t.categoryPane.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyRune {
+			switch event.Rune() {
+			case 'j':
+				// Move down (like down arrow)
+				currentItem := t.categoryPane.GetCurrentItem()
+				itemCount := t.categoryPane.GetItemCount()
+				if currentItem < itemCount-1 {
+					t.categoryPane.SetCurrentItem(currentItem + 1)
+				}
+				return nil
+			case 'k':
+				// Move up (like up arrow)
+				currentItem := t.categoryPane.GetCurrentItem()
+				if currentItem > 0 {
+					t.categoryPane.SetCurrentItem(currentItem - 1)
+				}
+				return nil
+			}
+		}
+		// Let all other keys pass through to global handler
+		return event
+	})
+
+	// Add j/k navigation support to task pane
+	t.taskPane.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyRune {
+			switch event.Rune() {
+			case 'j':
+				// Move down (like down arrow)
+				currentItem := t.taskPane.GetCurrentItem()
+				itemCount := t.taskPane.GetItemCount()
+				if currentItem < itemCount-1 {
+					t.taskPane.SetCurrentItem(currentItem + 1)
+				}
+				return nil
+			case 'k':
+				// Move up (like up arrow)
+				currentItem := t.taskPane.GetCurrentItem()
+				if currentItem > 0 {
+					t.taskPane.SetCurrentItem(currentItem - 1)
+				}
+				return nil
+			}
+		}
+		// Let all other keys pass through to global handler
+		return event
+	})
+
+	// Setup info pane (informational panel for first-time users)
+	t.infoPane.SetBorder(true).SetTitle("Quick Reference")
+	t.infoPane.SetDynamicColors(true)
+	t.updateInfoPanel() // Set initial content
 
 	// Create layout: 2 columns, left column stacked (header + categories), right column (tasks)
 	leftColumn := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(t.headerPane, 5, 0, false). // Fixed height for header
 		AddItem(t.categoryPane, 0, 1, true) // Flexible height for categories
 
-	mainLayout := tview.NewFlex().SetDirection(tview.FlexColumn).
+	topLayout := tview.NewFlex().SetDirection(tview.FlexColumn).
 		AddItem(leftColumn, 0, 1, true). // 25% width for left column
 		AddItem(t.taskPane, 0, 3, false) // 75% width for task pane
+
+	mainLayout := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(topLayout, 0, 1, false). // Main content area
+		AddItem(t.infoPane, 4, 0, false) // Fixed height for info panel
 
 	// Setup main page
 	t.pages.AddPage("main", mainLayout, true, true)
@@ -253,15 +350,43 @@ Network Security Toolkit
 }
 
 func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
+	// Handle global Ctrl+key shortcuts that work everywhere (including output viewer)
+	if event.Key() == tcell.KeyCtrlJ {
+		// Global Job Manager access - works even during script execution
+		t.showJobsManager()
+		return nil
+	}
+	if event.Key() == tcell.KeyCtrlD {
+		// Global Dashboard access
+		t.showDashboard()
+		return nil
+	}
+	if event.Key() == tcell.KeyCtrlR && event.Modifiers()&tcell.ModCtrl != 0 {
+		// Global Correlation viewer access (Ctrl+R to avoid conflict with 'r' refresh)
+		t.showCorrelationViewer()
+		return nil
+	}
+	if event.Key() == tcell.KeyCtrlH {
+		// Global Home - return to main TUI from anywhere
+		t.returnToMain()
+		return nil
+	}
+
 	// Check if we're on the output viewer page
 	frontPageName, _ := t.pages.GetFrontPage()
 	if frontPageName == "output" {
-		// Let output viewer handle ALL keys when it's active
+		// Let output viewer handle remaining keys when it's active
+		// (but global Ctrl+key shortcuts were already processed above)
 		return event
 	}
 
-	// Only process TUI vim shortcuts when on main page
-	// Handle vim-like keys and enhanced navigation
+	// Only process TUI vim shortcuts when on main page - let other pages handle their own navigation
+	if frontPageName != "main" {
+		// On non-main pages (jobs, dashboard, correlation), let the focused component handle all navigation
+		return event
+	}
+
+	// Handle vim-like keys and enhanced navigation for main page only
 	switch event.Key() {
 	case tcell.KeyTab:
 		t.switchFocus()
@@ -282,10 +407,12 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 		case 'h':
 			// Vim-like left (focus categories)
 			t.app.SetFocus(t.categoryPane)
+			t.updateInfoPanel()
 			return nil
 		case 'l':
 			// Vim-like right (focus tasks)
 			t.app.SetFocus(t.taskPane)
+			t.updateInfoPanel()
 			return nil
 		case 'j':
 			// Vim-like down - let the focused widget handle it
@@ -309,6 +436,10 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 			// Show correlation viewer (capital C)
 			t.showCorrelationViewer()
 			return nil
+		case 'D':
+			// Show dashboard (capital D)
+			t.showDashboard()
+			return nil
 		default:
 			return event
 		}
@@ -324,6 +455,8 @@ func (t *TUI) switchFocus() {
 	} else {
 		t.app.SetFocus(t.categoryPane)
 	}
+	// Update info panel to reflect new focus
+	t.updateInfoPanel()
 }
 
 func (t *TUI) showCategory(categoryName string) {
@@ -346,6 +479,9 @@ func (t *TUI) showCategory(categoryName string) {
 
 	// Switch focus to task pane
 	t.app.SetFocus(t.taskPane)
+
+	// Update info panel to reflect new context
+	t.updateInfoPanel()
 }
 
 func (t *TUI) executeTask(taskName string) {
@@ -406,7 +542,7 @@ func (t *TUI) executeTask(taskName string) {
 	t.executeTaskWithStreaming(scriptPath, taskName)
 }
 
-// executeTaskWithStreaming executes a task using the streaming output viewer
+// executeTaskWithStreaming executes a task using the JobManager for consistent tracking
 func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 	// Convert to absolute path
 	absPath, err := filepath.Abs(scriptPath)
@@ -416,21 +552,27 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 		return
 	}
 
-	// Check if we can run immediately or should queue
-	if t.jobManager.CanStartNewJob() {
-		// Run immediately with live output
-		outputViewer := NewOutputViewer(t.app, t.pages)
-		t.pages.AddPage("output", outputViewer, true, true)
-		t.app.SetFocus(outputViewer)
+	// Always create and start job via JobManager for consistent tracking
+	jobID := fmt.Sprintf("job_%d", time.Now().Unix())
+	job := t.jobManager.CreateJob(jobID, taskName, absPath)
 
-		if err := outputViewer.StartScript(absPath); err != nil {
-			t.showErrorModal("Execution Error", fmt.Sprintf("Failed to start script: %v", err))
-			t.pages.RemovePage("output")
-			return
-		}
-	} else {
-		// Ask user if they want to queue the job
+	// Try to start the job
+	if err := t.jobManager.StartJob(job.ID); err != nil {
+		// Job couldn't start immediately - show options
 		t.showExecutionOptions(absPath, taskName)
+		return
+	}
+
+	// Job started successfully - show live output
+	outputViewer := NewOutputViewer(t.app, t.pages, t.jobManager)
+	t.pages.AddPage("output", outputViewer, true, true)
+	t.app.SetFocus(outputViewer)
+
+	// Connect OutputViewer to the running job
+	if err := outputViewer.ConnectToJob(job); err != nil {
+		t.showErrorModal("Connection Error", fmt.Sprintf("Failed to connect to job: %v", err))
+		t.pages.RemovePage("output")
+		return
 	}
 }
 
@@ -475,6 +617,11 @@ func (t *TUI) showJobsManager() {
 // showCorrelationViewer displays the correlation viewer interface
 func (t *TUI) showCorrelationViewer() {
 	ShowCorrelationViewer(t.app, t.pages, t.correlator)
+}
+
+// showDashboard displays the dashboard interface
+func (t *TUI) showDashboard() {
+	ShowDashboard(t.app, t.pages, t.jobManager, t.correlator, nil)
 }
 
 // showInfoModal displays an info message to the user
@@ -648,4 +795,59 @@ func (t *TUI) refreshCategories() {
 	t.taskPane.Clear()
 	t.taskPane.SetTitle("Select a category")
 	t.currentCategory = ""
+}
+
+// updateInfoPanel updates the informational panel with context-sensitive content
+func (t *TUI) updateInfoPanel() {
+	current := t.app.GetFocus()
+	var content strings.Builder
+
+	// Context-sensitive help based on current focus
+	if current == t.categoryPane {
+		// Categories panel is focused
+		content.WriteString("[yellow]Categories Panel:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Select Category [white]Tab/l[::-]=Go to Tasks\n")
+		content.WriteString("[yellow]Available:[::-] System Config, Network Recon, Vulnerability Assessment, Config Gathering\n")
+		content.WriteString("[yellow]Quick:[::-] [white]J[::-]=Jobs [white]C[::-]=Correlations [white]?[::-]=Help [white]q[::-]=Quit [white]/[::-]=Search")
+	} else if current == t.taskPane {
+		// Tasks panel is focused
+		if t.currentCategory != "" {
+			content.WriteString(fmt.Sprintf("[yellow]%s Tasks:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Execute Task [white]Tab/h[::-]=Back to Categories\n", t.currentCategory))
+			content.WriteString("[yellow]Execution:[::-] Live output viewer • Up to 3 concurrent jobs • [white]Ctrl+J[::-]=Jobs [white]Ctrl+B[::-]=Background\n")
+			content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+R[::-]=Correlations [white]Ctrl+H[::-]=Home [white]/[::-]=Search [white]q[::-]=Quit")
+		} else {
+			content.WriteString("[yellow]Tasks Panel:[::-] [white]Tab/h[::-]=Select Category First [white]/[::-]=Search [white]?[::-]=Help\n")
+			content.WriteString("[yellow]Features:[::-] Real-time execution • Background job management • Result correlation\n")
+			content.WriteString("[yellow]Access:[::-] [white]J[::-]=Job Manager [white]C[::-]=Correlation Analysis [white]q[::-]=Quit")
+		}
+	} else {
+		// Default/general help
+		content.WriteString("[yellow]Essential:[::-] [white]Tab[::-]=Switch Panels [white]Enter[::-]=Select [white]q[::-]=Quit [white]?[::-]=Full Help\n")
+		content.WriteString("[yellow]Navigate:[::-] [white]h[::-]=Categories [white]l[::-]=Tasks [white]j/k[::-]=Move Up/Down [white]/[::-]=Search\n")
+		content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+R[::-]=Correlations [white]Ctrl+H[::-]=Home [white]r[::-]=Refresh")
+	}
+
+	t.infoPane.SetText(content.String())
+}
+
+// returnToMain returns to the main TUI from any other view
+func (t *TUI) returnToMain() {
+	// Remove any overlays and return to main page
+	pageNames := []string{"output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help"}
+
+	for _, pageName := range pageNames {
+		t.pages.RemovePage(pageName)
+	}
+
+	// Switch to main page and set focus to appropriate panel
+	t.pages.SwitchToPage("main")
+
+	// Focus on categories if no category selected, otherwise focus on tasks
+	if t.currentCategory == "" {
+		t.app.SetFocus(t.categoryPane)
+	} else {
+		t.app.SetFocus(t.taskPane)
+	}
+
+	// Update info panel to reflect current focus
+	t.updateInfoPanel()
 }
