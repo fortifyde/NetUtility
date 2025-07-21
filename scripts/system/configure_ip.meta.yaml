@@ -1,6 +1,6 @@
 script:
-  name: "Configure IP Address"
-  description: "Configure IP addresses and network settings for interfaces"
+  name: "Configure IP Addresses"
+  description: "Enhanced IP address configuration with CLI support, validation, and logging"
   category: "system"
   subcategory: "networking"
   
@@ -19,25 +19,30 @@ script:
     - "interface"
     - "network"
     - "static"
+    - "add"
+    - "remove"
+    - "flush"
   
   parameters:
     - name: "interface"
       type: "interface"
       description: "Network interface to configure"
-      required: true
+      required: false
     - name: "operation"
       type: "choice"
       description: "Configuration operation"
-      required: true
-      default: "1"
+      required: false
+      default: "interactive"
       validation:
         choices:
-          - value: "1"
-            description: "Configure static IP"
-          - value: "2"
-            description: "Enable DHCP"
-          - value: "3"
-            description: "Show current configuration"
+          - value: "add"
+            description: "Add IP address"
+          - value: "remove"
+            description: "Remove IP address"
+          - value: "flush"
+            description: "Flush all IP addresses"
+          - value: "interactive"
+            description: "Interactive mode"
     - name: "ip_address"
       type: "ip_address"
       description: "IP address with CIDR notation"
@@ -50,26 +55,37 @@ script:
       - name: "ip"
         package: "iproute2"
         check_command: "which ip"
+      - name: "grep"
+        package: "grep"
+        check_command: "which grep"
   
   output:
     creates_files: false
     workspace_subdirs: []
+    logs_operations: true
   
   tags:
     - "networking"
     - "configuration"
     - "ip-address"
     - "interface"
+    - "enhanced"
+    - "validation"
+    - "logging"
   risk_level: "medium"
   network_access: false
   modifies_system: true
   
   examples:
-    - description: "Configure IP address"
+    - description: "Interactive IP configuration"
       command: "netutil config-ip"
-    - description: "IP configuration using numeric shortcut"
-      command: "netutil 4"
+    - description: "Add IP address directly"
+      command: "./configure_ip.sh -i eth0 -a 192.168.1.100/24"
+    - description: "Remove IP address directly"
+      command: "./configure_ip.sh -i eth0 -r 192.168.1.100/24"
+    - description: "Flush all addresses from interface"
+      command: "./configure_ip.sh --flush eth0"
   
-  version: "1.0"
+  version: "2.0"
   author: "NetUtility Team"
-  last_updated: "2025-01-19"
+  last_updated: "2025-01-20"
