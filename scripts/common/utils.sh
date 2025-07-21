@@ -409,9 +409,9 @@ select_capture_file() {
 # Specialized function for host file selection
 select_host_file() {
     if [ -n "$NETUTIL_WORKDIR" ]; then
-        host_dir="$NETUTIL_WORKDIR/enumeration"
+        host_dir="$NETUTIL_WORKDIR/discovery"
     else
-        host_dir="$HOME/enumeration"
+        host_dir="$HOME/discovery"
     fi
     select_file "$host_dir" "hosts_*.txt" "Select host file" true
 }
@@ -818,4 +818,106 @@ prompt_network_range() {
             echo "Invalid network range format. Please use CIDR notation (e.g., 192.168.1.0/24)"
         fi
     done
+}
+
+# =============================================================================
+# WORKSPACE AND SYMLINK MANAGEMENT
+# =============================================================================
+
+# Function to update latest symlinks for all result categories
+update_latest_links() {
+    local category="$1"      # Category: discovery, analysis, vulnerability, reports, captures
+    local result_path="$2"   # Full path to the result (file or directory)
+    local workdir="${NETUTIL_WORKDIR:-$HOME}"
+    
+    if [ -z "$category" ] || [ -z "$result_path" ]; then
+        echo "Usage: update_latest_links <category> <result_path>" >&2
+        return 1
+    fi
+    
+    # Ensure result path exists
+    if [ ! -e "$result_path" ]; then
+        echo "Warning: Result path does not exist: $result_path" >&2
+        return 1
+    fi
+    
+    # Create latest directory if it doesn't exist
+    latest_dir="$workdir/latest"
+    mkdir -p "$latest_dir" 2>/dev/null || true
+    
+    # Create category symlink in latest/
+    category_link="$latest_dir/$category"
+    
+    # Remove old symlink if it exists
+    [ -L "$category_link" ] && rm -f "$category_link"
+    
+    # Create new symlink (use relative path for portability)
+    if command -v realpath >/dev/null 2>&1; then
+        # Use realpath if available for proper relative path calculation
+        if cd "$latest_dir" 2>/dev/null; then
+            relative_path=$(realpath --relative-to="$latest_dir" "$result_path" 2>/dev/null)
+            if [ -n "$relative_path" ]; then
+                ln -sf "$relative_path" "$category_link" 2>/dev/null
+            else
+                # Fallback to absolute path
+                ln -sf "$result_path" "$category_link" 2>/dev/null
+            fi
+            cd - >/dev/null
+        fi
+    else
+        # Simple fallback - use absolute path
+        ln -sf "$result_path" "$category_link" 2>/dev/null
+    fi
+    
+    # Verify symlink was created successfully
+    if [ -L "$category_link" ]; then
+        echo "✓ Latest $category results: $category_link -> $(basename "$result_path")"
+        return 0
+    else
+        echo "⚠ Warning: Failed to create latest symlink for $category" >&2
+        return 1
+    fi
+}
+
+# Function to clean up broken symlinks in latest/ directory
+cleanup_latest_links() {
+    local workdir="${NETUTIL_WORKDIR:-$HOME}"
+    local latest_dir="$workdir/latest"
+    
+    if [ ! -d "$latest_dir" ]; then
+        return 0
+    fi
+    
+    # Find and remove broken symlinks
+    find "$latest_dir" -type l ! -exec test -e {} \; -delete 2>/dev/null || true
+    
+    echo "✓ Cleaned up broken symlinks in $latest_dir"
+}
+
+# Function to show current latest results
+show_latest_results() {
+    local workdir="${NETUTIL_WORKDIR:-$HOME}"
+    local latest_dir="$workdir/latest"
+    
+    if [ ! -d "$latest_dir" ]; then
+        echo "No latest results directory found"
+        return 1
+    fi
+    
+    echo "=== Latest Results ==="
+    
+    # Check each expected category
+    for category in discovery analysis vulnerability reports captures; do
+        category_link="$latest_dir/$category"
+        if [ -L "$category_link" ] && [ -e "$category_link" ]; then
+            target=$(readlink "$category_link" 2>/dev/null)
+            if [ -n "$target" ]; then
+                echo "  $category: $(basename "$target")"
+            fi
+        else
+            echo "  $category: (none)"
+        fi
+    done
+    
+    echo
 }

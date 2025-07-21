@@ -194,10 +194,13 @@ func (c *Config) CreateWorkspace() error {
 	// Create subdirectories with more permissive permissions for root access
 	subdirs := []string{
 		"captures",
-		"enumeration",
+		"discovery",
 		"vulnerability",
+		"analysis",
+		"reports",
 		"configs",
 		"logs",
+		"advanced",
 	}
 
 	for _, subdir := range subdirs {
@@ -549,10 +552,13 @@ func (c *Config) FixWorkspacePermissions() error {
 	// Set permissions on workspace subdirectories to allow root write access
 	subdirs := []string{
 		"captures",
-		"enumeration",
+		"discovery",
 		"vulnerability",
+		"analysis",
+		"reports",
 		"configs",
 		"logs",
+		"advanced",
 		"latest",
 	}
 

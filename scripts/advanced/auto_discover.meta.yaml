@@ -1,23 +1,23 @@
 script:
-  name: "Integrated Workflow"
-  description: "Automated multi-phase network assessment workflow"
-  category: "network"
+  name: "Auto-Discovery Workflow"
+  description: "Automated VLAN-aware network discovery with intelligent configuration"
+  category: "advanced"
   subcategory: "automation"
   
-  file: "integrated_workflow.sh"
+  file: "auto_discover.sh"
   requires_root: true
   estimated_duration: "15-45 minutes"
   
   cli_shortcuts:
-    - "workflow"
-    - "auto-scan"
-    - "full-assessment"
+    - "auto-discover"
+    - "auto-discovery" 
+    - "smart-discovery"
   keywords:
-    - "workflow"
+    - "auto-discovery"
+    - "vlan-aware"
     - "automation"
-    - "assessment"
+    - "intelligent"
     - "comprehensive"
-    - "multi-phase"
   
   parameters:
     - name: "target"
@@ -66,10 +66,10 @@ script:
   modifies_system: false
   
   examples:
-    - description: "Run integrated workflow"
-      command: "netutil workflow"
-    - description: "Automated network assessment"
-      command: "netutil auto-scan"
+    - description: "Run auto-discovery workflow"
+      command: "netutil auto-discover"
+    - description: "VLAN-aware network discovery"
+      command: "netutil auto-discovery"
   
   version: "1.0"
   author: "NetUtility Team"

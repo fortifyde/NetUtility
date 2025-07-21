@@ -531,6 +531,10 @@ fi
 echo
 echo "Multi-phase discovery complete!"
 echo "Results saved to: $SESSION_DIR"
+
+# Update latest symlinks
+update_latest_links "discovery" "$SESSION_DIR"
+
 log_info "Multi-phase discovery completed successfully"
 log_info "Results saved to: $SESSION_DIR"
 log_info "Discovery summary: $all_hosts_count total hosts, $windows_count Windows, $linux_count Linux/Unix, $network_count network devices"

@@ -3,15 +3,15 @@
 echo "=== Host Categorization ==="
 echo
 
-RESULTS_DIR="${NETUTIL_WORKDIR:-$HOME}/enumeration"
+RESULTS_DIR="${NETUTIL_WORKDIR:-$HOME}/discovery"
 
 if [ ! -d "$RESULTS_DIR" ]; then
     echo "Results directory $RESULTS_DIR not found"
-    echo "Please run network enumeration first"
+    echo "Please run network discovery first"
     exit 1
 fi
 
-echo "Available enumeration results:"
+echo "Available discovery results:"
 ls -la "$RESULTS_DIR"/host_summary_*.txt 2>/dev/null || {
     echo "No host summary files found"
     exit 1

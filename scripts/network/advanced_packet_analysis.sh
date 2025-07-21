@@ -273,6 +273,10 @@ echo "Analysis completed at $(date)" >> "$REPORT_FILE"
 
 echo "Analysis complete!"
 echo "Report saved to: $REPORT_FILE"
+
+# Update latest symlinks
+update_latest_links "analysis" "$REPORT_FILE"
+
 echo
 echo "Opening report..."
 echo

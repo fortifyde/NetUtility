@@ -107,9 +107,9 @@ _netutil_complete_file() {
             # Complete host files
             local enum_dir
             if [[ -n "$NETUTIL_WORKDIR" ]]; then
-                enum_dir="$NETUTIL_WORKDIR/enumeration"
+                enum_dir="$NETUTIL_WORKDIR/discovery"
             else
-                enum_dir="$HOME/enumeration"
+                enum_dir="$HOME/discovery"
             fi
             
             if [[ -d "$enum_dir" ]]; then

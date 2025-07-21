@@ -71,7 +71,7 @@ EOF
     
     # Create workspace structure
     echo "Creating workspace structure..."
-    mkdir -p "$workdir/captures" "$workdir/enumeration" "$workdir/vulnerability" "$workdir/configs" "$workdir/logs" "$workdir/latest"
+    mkdir -p "$workdir/captures" "$workdir/discovery" "$workdir/vulnerability" "$workdir/analysis" "$workdir/reports" "$workdir/configs" "$workdir/logs" "$workdir/latest"
     echo "Workspace structure created"
     
     cd "$workdir" || exit 1
