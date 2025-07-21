@@ -229,7 +229,141 @@ tshark -r "$CAPTURE_FILE" -q -z io,phs 2>/dev/null | head -20
 echo "--- Top conversations ---"
 tshark -r "$CAPTURE_FILE" -q -z conv,ip 2>/dev/null | head -10
 
+echo
+echo "=== Security Analysis: Unsafe Protocol Detection ==="
+echo
+
+# Perform integrated unsafe protocols analysis
+SECURITY_REPORT_FILE="$CAPTURE_DIR/security_analysis_${interface}_${TIMESTAMP}.txt"
+
+echo "Analyzing captured traffic for security issues..."
+echo "=== Security Analysis Report ===" > "$SECURITY_REPORT_FILE"
+echo "Capture file: $CAPTURE_FILE" >> "$SECURITY_REPORT_FILE"
+echo "Analysis time: $(date)" >> "$SECURITY_REPORT_FILE"
+echo >> "$SECURITY_REPORT_FILE"
+
+echo "--- CLEAR TEXT PROTOCOLS ---" >> "$SECURITY_REPORT_FILE"
+echo >> "$SECURITY_REPORT_FILE"
+
+# HTTP Detection
+echo "1. HTTP (Port 80) - Unencrypted web traffic" >> "$SECURITY_REPORT_FILE"
+http_count=$(tshark -r "$CAPTURE_FILE" -Y "http" 2>/dev/null | wc -l)
+echo "HTTP packets: $http_count" >> "$SECURITY_REPORT_FILE"
+if [ "$http_count" -gt 0 ]; then
+    echo "HTTP hosts:" >> "$SECURITY_REPORT_FILE"
+    tshark -r "$CAPTURE_FILE" -Y "http" -T fields -e http.host 2>/dev/null | sort -u | head -10 | sed 's/^/  /' >> "$SECURITY_REPORT_FILE"
+fi
+echo >> "$SECURITY_REPORT_FILE"
+
+# FTP Detection
+echo "2. FTP (Port 21) - Unencrypted file transfer" >> "$SECURITY_REPORT_FILE"
+ftp_count=$(tshark -r "$CAPTURE_FILE" -Y "ftp" 2>/dev/null | wc -l)
+echo "FTP packets: $ftp_count" >> "$SECURITY_REPORT_FILE"
+if [ "$ftp_count" -gt 0 ]; then
+    echo "FTP connections:" >> "$SECURITY_REPORT_FILE"
+    tshark -r "$CAPTURE_FILE" -Y "ftp" -T fields -e ip.src -e ip.dst 2>/dev/null | sort -u | head -5 | sed 's/^/  /' >> "$SECURITY_REPORT_FILE"
+fi
+echo >> "$SECURITY_REPORT_FILE"
+
+# Telnet Detection
+echo "3. Telnet (Port 23) - Unencrypted remote access" >> "$SECURITY_REPORT_FILE"
+telnet_count=$(tshark -r "$CAPTURE_FILE" -Y "telnet" 2>/dev/null | wc -l)
+echo "Telnet packets: $telnet_count" >> "$SECURITY_REPORT_FILE"
+if [ "$telnet_count" -gt 0 ]; then
+    echo "Telnet sessions:" >> "$SECURITY_REPORT_FILE"
+    tshark -r "$CAPTURE_FILE" -Y "telnet" -T fields -e ip.src -e ip.dst 2>/dev/null | sort -u | head -5 | sed 's/^/  /' >> "$SECURITY_REPORT_FILE"
+fi
+echo >> "$SECURITY_REPORT_FILE"
+
+# SNMP Detection
+echo "4. SNMP (Port 161) - Network management protocol" >> "$SECURITY_REPORT_FILE"
+snmp_count=$(tshark -r "$CAPTURE_FILE" -Y "snmp" 2>/dev/null | wc -l)
+echo "SNMP packets: $snmp_count" >> "$SECURITY_REPORT_FILE"
+if [ "$snmp_count" -gt 0 ]; then
+    echo "SNMP communities detected:" >> "$SECURITY_REPORT_FILE"
+    tshark -r "$CAPTURE_FILE" -Y "snmp" -T fields -e snmp.community 2>/dev/null | sort -u | head -5 | sed 's/^/  /' >> "$SECURITY_REPORT_FILE"
+fi
+echo >> "$SECURITY_REPORT_FILE"
+
+# Windows Security Analysis
+echo "--- WINDOWS SECURITY ANALYSIS ---" >> "$SECURITY_REPORT_FILE"
+echo >> "$SECURITY_REPORT_FILE"
+
+# WPAD Detection
+echo "1. WPAD (Windows Proxy Auto-Discovery Protocol)" >> "$SECURITY_REPORT_FILE"
+wpad_dns_count=$(tshark -r "$CAPTURE_FILE" -Y 'dns.qry.name contains "wpad"' 2>/dev/null | wc -l)
+wpad_nbns_count=$(tshark -r "$CAPTURE_FILE" -Y 'nbns.name contains "wpad"' 2>/dev/null | wc -l)
+echo "WPAD DNS queries: $wpad_dns_count" >> "$SECURITY_REPORT_FILE"
+echo "WPAD NBNS queries: $wpad_nbns_count" >> "$SECURITY_REPORT_FILE"
+
+if [ "$wpad_dns_count" -gt 0 ] || [ "$wpad_nbns_count" -gt 0 ]; then
+    echo "Systems requesting WPAD:" >> "$SECURITY_REPORT_FILE"
+    tshark -r "$CAPTURE_FILE" -Y 'dns.qry.name contains "wpad"' -T fields -e ip.src 2>/dev/null | sort -u | head -5 | sed 's/^/  /' >> "$SECURITY_REPORT_FILE"
+    tshark -r "$CAPTURE_FILE" -Y 'nbns.name contains "wpad"' -T fields -e ip.src 2>/dev/null | sort -u | head -5 | sed 's/^/  /' >> "$SECURITY_REPORT_FILE"
+    echo "⚠️  CRITICAL: WPAD is vulnerable to man-in-the-middle attacks!" >> "$SECURITY_REPORT_FILE"
+    echo "Recommendation: Disable WPAD via Group Policy or registry" >> "$SECURITY_REPORT_FILE"
+fi
+echo >> "$SECURITY_REPORT_FILE"
+
+# NetBIOS Analysis
+echo "2. NetBIOS Name Service (NBNS) Analysis" >> "$SECURITY_REPORT_FILE"
+nbns_count=$(tshark -r "$CAPTURE_FILE" -Y "nbns" 2>/dev/null | wc -l)
+echo "NBNS packets: $nbns_count" >> "$SECURITY_REPORT_FILE"
+if [ "$nbns_count" -gt 0 ]; then
+    echo "NetBIOS names queried:" >> "$SECURITY_REPORT_FILE"
+    tshark -r "$CAPTURE_FILE" -Y "nbns" -T fields -e nbns.name 2>/dev/null | sort -u | head -5 | sed 's/^/  /' >> "$SECURITY_REPORT_FILE"
+    echo "ℹ️  NBNS can reveal computer names and services" >> "$SECURITY_REPORT_FILE"
+fi
+echo >> "$SECURITY_REPORT_FILE"
+
+# Security Summary
+echo "--- SECURITY SUMMARY ---" >> "$SECURITY_REPORT_FILE"
+echo >> "$SECURITY_REPORT_FILE"
+
+total_unsafe=$((http_count + ftp_count + telnet_count + snmp_count))
+total_windows_security=$((wpad_dns_count + wpad_nbns_count + nbns_count))
+
+echo "Total unsafe protocol packets: $total_unsafe" >> "$SECURITY_REPORT_FILE"
+echo "Total Windows security-related packets: $total_windows_security" >> "$SECURITY_REPORT_FILE"
+echo >> "$SECURITY_REPORT_FILE"
+
+if [ "$total_unsafe" -gt 0 ]; then
+    echo "WARNING: Unsafe protocols detected!" >> "$SECURITY_REPORT_FILE"
+    echo "Recommendations:" >> "$SECURITY_REPORT_FILE"
+    echo "- Replace HTTP with HTTPS" >> "$SECURITY_REPORT_FILE"
+    echo "- Replace FTP with SFTP/FTPS" >> "$SECURITY_REPORT_FILE"
+    echo "- Replace Telnet with SSH" >> "$SECURITY_REPORT_FILE"
+    echo "- Secure SNMP with SNMPv3" >> "$SECURITY_REPORT_FILE"
+    echo >> "$SECURITY_REPORT_FILE"
+fi
+
+if [ "$total_windows_security" -gt 0 ]; then
+    echo "WINDOWS SECURITY NOTICE: Windows-specific security issues detected!" >> "$SECURITY_REPORT_FILE"
+    echo "Recommendations:" >> "$SECURITY_REPORT_FILE"
+    if [ "$wpad_dns_count" -gt 0 ] || [ "$wpad_nbns_count" -gt 0 ]; then
+        echo "- Disable WPAD via Group Policy" >> "$SECURITY_REPORT_FILE"
+    fi
+    if [ "$nbns_count" -gt 0 ]; then
+        echo "- Consider disabling NetBIOS Name Service if not required" >> "$SECURITY_REPORT_FILE"
+    fi
+    echo >> "$SECURITY_REPORT_FILE"
+fi
+
+echo "✓ Security analysis completed!"
+echo "Security report saved to: $SECURITY_REPORT_FILE"
+echo
+echo "Security Summary:"
+echo "- Unsafe protocol packets: $total_unsafe"
+echo "- Windows security-related packets: $total_windows_security"
+
+if [ "$total_unsafe" -gt 0 ] || [ "$total_windows_security" -gt 0 ]; then
+    echo
+    echo "⚠️  Security issues detected! Review the full report for details."
+fi
+
+echo
 echo "Packet capture analysis complete!"
 echo "Files created:"
 echo "  Capture: $CAPTURE_FILE"
 echo "  VLANs: $VLAN_FILE"
+echo "  Security Report: $SECURITY_REPORT_FILE"

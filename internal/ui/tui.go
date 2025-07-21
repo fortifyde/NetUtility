@@ -106,9 +106,11 @@ func (t *TUI) formatCategoryName(category string) string {
 	case "network":
 		return "Network Reconnaissance"
 	case "vulnerability":
-		return "Vulnerability Assessment"
+		return "Detailed Port Scan"
+	case "advanced":
+		return "Advanced"
 	case "config":
-		return "Config Gatherer"
+		return "Network Config Gatherer"
 	default:
 		// Capitalize first letter
 		if len(category) > 0 {
@@ -137,22 +139,27 @@ func (t *TUI) getHardcodedCategories() []Category {
 		{
 			Name: "Network Reconnaissance",
 			Tasks: []Task{
-				{Name: "Network Capture", Description: "Run tshark packet capture for 10 minutes", Script: "network_capture.sh"},
+				{Name: "Network Capture", Description: "Run packet capture with security analysis", Script: "network_capture.sh"},
 				{Name: "Extract VLAN IDs", Description: "Extract VLAN IDs from capture files", Script: "extract_vlans.sh"},
-				{Name: "Unsafe Protocol Detection", Description: "Detect unencrypted protocols in traffic", Script: "unsafe_protocols.sh"},
-				{Name: "Network Enumeration", Description: "Scan network with nmap and fping", Script: "network_enum.sh"},
+				{Name: "Multi-Phase Discovery", Description: "Comprehensive network discovery with host categorization", Script: "multi_phase_discovery.sh"},
 				{Name: "Host Categorization", Description: "Categorize discovered hosts by OS", Script: "categorize_hosts.sh"},
 			},
 		},
 		{
-			Name: "Vulnerability Assessment",
+			Name: "Detailed Port Scan",
 			Tasks: []Task{
 				{Name: "Deep Scan with NSE", Description: "Full port scan with service detection and NSE vulnerability scripts", Script: "deep_nse_scan.sh"},
 				{Name: "Vulnerability Analysis", Description: "Analyze results for known vulnerabilities", Script: "vuln_analysis.sh"},
 			},
 		},
 		{
-			Name: "Config Gatherer",
+			Name: "Advanced",
+			Tasks: []Task{
+				{Name: "Integrated Workflow", Description: "Comprehensive workflow: capture, analysis, interface config, and discovery", Script: "integrated_workflow.sh"},
+			},
+		},
+		{
+			Name: "Network Config Gatherer",
 			Tasks: []Task{
 				{Name: "Device Configuration Gathering", Description: "SSH to device, detect vendor, and gather configuration", Script: "device_config.sh"},
 			},
@@ -654,9 +661,11 @@ func (t *TUI) getScriptFolder(category string) string {
 		return "system"
 	case "Network Reconnaissance":
 		return "network"
-	case "Vulnerability Assessment":
+	case "Detailed Port Scan":
 		return "vulnerability"
-	case "Config Gatherer":
+	case "Advanced":
+		return "network"
+	case "Network Config Gatherer":
 		return "config"
 	default:
 		return "unknown"
