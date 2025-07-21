@@ -139,7 +139,7 @@ func (t *TUI) getHardcodedCategories() []Category {
 		{
 			Name: "Network Reconnaissance",
 			Tasks: []Task{
-				{Name: "Network Capture", Description: "Run packet capture with security analysis", Script: "network_capture.sh"},
+				{Name: "Network Capture", Description: "Capture network traffic with integrated security analysis and unsafe protocol detection", Script: "network_capture.sh"},
 				{Name: "Extract VLAN IDs", Description: "Extract VLAN IDs from capture files", Script: "extract_vlans.sh"},
 				{Name: "Multi-Phase Discovery", Description: "Comprehensive network discovery with host categorization", Script: "multi_phase_discovery.sh"},
 				{Name: "Host Categorization", Description: "Categorize discovered hosts by OS", Script: "categorize_hosts.sh"},

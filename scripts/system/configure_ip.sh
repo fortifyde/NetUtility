@@ -247,39 +247,67 @@ flush_ip_addresses() {
     
     # Validate input
     if ! validate_interface "$interface"; then
-        handle_error "Invalid interface: $interface"
-    fi
-    
-    # Confirm dangerous operation
-    if ! confirm_action "Are you sure you want to flush all IP addresses from $interface?"; then
-        warning_message "Operation cancelled by user"
+        warning_message "Invalid interface: $interface"
         return 1
     fi
     
-    log_config_change "flush_ip" "Flushing all IPs from $interface"
-    log_command "ip addr flush dev $interface" "$SCRIPT_NAME"
-    
-    if ip addr flush dev "$interface" 2>/dev/null; then
-        log_command_result "ip addr flush dev $interface" 0 "$SCRIPT_NAME"
-        success_message "All IP addresses flushed from $interface"
-        show_current_config "$interface"
-        return 0
-    else
-        log_command_result "ip addr flush dev $interface" 1 "$SCRIPT_NAME"
-        handle_error "Failed to flush IP addresses from $interface"
-    fi
+    # Simple confirmation with direct terminal I/O
+    echo
+    printf "Are you sure you want to flush all IP addresses from %s? (y/N): " "$interface" > /dev/tty
+    read -r response < /dev/tty
+    echo
+    case "$response" in
+        [Yy]|[Yy][Ee][Ss])
+            log_config_change "flush_ip" "Flushing all IPs from $interface"
+            log_command "ip addr flush dev $interface" "$SCRIPT_NAME"
+            
+            if ip addr flush dev "$interface" 2>/dev/null; then
+                log_command_result "ip addr flush dev $interface" 0 "$SCRIPT_NAME"
+                success_message "All IP addresses flushed from $interface"
+                show_current_config "$interface"
+                return 0
+            else
+                log_command_result "ip addr flush dev $interface" 1 "$SCRIPT_NAME"
+                error_message "Failed to flush IP addresses from $interface"
+                return 1
+            fi
+            ;;
+        *)
+            warning_message "Operation cancelled by user"
+            return 1
+            ;;
+    esac
 }
 
-# Function to get valid IP address with CIDR
+# Function to validate menu choice (1-3)
+validate_menu_choice() {
+    choice="$1"
+    validate_numeric_choice "$choice" 1 3 "menu option"
+}
+
+# Function to get valid IP address with CIDR (simplified to avoid stdin conflicts)
 get_ip_with_cidr() {
     local prompt="$1"
+    local attempts=0
+    local max_attempts=3
     
-    if result=$(prompt_and_validate "$prompt" "validate_ip_range" 3); then
-        echo "$result"
-        return 0
-    else
-        handle_error "Failed to get valid IP address"
-    fi
+    while [ $attempts -lt $max_attempts ]; do
+        printf "%s: " "$prompt" > /dev/tty
+        read -r ip_input < /dev/tty
+        
+        if [ -n "$ip_input" ] && validate_ip_range "$ip_input"; then
+            echo "$ip_input"
+            return 0
+        fi
+        
+        attempts=$((attempts + 1))
+        if [ $attempts -lt $max_attempts ]; then
+            echo "Invalid IP address format. Please try again ($((max_attempts - attempts)) attempts remaining)..."
+        fi
+    done
+    
+    echo "Failed to get valid IP address after $max_attempts attempts"
+    return 1
 }
 
 # Function to run interactive mode
@@ -311,31 +339,39 @@ run_interactive_mode() {
     # Show menu options
     echo "IP Configuration options:"
     echo "1. Add IP address"
-    echo "2. Remove IP address"
-    echo "3. Flush all IP addresses"
-    echo "4. Exit"
+    echo "2. Flush all IP addresses"
+    echo "3. Exit"
     echo
     
-    # Get user choice with validation
-    choice=$(get_validated_input "Select option (1-4)" "validate_numeric_choice 1 4")
-    
-    case "$choice" in
-        1)
-            ip_addr=$(get_ip_with_cidr "Enter IP address with CIDR (e.g., 192.168.1.100/24)")
-            add_ip_address "$SELECTED_INTERFACE" "$ip_addr"
-            ;;
-        2)
-            ip_addr=$(get_ip_with_cidr "Enter IP address with CIDR to remove")
-            remove_ip_address "$SELECTED_INTERFACE" "$ip_addr"
-            ;;
-        3)
-            flush_ip_addresses "$SELECTED_INTERFACE"
-            ;;
-        4)
-            echo "Exiting..."
-            cleanup_and_exit 0
-            ;;
-    esac
+    # Get user choice with direct terminal I/O to avoid buffering issues
+    echo
+    while true; do
+        printf "Select option (1-3): " > /dev/tty
+        read -r choice < /dev/tty
+        echo
+        
+        case "$choice" in
+            1)
+                if ip_addr=$(get_ip_with_cidr "Enter IP address with CIDR (e.g., 192.168.1.100/24)"); then
+                    add_ip_address "$SELECTED_INTERFACE" "$ip_addr"
+                else
+                    warning_message "IP address input failed. Operation cancelled."
+                fi
+                exit 0
+                ;;
+            2)
+                flush_ip_addresses "$SELECTED_INTERFACE"
+                exit 0
+                ;;
+            3)
+                echo "Exiting..."
+                exit 0
+                ;;
+            *)
+                echo "Invalid choice. Please select 1, 2, or 3."
+                ;;
+        esac
+    done
 }
 
 # Function to run command-line mode

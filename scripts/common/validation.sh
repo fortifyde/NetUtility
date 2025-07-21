@@ -6,7 +6,7 @@
 
 # Source logging functions if not already loaded
 if [ -z "$NETUTIL_LOGGING_LOADED" ]; then
-    . "$(dirname "$0")/logging.sh"
+    . "$(dirname "$0")/logging.sh" 2>/dev/null || . "$(dirname "${BASH_SOURCE[0]}")/logging.sh" 2>/dev/null || true
 fi
 
 # =============================================================================
@@ -545,4 +545,53 @@ security_validate() {
     
     log_debug "Security validation passed for $field_name" "validation"
     return 0
+}
+
+# =============================================================================
+# INTERACTIVE INPUT FUNCTIONS
+# =============================================================================
+
+# Function to get validated input with prompt and retry
+get_validated_input() {
+    prompt="$1"
+    validator="$2"  # Command to validate input, receives input as first parameter
+    default_value="$3"
+    
+    while true; do
+        # Show prompt with default value if provided
+        if [ -n "$default_value" ]; then
+            printf "%s (default: %s): " "$prompt" "$default_value"
+        else
+            printf "%s: " "$prompt"
+        fi
+        
+        # Read user input
+        read -r user_input
+        
+        # Use default if no input provided
+        if [ -z "$user_input" ] && [ -n "$default_value" ]; then
+            user_input="$default_value"
+        fi
+        
+        # Skip validation if no input and no default
+        if [ -z "$user_input" ] && [ -z "$default_value" ]; then
+            echo "Input cannot be empty. Please try again."
+            continue
+        fi
+        
+        # Run validation if validator is provided
+        if [ -n "$validator" ]; then
+            if $validator "$user_input"; then
+                echo "$user_input"
+                return 0
+            else
+                echo "Invalid input. Please try again."
+                continue
+            fi
+        else
+            # No validation needed
+            echo "$user_input"
+            return 0
+        fi
+    done
 }
