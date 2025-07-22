@@ -71,7 +71,8 @@ set_log_level() {
     echo "3. ERROR"
     echo "4. FATAL (least verbose)"
     echo
-    read -p "Select log level (0-4): " new_level
+    echo "Select log level (0-4): " >&2
+    read new_level
     
     case "$new_level" in
         0|1|2|3|4)
@@ -89,8 +90,10 @@ set_log_level() {
 
 search_logs_interactive() {
     echo "Log Search"
-    read -p "Enter search pattern (regex supported): " pattern
-    read -p "Lines of context (0 for none): " context
+    echo "Enter search pattern (regex supported): " >&2
+    read pattern
+    echo "Lines of context (0 for none): " >&2
+    read context
     
     if [ -z "$pattern" ]; then
         echo "No search pattern provided"
@@ -104,7 +107,8 @@ search_logs_interactive() {
 
 while true; do
     show_menu
-    read -p "Select option (1-8): " choice
+    echo "Select option (1-8): " >&2
+    read choice
     
     case "$choice" in
         1)
@@ -112,7 +116,8 @@ while true; do
             ;;
         2)
             echo
-            read -p "Number of recent entries to show (default 50): " lines
+            echo "Number of recent entries to show (default 50): " >&2
+            read lines
             lines=${lines:-50}
             view_recent_logs "$lines"
             ;;
@@ -123,7 +128,8 @@ while true; do
         4)
             echo
             echo "WARNING: This will permanently delete all log entries!"
-            read -p "Are you sure? (y/N): " confirm
+            echo "Are you sure? (y/N): " >&2
+            read confirm
             if echo "$confirm" | grep -E '^[Yy]$' >/dev/null; then
                 clear_logs
                 log_info "Logs cleared by user request"
@@ -155,7 +161,8 @@ while true; do
     esac
     
     echo
-    read -p "Press Enter to continue..."
+    echo "Press Enter to continue..." >&2
+    read
     echo
 done
 

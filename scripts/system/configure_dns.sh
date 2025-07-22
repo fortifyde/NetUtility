@@ -22,11 +22,13 @@ echo "4. Backup current configuration"
 echo "5. Restore from backup"
 echo "6. Exit"
 
-read -p "Select option (1-6): " option
+echo "Select option (1-6): " >&2
+read option
 
 case $option in
     1)
-        read -p "Enter nameserver IP: " nameserver
+        echo "Enter nameserver IP: " >&2
+        read nameserver
         if ! echo "$nameserver" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
             exit 1
@@ -40,7 +42,8 @@ case $option in
         fi
         ;;
     2)
-        read -p "Enter nameserver IP to remove: " nameserver
+        echo "Enter nameserver IP to remove: " >&2
+        read nameserver
         if ! echo "$nameserver" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
             exit 1
@@ -54,7 +57,8 @@ case $option in
         fi
         ;;
     3)
-        read -p "Enter search domain (e.g., example.com): " domain
+        echo "Enter search domain (e.g., example.com): " >&2
+        read domain
         if ! echo "$domain" | grep -E '^[a-zA-Z0-9.-]+$' >/dev/null; then
             echo "Error: Invalid domain format"
             exit 1
@@ -79,7 +83,8 @@ case $option in
             exit 1
         }
         
-        read -p "Enter backup file path: " backup_file
+        echo "Enter backup file path: " >&2
+        read backup_file
         if [ -f "$backup_file" ]; then
             cp "$backup_file" /etc/resolv.conf
             echo "DNS configuration restored from $backup_file"

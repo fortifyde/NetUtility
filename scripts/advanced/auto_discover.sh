@@ -168,7 +168,8 @@ echo "  • 5 minutes  - Standard capture"
 echo "  • 10 minutes - Extended capture (recommended)"
 echo "  • 15+ minutes - Comprehensive capture for complex environments"
 echo
-read -p "Enter capture duration in minutes (default 10): " capture_duration
+echo "Enter capture duration in minutes (default 10): " >&2
+read capture_duration
 capture_duration=${capture_duration:-10}
 
 # Validate capture duration

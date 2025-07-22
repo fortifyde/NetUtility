@@ -75,7 +75,8 @@ echo "4. 1 hour"
 echo "5. Custom duration"
 echo "6. Manual stop (Ctrl+C)"
 
-read -p "Select option (1-6): " option
+echo "Select option (1-6): " >&2
+read option
 
 case $option in
     1)
@@ -95,7 +96,8 @@ case $option in
         duration_text="1 hour"
         ;;
     5)
-        read -p "Enter duration in seconds: " duration
+        echo "Enter duration in seconds: " >&2
+        read duration
         case "$duration" in
             *[!0-9]*|'')
                 error_message "Invalid duration"

@@ -17,7 +17,8 @@ else
 fi
 
 echo
-read -p "Enter full path to backup file: " backup_file
+echo "Enter full path to backup file: " >&2
+read backup_file
 
 if [ ! -f "$backup_file" ]; then
     echo "Error: Backup file not found"
@@ -34,7 +35,8 @@ echo "1. Guided restoration (display only, manual commands)"
 echo "2. Automatic restoration (execute restoration script)"
 echo "3. Cancel"
 echo
-read -p "Select restoration method (1-3): " restore_method
+echo "Select restoration method (1-3): " >&2
+read restore_method
 
 case "$restore_method" in
     1)
@@ -102,7 +104,8 @@ echo "Rollback backup created: $ROLLBACK_FILE"
 echo
 
 echo "WARNING: This will modify your current network configuration!"
-read -p "Continue with restoration? (y/N): " final_confirm
+echo "Continue with restoration? (y/N): " >&2
+read final_confirm
 if ! echo "$final_confirm" | grep -E '^[Yy]$' >/dev/null; then
     echo "Restore cancelled"
     rm -rf "$TEMP_DIR"
