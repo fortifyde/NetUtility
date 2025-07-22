@@ -14,14 +14,18 @@ echo "3. Show detailed routing table"
 echo "4. Show route to specific destination"
 echo "5. Exit"
 
-read -p "Select option (1-5): " option
+echo "Select option (1-5): " >&2
+read option
 
 case $option in
     1)
         echo "Adding a new route:"
-        read -p "Enter destination network (e.g., 192.168.2.0/24): " dest_network
-        read -p "Enter gateway IP: " gateway
-        read -p "Enter interface (optional, press Enter to skip): " interface
+        echo "Enter destination network (e.g., 192.168.2.0/24): " >&2
+        read dest_network
+        echo "Enter gateway IP: " >&2
+        read gateway
+        echo "Enter interface (optional, press Enter to skip): " >&2
+        read interface
         
         if ! echo "$dest_network" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
             echo "Error: Invalid network format"
@@ -47,7 +51,8 @@ case $option in
         ;;
     2)
         echo "Deleting a route:"
-        read -p "Enter destination network to delete (e.g., 192.168.2.0/24): " dest_network
+        echo "Enter destination network to delete (e.g., 192.168.2.0/24): " >&2
+        read dest_network
         
         if ! echo "$dest_network" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
             echo "Error: Invalid network format"
@@ -70,7 +75,8 @@ case $option in
         ip route show cache 2>/dev/null || echo "No cached routes"
         ;;
     4)
-        read -p "Enter destination IP: " dest_ip
+        echo "Enter destination IP: " >&2
+        read dest_ip
         if ! echo "$dest_ip" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
             exit 1

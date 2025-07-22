@@ -55,7 +55,8 @@ else
     echo "1. Standard discovery (single network)"
     echo "2. VLAN-aware discovery (scan multiple VLANs)"
     echo
-    read -p "Select discovery mode (1-2): " discovery_mode
+    echo "Select discovery mode (1-2): " >&2
+    read discovery_mode
 fi
 
 case "$discovery_mode" in
