@@ -500,17 +500,14 @@ detect_command_injection() {
     input="$1"
     field_name="${2:-input}"
     
-    # List of dangerous patterns
-    dangerous_patterns="; & | \` \$ ( ) [ ] { } < > * ?"
-    
-    for pattern in $dangerous_patterns; do
-        case "$input" in
-            *$pattern*)
-                log_security_event "Command injection attempt detected" "Field: $field_name, Input: $input, Pattern: $pattern"
-                return 1
-                ;;
-        esac
-    done
+    # Check for specific dangerous patterns that indicate command injection
+    # Use individual case statements to avoid wildcard issues
+    case "$input" in
+        *\;*|*\&*|*\|*|*\`*|*\$*|*\(*|*\)*|*\[*|*\]*|*\{*|*\}*|*\<*|*\>*)
+            log_security_event "Command injection attempt detected" "Field: $field_name, Input: $input"
+            return 1
+            ;;
+    esac
     
     return 0
 }
