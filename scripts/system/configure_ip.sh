@@ -175,16 +175,22 @@ add_ip_address() {
     
     # Validate inputs
     if ! validate_interface "$interface"; then
-        handle_error "Invalid interface: $interface"
+        error_message "Invalid interface: $interface"
+        log_error "Invalid interface: $interface" "$SCRIPT_NAME"
+        return 1
     fi
     
     if ! validate_ip_range "$ip_addr"; then
-        handle_error "Invalid IP address: $ip_addr"
+        error_message "Invalid IP address: $ip_addr"
+        log_error "Invalid IP address: $ip_addr" "$SCRIPT_NAME"
+        return 1
     fi
     
     # Security check
     if ! security_validate "$ip_addr" "IP address"; then
-        handle_error "Security validation failed for IP address"
+        error_message "Security validation failed for IP address: $ip_addr"
+        log_error "Security validation failed for IP address: $ip_addr" "$SCRIPT_NAME"
+        return 1
     fi
     
     # Check if IP already exists
@@ -251,10 +257,10 @@ flush_ip_addresses() {
         return 1
     fi
     
-    # Simple confirmation with direct terminal I/O
+    # Simple confirmation
     echo
-    printf "Are you sure you want to flush all IP addresses from %s? (y/N): " "$interface" > /dev/tty
-    read -r response < /dev/tty
+    echo "Are you sure you want to flush all IP addresses from $interface? (y/N): " >&2
+    read response
     echo
     case "$response" in
         [Yy]|[Yy][Ee][Ss])
@@ -292,8 +298,8 @@ get_ip_with_cidr() {
     local max_attempts=3
     
     while [ $attempts -lt $max_attempts ]; do
-        printf "%s: " "$prompt" > /dev/tty
-        read -r ip_input < /dev/tty
+        echo "$prompt: " >&2
+        read ip_input
         
         if [ -n "$ip_input" ] && validate_ip_range "$ip_input"; then
             echo "$ip_input"
@@ -343,12 +349,10 @@ run_interactive_mode() {
     echo "3. Exit"
     echo
     
-    # Get user choice with direct terminal I/O to avoid buffering issues
-    echo
+    # Get user choice with immediate prompt visibility
     while true; do
-        printf "Select option (1-3): " > /dev/tty
-        read -r choice < /dev/tty
-        echo
+        echo "Select option (1-3): " >&2
+        read choice
         
         case "$choice" in
             1)

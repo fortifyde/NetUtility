@@ -186,15 +186,15 @@ select_interface() {
         fi
     done < ./netutil_interfaces.$$
     
-    # Show smart default prompt
+    # Show smart default prompt with immediate visibility
     if [ -n "$default_option" ]; then
         default_interface=$(get_interface_name "$default_option")
-        printf "%s (1-%d, default: %s): " "$prompt_text" "$max_num" "$default_interface" >&2
+        echo "$prompt_text (1-$max_num, default: $default_interface): " >&2
+        read interface_num
     else
-        printf "%s (1-%d): " "$prompt_text" "$max_num" >&2
+        echo "$prompt_text (1-$max_num): " >&2
+        read interface_num
     fi
-    
-    read interface_num
     
     # Use default if no input provided
     if [ -z "$interface_num" ] && [ -n "$default_option" ]; then
@@ -216,7 +216,7 @@ select_interface() {
         fi
         
         # If we get here, the input was invalid, ask again
-        printf "%s (1-%d): " "$prompt_text" "$max_num" >&2
+        echo "$prompt_text (1-$max_num): " >&2
         read interface_num
     done
 }
@@ -709,11 +709,28 @@ show_loading() {
     echo
 }
 
+# Function to prompt with immediate visibility for Go subprocess environment
+prompt_and_read() {
+    prompt="$1"
+    var_name="$2"
+    
+    # Force immediate prompt visibility in Go subprocess environment
+    echo "$prompt" >&2
+    read value
+    
+    # Assign to variable name if provided
+    if [ -n "$var_name" ]; then
+        eval "$var_name='$value'"
+    else
+        echo "$value"
+    fi
+}
+
 # Function to confirm action
 confirm_action() {
     prompt=$1
     
-    printf "%s (y/N): " "$prompt"
+    echo "$prompt (y/N): " >&2
     read response
     case $response in
         [Yy]|[Yy][Ee][Ss])
