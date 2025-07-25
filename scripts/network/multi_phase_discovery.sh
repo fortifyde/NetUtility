@@ -62,20 +62,27 @@ fi
 case "$discovery_mode" in
     1)
         discovery_type="standard"
-        # Get network range for standard discovery
-        network_range=$(get_network_range "$selected_interface")
-        if [ -z "$network_range" ]; then
-            echo "Could not determine network range for $selected_interface"
-            log_error "Could not determine network range for $selected_interface"
-            # Prompt user for manual input instead of failing
-            network_range=$(prompt_network_range)
+        # Check for manually specified network range first
+        if [ -n "$MANUAL_NETWORK_RANGE" ]; then
+            network_range="$MANUAL_NETWORK_RANGE"
+            echo "Using manually specified network range: $network_range"
+            log_info "Using manually specified network range: $network_range"
+        else
+            # Get network range for standard discovery
+            network_range=$(get_network_range "$selected_interface")
             if [ -z "$network_range" ]; then
-                echo "No network range provided. Exiting."
-                exit 1
+                echo "Could not determine network range for $selected_interface"
+                log_error "Could not determine network range for $selected_interface"
+                # Prompt user for manual input instead of failing
+                network_range=$(prompt_network_range)
+                if [ -z "$network_range" ]; then
+                    echo "No network range provided. Exiting."
+                    exit 1
+                fi
             fi
+            echo "Network range: $network_range"
+            log_info "Network range: $network_range"
         fi
-        echo "Network range: $network_range"
-        log_info "Network range: $network_range"
         ;;
     2)
         discovery_type="vlan_aware"
@@ -169,6 +176,103 @@ else
     target_networks="$network_ranges"
 fi
 
+# Enhanced fping function with better reliability and error handling
+enhanced_fping_sweep() {
+    local network="$1"
+    local output_file="$2"
+    local temp_output="$TEMP_DIR/fping_temp_$$"
+    local temp_errors="$TEMP_DIR/fping_errors_$$"
+    
+    # Configuration for improved reliability
+    local timeout=1000    # Timeout per ping in ms (1 second)
+    local retries=2       # Number of retries per host
+    local interval=10     # Interval between pings in ms
+    local max_hosts=100   # Maximum concurrent hosts (reduce network load)
+    
+    echo "  Enhanced fping configuration:" >> "$REPORT_FILE"
+    echo "    Network: $network" >> "$REPORT_FILE"
+    echo "    Timeout: ${timeout}ms, Retries: $retries, Interval: ${interval}ms" >> "$REPORT_FILE"
+    
+    # Attempt 1: Standard enhanced fping with optimal settings
+    echo "  Attempting fping sweep (standard mode)..." >> "$REPORT_FILE"
+    if fping -a -g -t "$timeout" -r "$retries" -i "$interval" -q "$network" 2>"$temp_errors" >"$temp_output"; then
+        # fping succeeded
+        cat "$temp_output" >> "$output_file"
+        hosts_found=$(wc -l < "$temp_output")
+        echo "    Standard mode: Found $hosts_found hosts" >> "$REPORT_FILE"
+        
+        # Log any warnings (but not errors since we succeeded)
+        if [ -s "$temp_errors" ] && ! grep -q "ICMP.*unreachable\|Permission denied" "$temp_errors"; then
+            echo "    Warnings: $(head -3 "$temp_errors" | tr '\n' '; ')" >> "$REPORT_FILE"
+        fi
+        
+        rm -f "$temp_output" "$temp_errors"
+        return 0
+    fi
+    
+    # Attempt 2: Fallback with relaxed settings for difficult networks
+    echo "  Standard mode failed, trying compatibility mode..." >> "$REPORT_FILE"
+    > "$temp_output"
+    > "$temp_errors"
+    
+    # More conservative settings for difficult networks
+    if fping -a -g -t 2000 -r 3 -i 50 -q "$network" 2>"$temp_errors" >"$temp_output"; then
+        cat "$temp_output" >> "$output_file"
+        hosts_found=$(wc -l < "$temp_output")
+        echo "    Compatibility mode: Found $hosts_found hosts" >> "$REPORT_FILE"
+        
+        rm -f "$temp_output" "$temp_errors"
+        return 0
+    fi
+    
+    # Attempt 3: Check for common permission/network issues and provide guidance
+    echo "  Compatibility mode failed, diagnosing issues..." >> "$REPORT_FILE"
+    
+    if grep -q "Operation not permitted\|Permission denied" "$temp_errors"; then
+        echo "    Issue: Insufficient privileges for raw socket operations" >> "$REPORT_FILE"
+        echo "    Recommendation: Run with elevated privileges or use unprivileged mode" >> "$REPORT_FILE"
+        
+        # Try unprivileged mode (uses UDP instead of ICMP)
+        if command -v fping >/dev/null 2>&1 && fping -h 2>&1 | grep -q "\-S"; then
+            echo "  Attempting unprivileged mode..." >> "$REPORT_FILE"
+            if fping -a -g -S 0 -t 2000 -r 2 -q "$network" 2>/dev/null >"$temp_output"; then
+                cat "$temp_output" >> "$output_file"
+                hosts_found=$(wc -l < "$temp_output")
+                echo "    Unprivileged mode: Found $hosts_found hosts" >> "$REPORT_FILE"
+                
+                rm -f "$temp_output" "$temp_errors"
+                return 0
+            fi
+        fi
+    elif grep -q "Network is unreachable\|No route to host" "$temp_errors"; then
+        echo "    Issue: Network routing problem" >> "$REPORT_FILE"
+        echo "    Recommendation: Check network configuration and routing table" >> "$REPORT_FILE"
+    elif grep -q "Invalid argument\|Address family not supported" "$temp_errors"; then
+        echo "    Issue: Network configuration or IPv6/IPv4 mismatch" >> "$REPORT_FILE"
+        echo "    Recommendation: Verify network range format and system configuration" >> "$REPORT_FILE"
+    else
+        echo "    Issue: Unknown fping error" >> "$REPORT_FILE"
+        echo "    Error details: $(head -2 "$temp_errors" | tr '\n' '; ')" >> "$REPORT_FILE"
+    fi
+    
+    # Attempt 4: Final fallback with basic settings
+    echo "  Final attempt with minimal options..." >> "$REPORT_FILE"
+    > "$temp_output"
+    if timeout 30 fping -a -g "$network" 2>/dev/null >"$temp_output"; then
+        cat "$temp_output" >> "$output_file"
+        hosts_found=$(wc -l < "$temp_output")
+        echo "    Basic mode: Found $hosts_found hosts" >> "$REPORT_FILE"
+        
+        rm -f "$temp_output" "$temp_errors"
+        return 0
+    fi
+    
+    # Complete failure - log and return error
+    echo "    All fping attempts failed - network may be unreachable or misconfigured" >> "$REPORT_FILE"
+    rm -f "$temp_output" "$temp_errors"
+    return 1
+}
+
 # Phase 1: ARP Scan
 echo "--- PHASE 1: ARP SCAN ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
@@ -229,7 +333,7 @@ if [ "$discovery_type" = "vlan_aware" ]; then
         if [ -n "$network" ]; then
             echo "  Ping sweep on network: $network" >> "$REPORT_FILE"
             if command -v fping >/dev/null 2>&1; then
-                fping -a -g "$network" 2>/dev/null >> "$TEMP_DIR/ping_hosts.txt"
+                enhanced_fping_sweep "$network" "$TEMP_DIR/ping_hosts.txt"
             else
                 # Extract network portion for ping sweep
                 network_base=$(echo "$network" | cut -d'/' -f1 | cut -d'.' -f1-3)
@@ -244,7 +348,7 @@ if [ "$discovery_type" = "vlan_aware" ]; then
 else
     if command -v fping >/dev/null 2>&1; then
         echo "Using fping for fast ping sweep..." >> "$REPORT_FILE"
-        fping -a -g "$network_range" 2>/dev/null > "$TEMP_DIR/ping_hosts.txt"
+        enhanced_fping_sweep "$network_range" "$TEMP_DIR/ping_hosts.txt"
     else
         echo "fping not available, using basic ping..." >> "$REPORT_FILE"
         # Extract network portion for ping sweep

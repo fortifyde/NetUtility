@@ -528,8 +528,145 @@ if [ "$selected_vlan_count" -gt 0 ]; then
         fi
     done < "$TEMP_DIR/selected_vlans.txt"
 else
-    echo "No VLANs selected for configuration"
+    # No VLANs scenario - handle main interface configuration
+    echo "No VLANs detected or selected for configuration"
     echo "No VLANs selected for configuration" >> "$WORKFLOW_REPORT"
+    
+    echo "Checking main interface configuration: $target_interface"
+    echo "Main interface configuration check:" >> "$WORKFLOW_REPORT"
+    
+    # Check if target_interface already has an IP address configured
+    current_ip_info=$(ip addr show "$target_interface" 2>/dev/null | grep "inet " | head -1 | awk '{print $2}')
+    
+    if [ -n "$current_ip_info" ] && [ "$current_ip_info" != "127.0.0.1/8" ]; then
+        # Interface already has IP configured
+        current_ip=$(echo "$current_ip_info" | cut -d'/' -f1)
+        current_prefix=$(echo "$current_ip_info" | cut -d'/' -f2)
+        
+        echo "✓ Interface $target_interface already has IP configured: $current_ip_info"
+        echo "    Current IP: $current_ip_info" >> "$WORKFLOW_REPORT"
+        log_info "Interface $target_interface already configured with IP: $current_ip_info"
+        
+        # Interface is already configured
+        interfaces_configured=$((interfaces_configured + 1))
+        
+    else
+        # No IP configured - need to assign one
+        echo "Interface $target_interface has no IP configured - assignment required"
+        echo "    No IP configured - assignment required" >> "$WORKFLOW_REPORT"
+        log_info "Interface $target_interface requires IP configuration"
+        
+        # Extract non-VLAN IP addresses from captured traffic for suggestions
+        main_ips=$(tshark -r "$capture_file" -Y "not vlan" -T fields -e ip.src -e ip.dst 2>/dev/null | \
+                  tr '\t' '\n' | grep -v "^$" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | \
+                  grep -v '^127\.' | grep -v '^169\.254\.' | grep -v '^0\.0\.0\.0$' | \
+                  grep -v '^255\.255\.255\.255$' | sort -u)
+        
+        if [ -n "$main_ips" ]; then
+            # Use captured traffic to suggest IP
+            first_ip=$(echo "$main_ips" | head -1)
+            
+            # Analyze IP distribution for network characteristics
+            network_base=$(echo "$first_ip" | cut -d'.' -f1-3)
+            fourth_octets=$(echo "$main_ips" | cut -d'.' -f4 | sort -n)
+            min_octet=$(echo "$fourth_octets" | head -1)
+            max_octet=$(echo "$fourth_octets" | tail -1)
+            
+            # Estimate subnet size and suggest safe IP
+            suggested_cidr="/24"
+            if [ "$max_octet" -gt 200 ] || [ "$min_octet" -lt 50 ]; then
+                # Likely /24 network - suggest .253 to avoid common gateway/broadcast
+                suggested_ip="${network_base}.253${suggested_cidr}"
+            else
+                # Try an IP outside the discovered range
+                if [ "$max_octet" -lt 100 ]; then
+                    # Add 50 to max found IP
+                    new_octet=$((max_octet + 50))
+                    if [ "$new_octet" -gt 253 ]; then
+                        new_octet=253
+                    fi
+                    suggested_ip="${network_base}.${new_octet}${suggested_cidr}"
+                else
+                    # Subtract 10 from min found IP
+                    new_octet=$((min_octet - 10))
+                    if [ "$new_octet" -lt 2 ]; then
+                        new_octet=253
+                    fi
+                    suggested_ip="${network_base}.${new_octet}${suggested_cidr}"
+                fi
+            fi
+            
+            echo "  Traffic analysis results:"
+            echo "    Discovered IPs: $(echo "$main_ips" | head -3 | tr '\n' ' ')"
+            echo "    Suggested IP: $suggested_ip"
+            echo
+            
+        else
+            echo "  No valid IPs found in captured traffic for IP suggestion"
+            suggested_ip=""
+        fi
+        
+        # Enforce IP assignment with retry loop
+        ip_assigned=0
+        retry_count=0
+        max_retries=3
+        
+        while [ $ip_assigned -eq 0 ] && [ $retry_count -lt $max_retries ]; do
+            retry_count=$((retry_count + 1))
+            
+            # Prompt user for IP assignment
+            if [ -n "$suggested_ip" ]; then
+                chosen_ip=$(prompt_ip_choice "$suggested_ip" "$network_base" "$target_interface")
+            else
+                echo "No network traffic detected for IP suggestion."
+                echo "Please provide an IP address for interface $target_interface."
+                echo "Enter IP address in CIDR notation (e.g., 192.168.1.100/24): " >&2
+                read chosen_ip
+            fi
+            
+            # Validate IP format
+            if [ -n "$chosen_ip" ] && echo "$chosen_ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+                echo "  Assigning IP: $chosen_ip"
+                
+                if ip addr add "$chosen_ip" dev "$target_interface" 2>/dev/null; then
+                    echo "✓ IP address $chosen_ip assigned to $target_interface"
+                    echo "    IP assigned: $chosen_ip" >> "$WORKFLOW_REPORT"
+                    log_config_change "IP assigned to main interface" "$target_interface: $chosen_ip"
+                    interfaces_configured=$((interfaces_configured + 1))
+                    ip_assigned=1
+                else
+                    echo "✗ Failed to assign IP address $chosen_ip to $target_interface"
+                    echo "    Error: IP may already be in use or interface issue"
+                    echo "    IP assignment failed: $chosen_ip" >> "$WORKFLOW_REPORT"
+                    log_error "Failed to assign IP address $chosen_ip to $target_interface"
+                    
+                    if [ $retry_count -lt $max_retries ]; then
+                        echo "    Please try a different IP address (attempt $retry_count of $max_retries)..."
+                        suggested_ip=""  # Clear suggestion for retry
+                    fi
+                fi
+            else
+                echo "✗ Invalid IP address format: '$chosen_ip'"
+                echo "    Format should be: x.x.x.x/xx (e.g., 192.168.1.100/24)"
+                echo "    Invalid IP format: $chosen_ip" >> "$WORKFLOW_REPORT"
+                log_error "Invalid IP address format provided: $chosen_ip"
+                
+                if [ $retry_count -lt $max_retries ]; then
+                    echo "    Please try again (attempt $retry_count of $max_retries)..."
+                    suggested_ip=""  # Clear suggestion for retry
+                fi
+            fi
+        done
+        
+        # Ensure IP was assigned - critical requirement
+        if [ $ip_assigned -eq 0 ]; then
+            echo "✗ CRITICAL ERROR: Failed to assign IP address after $max_retries attempts"
+            echo "    Cannot proceed with discovery without interface IP configuration"
+            echo "    Status: FAILED (no IP assigned)" >> "$WORKFLOW_REPORT"
+            log_error "Critical failure: No IP address assigned to main interface after $max_retries attempts"
+            exit 1
+        fi
+    fi
 fi
 
 echo "✓ Interface configuration completed"
@@ -551,7 +688,7 @@ echo "Running network discovery on configured interfaces..."
 discovery_script="$(dirname "$0")/../network/multi_phase_discovery.sh"
 
 if [ -x "$discovery_script" ]; then
-    if [ "$interfaces_configured" -gt 0 ]; then
+    if [ "$selected_vlan_count" -gt 0 ]; then
         echo "Running VLAN-aware discovery with separate results per VLAN..."
         echo "VLAN-aware discovery initiated" >> "$WORKFLOW_REPORT"
         
@@ -573,16 +710,58 @@ if [ -x "$discovery_script" ]; then
                 if ip addr show "$vlan_interface" >/dev/null 2>&1; then
                     vlan_network=$(get_network_range "$vlan_interface")
                     if [ -n "$vlan_network" ]; then
-                        echo "  Network range for VLAN $vlan_id: $vlan_network"
-                        echo "    Network: $vlan_network" >> "$WORKFLOW_REPORT"
+                        echo "  VLAN $vlan_id interface network: $vlan_network"
+                        echo "    Interface network: $vlan_network" >> "$WORKFLOW_REPORT"
+                        
+                        # Prompt user to confirm scan network for this VLAN
+                        echo "  VLAN $vlan_id Discovery Network Configuration:"
+                        echo "  1. Use interface network: $vlan_network"
+                        echo "  2. Enter custom network range"
+                        echo "  Select discovery network for VLAN $vlan_id (1-2): " >&2
+                        read vlan_network_choice
+                        
+                        case "$vlan_network_choice" in
+                            1)
+                                vlan_discovery_network="$vlan_network"
+                                echo "  ✓ Using interface network: $vlan_discovery_network"
+                                echo "    Discovery network: $vlan_discovery_network (interface)" >> "$WORKFLOW_REPORT"
+                                ;;
+                            2)
+                                echo "  Enter network range in CIDR notation (e.g., 192.168.1.0/24): " >&2
+                                read vlan_custom_network
+                                
+                                if [ -n "$vlan_custom_network" ] && echo "$vlan_custom_network" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
+                                    vlan_discovery_network="$vlan_custom_network"
+                                    echo "  ✓ Using custom network: $vlan_discovery_network"
+                                    echo "    Discovery network: $vlan_discovery_network (custom)" >> "$WORKFLOW_REPORT"
+                                else
+                                    echo "  Invalid format, using interface network: $vlan_network"
+                                    vlan_discovery_network="$vlan_network"
+                                    echo "    Discovery network: $vlan_discovery_network (fallback)" >> "$WORKFLOW_REPORT"
+                                fi
+                                ;;
+                            *)
+                                echo "  Invalid choice, using interface network: $vlan_network"
+                                vlan_discovery_network="$vlan_network"
+                                echo "    Discovery network: $vlan_discovery_network (default)" >> "$WORKFLOW_REPORT"
+                                ;;
+                        esac
+                        
+                        log_info "VLAN $vlan_id discovery network selected: $vlan_discovery_network"
                         
                         # Create VLAN-specific discovery directory
                         mkdir -p "$vlan_discovery_dir"
                         
                         # Run discovery for this specific VLAN network
-                        echo "  Starting multi-phase discovery on $vlan_network..."
+                        echo "  Starting multi-phase discovery on $vlan_discovery_network..."
+                        
+                        # Set environment variable for multi_phase_discovery.sh to use our network
+                        export MANUAL_NETWORK_RANGE="$vlan_discovery_network"
+                        
                         NETUTIL_WORKDIR="$vlan_discovery_dir" "$discovery_script" "$vlan_interface" "1" > "$vlan_discovery_dir/discovery_output.txt" 2>&1
                         vlan_discovery_exit=$?
+                        
+                        unset MANUAL_NETWORK_RANGE
                         
                         if [ $vlan_discovery_exit -eq 0 ]; then
                             echo "  ✓ VLAN $vlan_id discovery completed successfully"
@@ -639,10 +818,135 @@ if [ -x "$discovery_script" ]; then
             log_error "All VLAN discoveries failed in auto-discovery workflow"
         fi
     else
+        # No VLANs scenario - standard discovery on main interface with network confirmation
         echo "Running standard discovery on main interface..."
         echo "Standard discovery initiated" >> "$WORKFLOW_REPORT"
+        
+        # Get current network range from main interface
+        main_interface_network=$(get_network_range "$target_interface")
+        
+        if [ -n "$main_interface_network" ]; then
+            echo "Current interface network: $main_interface_network"
+            echo "    Interface network: $main_interface_network" >> "$WORKFLOW_REPORT"
+            
+            # Extract captured traffic networks for additional suggestions
+            main_ips=$(tshark -r "$capture_file" -Y "not vlan" -T fields -e ip.src -e ip.dst 2>/dev/null | \
+                      tr '\t' '\n' | grep -v "^$" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | \
+                      grep -v '^127\.' | grep -v '^169\.254\.' | sort -u)
+            
+            # Suggest scan network (user must confirm)
+            echo
+            echo "Network Discovery Configuration:"
+            echo "1. Use interface network: $main_interface_network"
+            
+            if [ -n "$main_ips" ]; then
+                # Analyze traffic for alternative networks
+                traffic_networks=$(echo "$main_ips" | while read -r ip; do
+                    if [ -n "$ip" ]; then
+                        network_base=$(echo "$ip" | cut -d'.' -f1-3)
+                        echo "${network_base}.0/24"
+                    fi
+                done | sort -u)
+                
+                echo "2. Networks from captured traffic:"
+                echo "$traffic_networks" | head -3 | sed 's/^/   /'
+                echo "3. Enter custom network range"
+            else
+                echo "2. Enter custom network range"
+            fi
+            echo
+            if [ -n "$main_ips" ]; then
+                echo "Select discovery network (1-3): " >&2
+            else
+                echo "Select discovery network (1,2): " >&2
+            fi
+            read network_choice
+            
+            case "$network_choice" in
+                1)
+                    discovery_network="$main_interface_network"
+                    echo "✓ Using interface network: $discovery_network"
+                    echo "    Discovery network: $discovery_network (interface)" >> "$WORKFLOW_REPORT"
+                    ;;
+                2)
+                    if [ -n "$main_ips" ]; then
+                        # Show traffic networks for selection
+                        echo "Available networks from traffic:"
+                        echo "$traffic_networks" | head -5 | nl -v1 -w2 -s') '
+                        echo "Select network (1-$(echo "$traffic_networks" | head -5 | wc -l)): " >&2
+                        read traffic_choice
+                        
+                        discovery_network=$(echo "$traffic_networks" | sed -n "${traffic_choice}p")
+                        if [ -n "$discovery_network" ]; then
+                            echo "✓ Using traffic network: $discovery_network"
+                            echo "    Discovery network: $discovery_network (traffic)" >> "$WORKFLOW_REPORT"
+                        else
+                            echo "Invalid selection, using interface network: $main_interface_network"
+                            discovery_network="$main_interface_network"
+                            echo "    Discovery network: $discovery_network (fallback)" >> "$WORKFLOW_REPORT"
+                        fi
+                    else
+                        echo "Enter network range in CIDR notation (e.g., 192.168.1.0/24): " >&2
+                        read custom_network
+                        
+                        if [ -n "$custom_network" ] && echo "$custom_network" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
+                            discovery_network="$custom_network"
+                            echo "✓ Using custom network: $discovery_network"
+                            echo "    Discovery network: $discovery_network (custom)" >> "$WORKFLOW_REPORT"
+                        else
+                            echo "Invalid format, using interface network: $main_interface_network"
+                            discovery_network="$main_interface_network"
+                            echo "    Discovery network: $discovery_network (fallback)" >> "$WORKFLOW_REPORT"
+                        fi
+                    fi
+                    ;;
+                3)
+                    echo "Enter network range in CIDR notation (e.g., 192.168.1.0/24): " >&2
+                    read custom_network
+                    
+                    if [ -n "$custom_network" ] && echo "$custom_network" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
+                        discovery_network="$custom_network"
+                        echo "✓ Using custom network: $discovery_network"
+                        echo "    Discovery network: $discovery_network (custom)" >> "$WORKFLOW_REPORT"
+                    else
+                        echo "Invalid format, using interface network: $main_interface_network"
+                        discovery_network="$main_interface_network"
+                        echo "    Discovery network: $discovery_network (fallback)" >> "$WORKFLOW_REPORT"
+                    fi
+                    ;;
+                *)
+                    echo "Invalid choice, using interface network: $main_interface_network"
+                    discovery_network="$main_interface_network"
+                    echo "    Discovery network: $discovery_network (default)" >> "$WORKFLOW_REPORT"
+                    ;;
+            esac
+            
+            log_info "Discovery network selected: $discovery_network"
+            
+        else
+            echo "⚠ No network range found for interface $target_interface"
+            echo "    Status: SKIPPED (no network)" >> "$WORKFLOW_REPORT"
+            log_error "No network range found for main interface $target_interface"
+            echo "✗ Cannot proceed with discovery - interface has no network configuration"
+            exit 1
+        fi
+        
+        # Run discovery on selected network
+        echo
+        echo "Starting network discovery on $discovery_network..."
+        DISCOVERY_DIR="$WORKDIR/discovery"
+        mkdir -p "$DISCOVERY_DIR"
+        
+        # Create temporary network range file for multi_phase_discovery.sh
+        echo "$discovery_network" > "$TEMP_DIR/manual_network_range.txt"
+        
+        # Set environment variable for multi_phase_discovery.sh to use our network
+        export MANUAL_NETWORK_RANGE="$discovery_network"
+        
         "$discovery_script" "$target_interface" "1" > "$TEMP_DIR/discovery_output.txt" 2>&1
         discovery_exit_code=$?
+        
+        unset MANUAL_NETWORK_RANGE
         
         if [ $discovery_exit_code -eq 0 ]; then
             echo "✓ Network discovery completed successfully"
@@ -652,7 +956,7 @@ if [ -x "$discovery_script" ]; then
             latest_discovery=$(ls -t "$DISCOVERY_DIR/discovery_"* 2>/dev/null | head -1 | tr -d '\n\r:')
             if [ -n "$latest_discovery" ] && [ -d "$latest_discovery" ]; then
                 update_latest_links "discovery" "$latest_discovery"
-                echo "Linked to: $latest_discovery"
+                echo "Discovery results saved to: $latest_discovery"
             else
                 echo "⚠ Warning: Could not find or link discovery results directory"
                 log_warn "Discovery results directory not found or not accessible: $latest_discovery"

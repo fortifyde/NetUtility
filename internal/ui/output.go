@@ -47,10 +47,13 @@ type OutputViewer struct {
 	outputChan <-chan executor.OutputLine
 	errorChan  <-chan error
 	stopChan   chan struct{}
+
+	// Callback for returning to main TUI with proper focus restoration
+	returnToMainCallback func()
 }
 
 // NewOutputViewer creates a new output viewer
-func NewOutputViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager) *OutputViewer {
+func NewOutputViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager, returnToMainCallback func()) *OutputViewer {
 	// Create output view
 	outputView := tview.NewTextView().
 		SetDynamicColors(true).
@@ -77,18 +80,19 @@ func NewOutputViewer(app *tview.Application, pages *tview.Pages, jobManager *job
 		AddItem(inputField, 1, 0, false)  // Input field: 1 row
 
 	ov := &OutputViewer{
-		Flex:          flex,
-		app:           app,
-		pages:         pages,
-		jobManager:    jobManager,
-		outputView:    outputView,
-		inputField:    inputField,
-		statusLine:    statusLine,
-		showTimestamp: true,
-		showSource:    true,
-		maxLines:      1000,
-		following:     true,
-		stopChan:      make(chan struct{}),
+		Flex:                 flex,
+		app:                  app,
+		pages:                pages,
+		jobManager:           jobManager,
+		outputView:           outputView,
+		inputField:           inputField,
+		statusLine:           statusLine,
+		showTimestamp:        true,
+		showSource:           true,
+		maxLines:             1000,
+		following:            true,
+		stopChan:             make(chan struct{}),
+		returnToMainCallback: returnToMainCallback,
 	}
 
 	// Set up the layout
@@ -107,7 +111,11 @@ func (ov *OutputViewer) setupKeyBindings() {
 		switch event.Key() {
 		case tcell.KeyEscape:
 			ov.Stop()
-			ov.pages.RemovePage("output")
+			if ov.returnToMainCallback != nil {
+				ov.returnToMainCallback()
+			} else {
+				ov.pages.RemovePage("output")
+			}
 			return nil
 		case tcell.KeyCtrlC:
 			ov.Stop()
@@ -127,7 +135,11 @@ func (ov *OutputViewer) setupKeyBindings() {
 			switch event.Rune() {
 			case 'q':
 				ov.Stop()
-				ov.pages.RemovePage("output")
+				if ov.returnToMainCallback != nil {
+					ov.returnToMainCallback()
+				} else {
+					ov.pages.RemovePage("output")
+				}
 				return nil
 			case ' ':
 				ov.TogglePause()
@@ -173,7 +185,11 @@ func (ov *OutputViewer) setupInputField() {
 		switch event.Key() {
 		case tcell.KeyEscape:
 			ov.Stop()
-			ov.pages.RemovePage("output")
+			if ov.returnToMainCallback != nil {
+				ov.returnToMainCallback()
+			} else {
+				ov.pages.RemovePage("output")
+			}
 			return nil
 		case tcell.KeyCtrlC:
 			ov.Stop()
@@ -193,9 +209,13 @@ func (ov *OutputViewer) setupInputField() {
 			ov.mu.RUnlock()
 
 			if isCompleted {
-				// Script completed - return to main TUI
+				// Script completed - return to main TUI with proper focus restoration
 				ov.Stop()
-				ov.pages.RemovePage("output")
+				if ov.returnToMainCallback != nil {
+					ov.returnToMainCallback()
+				} else {
+					ov.pages.RemovePage("output")
+				}
 				return nil
 			}
 

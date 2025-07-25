@@ -165,8 +165,8 @@ if [ $capture_exit_code -ne 0 ] && [ "$(id -u)" -eq 0 ]; then
         else
             warning_message "Failed to copy to workspace, using fallback location"
             CAPTURE_FILE="$FALLBACK_FILE"
+            success_message "Capture completed in fallback location: $FALLBACK_FILE"
         fi
-        success_message "Capture completed in fallback location: $FALLBACK_FILE"
     fi
 fi
 

@@ -27,17 +27,21 @@ type JobsViewer struct {
 	jobIDMapping  map[int]string // Maps table row to actual job ID
 	refreshTicker *time.Ticker
 	stopChan      chan struct{}
+
+	// Callback for returning to main TUI with proper focus restoration
+	returnToMainCallback func()
 }
 
 // NewJobsViewer creates a new jobs viewer
-func NewJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager) *JobsViewer {
+func NewJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager, returnToMainCallback func()) *JobsViewer {
 	jv := &JobsViewer{
-		Flex:         tview.NewFlex(),
-		app:          app,
-		pages:        pages,
-		jobManager:   jobManager,
-		jobIDMapping: make(map[int]string),
-		stopChan:     make(chan struct{}),
+		Flex:                 tview.NewFlex(),
+		app:                  app,
+		pages:                pages,
+		jobManager:           jobManager,
+		jobIDMapping:         make(map[int]string),
+		stopChan:             make(chan struct{}),
+		returnToMainCallback: returnToMainCallback,
 	}
 
 	jv.setupUI()
@@ -312,7 +316,7 @@ func (jv *JobsViewer) viewJobOutput() {
 	}
 
 	// Create output viewer for the job
-	outputViewer := NewOutputViewer(jv.app, jv.pages, jv.jobManager)
+	outputViewer := NewOutputViewer(jv.app, jv.pages, jv.jobManager, jv.returnToMainCallback)
 
 	// Connect to the existing job
 	if err := outputViewer.ConnectToJob(job); err != nil {
@@ -413,8 +417,8 @@ func (jv *JobsViewer) showInfo(message string) {
 }
 
 // Helper function to create a jobs viewer page
-func ShowJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager) {
-	jobsViewer := NewJobsViewer(app, pages, jobManager)
+func ShowJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager, returnToMainCallback func()) {
+	jobsViewer := NewJobsViewer(app, pages, jobManager, returnToMainCallback)
 	pages.AddPage("jobs", jobsViewer, true, true)
 	app.SetFocus(jobsViewer.jobsList)
 }
