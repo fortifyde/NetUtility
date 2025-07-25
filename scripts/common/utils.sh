@@ -773,10 +773,22 @@ get_network_range() {
         ip=$(echo "$ip_info" | cut -d'/' -f1)
         prefix=$(echo "$ip_info" | cut -d'/' -f2)
         
-        # Calculate network address if ipcalc is available
+        # Calculate network address using ipcalc with proper output parsing
         if command -v ipcalc >/dev/null 2>&1; then
-            network=$(ipcalc -n "$ip_info" 2>/dev/null | cut -d= -f2 2>/dev/null)
-            if [ -n "$network" ]; then
+            # Capture full ipcalc output and parse it properly
+            ipcalc_output=$(ipcalc "$ip_info" 2>/dev/null)
+            
+            # Try to extract network from different possible output formats
+            # Format 1: "Network=192.168.1.0/24" or "NETWORK=192.168.1.0"
+            network=$(echo "$ipcalc_output" | grep -i "^network" | head -1 | cut -d= -f2 | cut -d'/' -f1 | tr -d ' ')
+            
+            # Format 2: "Network:   192.168.1.0/24"
+            if [ -z "$network" ]; then
+                network=$(echo "$ipcalc_output" | grep "^Network:" | head -1 | awk '{print $2}' | cut -d'/' -f1)
+            fi
+            
+            # Validate we got a proper IP address
+            if [ -n "$network" ] && echo "$network" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
                 echo "$network/$prefix"
                 return 0
             fi

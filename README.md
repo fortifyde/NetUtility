@@ -1,36 +1,44 @@
 # NetUtility
 
-A comprehensive terminal-based network security and analysis toolkit designed for security professionals and network administrators. NetUtility combines advanced network discovery, packet analysis, and security assessment capabilities into a unified, easy-to-use platform.
+A terminal-based network discovery and analysis toolkit for security professionals and network administrators. NetUtility helps you understand what's on your network through intelligent scanning, traffic analysis, and automated reconnaissance workflows.
 
-## What does it do?
+## What it does
 
-NetUtility provides a sophisticated suite of network analysis tools accessible through both an interactive TUI and direct CLI commands. It automates complex network analysis workflows, from promiscuous packet capture and VLAN discovery to comprehensive security assessment and infrastructure configuration.
+NetUtility makes network discovery easy by automating the tedious parts while giving you control over the important decisions. Point it at a network interface, and it will:
 
-## Main Features
+- Capture traffic to understand network layout and VLANs
+- Intelligently configure interfaces based on what it finds
+- Discover live hosts using multiple scanning techniques
+- Categorize devices as Windows, Linux, or network appliances
+- Generate organized reports with actionable information
 
-**System Configuration**
-- Manage network interfaces (bring them up/down, configure IPs)
-- Create and manage VLAN interfaces
-- Configure routing and DNS settings
-- Backup and restore your network configuration
+The tool is designed around real-world workflows - whether you're assessing a new network, troubleshooting connectivity, or conducting security analysis.
 
-**Network Reconnaissance**
-- Run packet captures with tshark
-- Extract VLAN information from traffic
-- Detect unsafe protocols in network traffic
-- Enumerate hosts and categorize them by OS
+## Core Features
 
-**Vulnerability Assessment**
-- Deep port scanning with service detection
-- Run safe Nmap NSE scripts (no brute forcing)
-- Analyze results offline with vulnerability mapping
-- Get actionable remediation advice
+**Intelligent Auto-Discovery**
+- VLAN-aware network discovery that adapts to your environment
+- Smart IP configuration based on captured traffic patterns
+- Multi-phase scanning (ARP → ping → port discovery → categorization)
+- Automatic interface configuration with user confirmation
 
-**Device Configuration**
-- SSH into network devices (routers, switches, etc.)
-- Automatically detect vendor (Cisco, Juniper, HP, Aruba, Fortinet)
-- Pull configuration files with vendor-specific commands
-- Organize everything in a structured way
+**Network Analysis**
+- Traffic capture with tshark/tcpdump integration
+- VLAN extraction and analysis from packet captures
+- Host categorization (Windows, Linux, network devices/appliances)
+- Protocol analysis and security assessment
+
+**System Management**
+- Network interface configuration (IP addresses, VLANs, routing)
+- DNS configuration and network backup/restore
+- Working directory management for organized results
+- Comprehensive logging and audit trails
+
+**Security Assessment** 
+- Safe vulnerability scanning with Nmap NSE scripts
+- Deep port analysis with service detection
+- Network device configuration backup and analysis
+- Risk assessment with remediation recommendations
 
 ## Getting Started
 
@@ -82,13 +90,22 @@ sudo cp scripts/completion/netutil_completion.bash /etc/bash_completion.d/netuti
 
 With completion enabled, you can press Tab to autocomplete commands and options.
 
-The interface is pretty straightforward - use arrow keys to navigate, tab to switch between panels, enter to select things, and escape to exit.
+The interface is straightforward - use arrow keys to navigate, tab to switch between panels, enter to select tasks, and escape to exit.
 
 ## How it works
 
-Everything is organized into scripts that live in the `scripts/` directory. When you select a task, it runs the appropriate script and shows you the output in real-time. Results get saved to organized directories in your home folder.
+NetUtility is built around the concept of workflows rather than individual tools. When you run auto-discovery, for example, it:
 
-The tool automatically handles privilege escalation when needed and has reasonable timeouts built in. If something goes wrong, it won't hang forever.
+1. **Captures traffic** to understand the network environment
+2. **Analyzes VLANs** and determines network topology  
+3. **Configures interfaces** intelligently based on findings
+4. **Discovers hosts** using multiple scanning techniques
+5. **Categorizes devices** into meaningful groups
+6. **Generates reports** with actionable insights
+
+Each workflow is implemented as shell scripts in the `scripts/` directory, organized by function (network, system, vulnerability, etc.). The Go-based TUI provides the interface, job management, and real-time output display.
+
+Results are automatically organized in timestamped directories, and the tool handles privilege escalation when needed. If something goes wrong, it won't hang forever thanks to built-in timeouts.
 
 ## Safety first
 
@@ -96,17 +113,23 @@ This tool is designed for legitimate security testing and network administration
 
 Always make sure you have permission before running these tools against any network or system that isn't yours.
 
-## File structure
+## Project Structure
 
 ```
 NetUtility/
-├── cmd/netutil/           # Main application
-├── internal/              # Go application logic
-├── scripts/               # All the bash scripts organized by category
-│   ├── system/           # Network configuration
-│   ├── network/          # Reconnaissance tools
-│   ├── vulnerability/    # Security assessment
-│   └── config/           # Device configuration
+├── cmd/netutil/           # Main application entry point
+├── internal/              # Core Go application logic
+│   ├── app/              # Application framework and utilities
+│   ├── config/           # Configuration management
+│   ├── jobs/             # Background job execution
+│   ├── metadata/         # Script metadata and registry
+│   └── ui/               # Terminal user interface
+├── scripts/               # Organized shell scripts by function
+│   ├── advanced/         # Automated workflows (auto-discovery)
+│   ├── network/          # Discovery and analysis tools
+│   ├── system/           # Interface and network configuration
+│   ├── vulnerability/    # Security assessment scripts
+│   └── config/           # Device configuration management
 └── README.md
 ```
 

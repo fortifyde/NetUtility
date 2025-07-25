@@ -157,7 +157,7 @@ func (d *Dashboard) setupKeyBindings() {
 				d.refresh()
 				return nil
 			case 'j':
-				ShowJobsViewer(d.app, d.pages, d.jobManager)
+				ShowJobsViewer(d.app, d.pages, d.jobManager, nil)
 				return nil
 			case 'c':
 				ShowCorrelationViewer(d.app, d.pages, d.correlator)

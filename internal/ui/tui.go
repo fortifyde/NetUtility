@@ -571,7 +571,7 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 	}
 
 	// Job started successfully - show live output
-	outputViewer := NewOutputViewer(t.app, t.pages, t.jobManager)
+	outputViewer := NewOutputViewer(t.app, t.pages, t.jobManager, t.returnToMain)
 	t.pages.AddPage("output", outputViewer, true, true)
 	t.app.SetFocus(outputViewer)
 
@@ -618,7 +618,7 @@ func (t *TUI) queueJob(scriptPath, taskName string) {
 
 // showJobsManager displays the jobs management interface
 func (t *TUI) showJobsManager() {
-	ShowJobsViewer(t.app, t.pages, t.jobManager)
+	ShowJobsViewer(t.app, t.pages, t.jobManager, t.returnToMain)
 }
 
 // showCorrelationViewer displays the correlation viewer interface
