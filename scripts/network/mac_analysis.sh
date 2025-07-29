@@ -10,65 +10,59 @@ echo
 
 CAPTURE_DIR="${NETUTIL_WORKDIR:-$HOME}/captures"
 ANALYSIS_DIR="${NETUTIL_WORKDIR:-$HOME}/analysis"
-OUI_DB_DIR="${NETUTIL_WORKDIR:-$HOME}/oui_db"
 
 # Create necessary directories
 mkdir -p "$ANALYSIS_DIR"
-mkdir -p "$OUI_DB_DIR"
 
-# OUI database file
-OUI_DB_FILE="$OUI_DB_DIR/oui.txt"
+# OUI Helper binary path (try to find in PATH or relative to script)
+OUIHELPER_BIN=""
+if command -v ouihelper >/dev/null 2>&1; then
+    OUIHELPER_BIN="ouihelper"
+elif [ -f "$(dirname "$0")/../../cmd/ouihelper/ouihelper" ]; then
+    OUIHELPER_BIN="$(dirname "$0")/../../cmd/ouihelper/ouihelper"
+elif [ -f "$(dirname "$0")/../../ouihelper" ]; then
+    OUIHELPER_BIN="$(dirname "$0")/../../ouihelper"
+fi
 
-# Function to download/update OUI database
-update_oui_database() {
-    echo "Checking OUI database..."
-    
-    # Check if OUI database exists and is less than 30 days old
-    if [ -f "$OUI_DB_FILE" ] && [ "$(find "$OUI_DB_FILE" -mtime -30 2>/dev/null)" ]; then
-        echo "OUI database is up to date"
-        return 0
-    fi
-    
-    echo "Downloading OUI database from IEEE..."
-    if command -v wget >/dev/null 2>&1; then
-        wget -q -O "$OUI_DB_FILE" "http://standards-oui.ieee.org/oui/oui.txt" || {
-            echo "Failed to download OUI database with wget"
-            return 1
-        }
-    elif command -v curl >/dev/null 2>&1; then
-        curl -s -o "$OUI_DB_FILE" "http://standards-oui.ieee.org/oui/oui.txt" || {
-            echo "Failed to download OUI database with curl"
-            return 1
-        }
-    else
-        echo "Neither wget nor curl available - cannot download OUI database"
-        return 1
-    fi
-    
-    echo "OUI database updated successfully"
-    return 0
-}
+# Fallback OUI database locations
+FALLBACK_OUI_LOCATIONS="
+$(dirname "$0")/../../data/oui.txt
+$(dirname "$0")/../../internal/oui/data/oui.txt
+${NETUTIL_WORKDIR:-$HOME}/oui_db/oui.txt
+$HOME/.netutil/oui.txt
+"
 
-# Function to lookup MAC vendor
+# Function to lookup MAC vendor using Go helper or fallback to text parsing
 lookup_mac_vendor() {
     mac_prefix="$1"
     
-    if [ ! -f "$OUI_DB_FILE" ]; then
-        echo "Unknown"
-        return 1
+    # Try using the Go helper first (faster and more reliable)
+    if [ -n "$OUIHELPER_BIN" ] && [ -x "$OUIHELPER_BIN" ]; then
+        vendor=$($OUIHELPER_BIN lookup "$mac_prefix" 2>/dev/null)
+        if [ $? -eq 0 ] && [ -n "$vendor" ]; then
+            echo "$vendor"
+            return 0
+        fi
     fi
     
-    # Convert MAC prefix to uppercase and format for OUI lookup
-    oui_prefix=$(echo "$mac_prefix" | tr '[:lower:]' '[:upper:]' | tr -d ':' | tr -d '-')
+    # Fallback to text file parsing
+    for oui_file in $FALLBACK_OUI_LOCATIONS; do
+        if [ -f "$oui_file" ]; then
+            # Convert MAC prefix to uppercase and format for OUI lookup
+            oui_prefix=$(echo "$mac_prefix" | tr '[:lower:]' '[:upper:]' | tr -d ':' | tr -d '-')
+            
+            # Look up in OUI database
+            vendor=$(grep "^$oui_prefix" "$oui_file" | head -1 | sed 's/^[0-9A-F]*[[:space:]]*[^ ]*[[:space:]]*//' | sed 's/[[:space:]]*$//')
+            
+            if [ -n "$vendor" ]; then
+                echo "$vendor"
+                return 0
+            fi
+        fi
+    done
     
-    # Look up in OUI database
-    vendor=$(grep "^$oui_prefix" "$OUI_DB_FILE" | head -1 | sed 's/^[0-9A-F]*[[:space:]]*[^ ]*[[:space:]]*//' | sed 's/[[:space:]]*$//')
-    
-    if [ -n "$vendor" ]; then
-        echo "$vendor"
-    else
-        echo "Unknown"
-    fi
+    echo "Unknown"
+    return 1
 }
 
 # Function to categorize device type based on MAC vendor
@@ -149,10 +143,8 @@ if [ ! -f "$capture_file" ]; then
     exit 1
 fi
 
-# Update OUI database
-update_oui_database || {
-    echo "Warning: Could not update OUI database. Analysis will continue with limited vendor information."
-}
+# OUI database is now always available offline
+# Use 'netutil update-oui' to update the database when needed
 
 echo "Analyzing MAC addresses in: $capture_file"
 

@@ -63,5 +63,5 @@ script:
       command: "netutil extract-vlans"
   
   version: "1.0"
-  author: "NetUtility Team"
+  author: "fortifyde"
   last_updated: "2025-01-19"
