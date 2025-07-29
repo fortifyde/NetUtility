@@ -73,5 +73,5 @@ script:
       command: "netutil ipv6-discovery"
   
   version: "1.0"
-  author: "NetUtility Team"
+  author: "fortifyde"
   last_updated: "2025-07-19"

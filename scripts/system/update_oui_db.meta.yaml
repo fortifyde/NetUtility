@@ -1,0 +1,58 @@
+script:
+  name: "Update OUI Database"
+  description: "Download and update the IEEE OUI database for MAC address vendor identification"
+  category: "system"
+  subcategory: "database"
+  
+  file: "update_oui_db.sh"
+  requires_root: false
+  estimated_duration: "1-3 minutes"
+  
+  cli_shortcuts:
+    - "update-oui"
+    - "oui-update"
+    - "update-oui-db"
+  keywords:
+    - "oui"
+    - "database"
+    - "update"
+    - "mac"
+    - "vendor"
+    - "ieee"
+  
+  parameters: []
+  
+  dependencies:
+    tools:
+      - name: "wget or curl"
+        package: "wget or curl"
+        check_command: "command -v wget || command -v curl"
+  
+  output:
+    creates_files: true
+    file_patterns:
+      - "oui.txt"
+      - "oui_backup_*.txt"
+    workspace_subdirs:
+      - "data"
+  
+  tags:
+    - "database"
+    - "oui"
+    - "mac-address"
+    - "vendor"
+    - "ieee"
+    - "update"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+  
+  examples:
+    - description: "Update OUI database"
+      command: "netutil update-oui"
+    - description: "Update MAC vendor database"
+      command: "netutil oui-update"
+  
+  version: "1.0"
+  author: "fortifyde"
+  last_updated: "2025-07-29"
