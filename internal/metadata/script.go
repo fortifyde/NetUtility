@@ -188,14 +188,36 @@ func (r *ScriptRegistry) GetScriptsByCategory(category string) []ScriptMetadata 
 	return r.Categories[category]
 }
 
-// GetAllCategories returns all available categories
+// GetAllCategories returns all available categories in fixed order
 func (r *ScriptRegistry) GetAllCategories() []string {
-	categories := make([]string, 0, len(r.Categories))
-	for category := range r.Categories {
-		categories = append(categories, category)
+	// Define the desired category order
+	desiredOrder := []string{"system", "network", "vulnerability", "advanced", "config"}
+
+	// Build ordered list of existing categories
+	var orderedCategories []string
+
+	// Add categories in desired order if they exist
+	for _, category := range desiredOrder {
+		if _, exists := r.Categories[category]; exists {
+			orderedCategories = append(orderedCategories, category)
+		}
 	}
-	sort.Strings(categories)
-	return categories
+
+	// Add any remaining categories not in the predefined order (for backward compatibility)
+	for category := range r.Categories {
+		found := false
+		for _, ordered := range orderedCategories {
+			if category == ordered {
+				found = true
+				break
+			}
+		}
+		if !found {
+			orderedCategories = append(orderedCategories, category)
+		}
+	}
+
+	return orderedCategories
 }
 
 // SearchScripts searches for scripts by keyword
