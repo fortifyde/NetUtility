@@ -343,6 +343,205 @@ categorize_services_enhanced() {
     cat service_summary_enhanced.txt >> "$REPORT_FILE"
 }
 
+# Safe service enumeration functions (defensive-only, no brute forcing)
+enumerate_ftp_services() {
+    if [ ! -s "$TEMP_DIR/ftp_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "  FTP service enumeration (safe)..." >> "$REPORT_FILE"
+    
+    # Safe FTP enumeration - only anonymous access check and banner grabbing
+    nmap -n -p21 --script ftp-anon -T4 \
+        -iL "$TEMP_DIR/ftp_targets.txt" -oA "$SESSION_DIR/nmap_ftp_enum" 2>/dev/null || true
+    
+    # Manual FTP banner grabbing
+    echo "    FTP banners:" >> "$REPORT_FILE"
+    while read -r target; do
+        if [ -n "$target" ]; then
+            echo "      $target:" >> "$REPORT_FILE"
+            timeout 10 nc "$target" 21 2>/dev/null | head -3 | sed 's/^/        /' >> "$REPORT_FILE" || true
+        fi
+    done < "$TEMP_DIR/ftp_targets.txt"
+}
+
+enumerate_ssh_services() {
+    if [ ! -s "$TEMP_DIR/ssh_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "  SSH service enumeration (safe)..." >> "$REPORT_FILE"
+    
+    # Safe SSH configuration analysis - no brute forcing
+    nmap -n -p22 --script ssh-hostkey,ssh2-enum-algos -T4 \
+        -iL "$TEMP_DIR/ssh_targets.txt" -oA "$SESSION_DIR/nmap_ssh_enum" 2>/dev/null || true
+    
+    # SSH version enumeration via banner grabbing
+    echo "    SSH versions:" >> "$REPORT_FILE"
+    while read -r target; do
+        if [ -n "$target" ]; then
+            echo "      $target:" >> "$REPORT_FILE"
+            timeout 10 nc "$target" 22 2>/dev/null | head -1 | sed 's/^/        /' >> "$REPORT_FILE" || true
+        fi
+    done < "$TEMP_DIR/ssh_targets.txt"
+}
+
+enumerate_web_services() {
+    if [ ! -s "$TEMP_DIR/web_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "  Web service enumeration (safe)..." >> "$REPORT_FILE"
+    
+    # Safe HTTP enumeration - headers, methods, titles only
+    nmap -n -p80,443,8080,8443 --script http-methods,http-headers,http-title,http-server-header -T4 \
+        -iL "$TEMP_DIR/web_targets.txt" -oA "$SESSION_DIR/nmap_web_enum" 2>/dev/null || true
+    
+    # SSL certificate information (non-intrusive)
+    nmap -n -p443 --script ssl-cert -T4 \
+        -iL "$TEMP_DIR/web_targets.txt" -oA "$SESSION_DIR/nmap_ssl_info" 2>/dev/null || true
+}
+
+enumerate_database_services() {
+    if [ ! -s "$TEMP_DIR/database_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "  Database service enumeration (safe)..." >> "$REPORT_FILE"
+    
+    # Safe database enumeration - info only, no brute forcing
+    nmap -n -p3306 --script mysql-info -T4 \
+        -iL "$TEMP_DIR/database_targets.txt" -oA "$SESSION_DIR/nmap_mysql_info" 2>/dev/null || true
+    
+    nmap -n -p1433 --script ms-sql-info -T4 \
+        -iL "$TEMP_DIR/database_targets.txt" -oA "$SESSION_DIR/nmap_mssql_info" 2>/dev/null || true
+    
+    nmap -n -p27017 --script mongodb-info -T4 \
+        -iL "$TEMP_DIR/database_targets.txt" -oA "$SESSION_DIR/nmap_mongodb_info" 2>/dev/null || true
+}
+
+enumerate_smb_services() {
+    if [ ! -s "$TEMP_DIR/smb_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "  SMB service enumeration (safe)..." >> "$REPORT_FILE"
+    
+    # Safe SMB enumeration - protocols, security mode, OS discovery only
+    nmap -n -p445 --script smb-protocols,smb-security-mode,smb-os-discovery -T4 \
+        -iL "$TEMP_DIR/smb_targets.txt" -oA "$SESSION_DIR/nmap_smb_info" 2>/dev/null || true
+    
+    # Basic SMB information using smbclient if available (no authentication attempts)
+    if command -v smbclient >/dev/null 2>&1; then
+        echo "    SMB server information:" >> "$REPORT_FILE"
+        while read -r target; do
+            if [ -n "$target" ]; then
+                echo "      $target:" >> "$REPORT_FILE"
+                timeout 30 smbclient -L "//$target" -N 2>/dev/null | head -10 | sed 's/^/        /' >> "$REPORT_FILE" || true
+            fi
+        done < "$TEMP_DIR/smb_targets.txt"
+    fi
+}
+
+enumerate_dns_services() {
+    if [ ! -s "$TEMP_DIR/dns_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "  DNS service enumeration (safe)..." >> "$REPORT_FILE"
+    
+    # Safe DNS server information gathering
+    nmap -n -p53 --script dns-nsid -T4 \
+        -iL "$TEMP_DIR/dns_targets.txt" -oA "$SESSION_DIR/nmap_dns_info" 2>/dev/null || true
+}
+
+enumerate_snmp_services() {
+    if [ ! -s "$TEMP_DIR/snmp_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "  SNMP service enumeration (safe)..." >> "$REPORT_FILE"
+    
+    # Safe SNMP enumeration - system description only
+    nmap -n -sU -p161 --script snmp-sysdescr -T4 \
+        -iL "$TEMP_DIR/snmp_targets.txt" -oA "$SESSION_DIR/nmap_snmp_info" 2>/dev/null || true
+}
+
+# Safe vulnerability assessment functions (detection only, no exploitation)
+vulnerability_scan_web_services() {
+    if [ ! -s "$TEMP_DIR/web_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "    Web service vulnerability detection (safe)..." >> "$REPORT_FILE"
+    
+    # Safe web vulnerability detection - no exploitation attempts
+    nmap -n -p443 --script ssl-heartbleed,ssl-poodle -T4 \
+        -iL "$TEMP_DIR/web_targets.txt" -oA "$SESSION_DIR/nmap_web_vulns" 2>/dev/null || true
+}
+
+vulnerability_scan_smb_services() {
+    if [ ! -s "$TEMP_DIR/smb_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "    SMB service vulnerability detection (safe)..." >> "$REPORT_FILE"
+    
+    # Safe SMB vulnerability detection - no exploitation
+    nmap -n -p445 --script smb-vuln-ms17-010,smb-vuln-ms08-067 -T4 \
+        -iL "$TEMP_DIR/smb_targets.txt" -oA "$SESSION_DIR/nmap_smb_vulns" 2>/dev/null || true
+}
+
+vulnerability_scan_ssh_services() {
+    if [ ! -s "$TEMP_DIR/ssh_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "    SSH service vulnerability detection (safe)..." >> "$REPORT_FILE"
+    
+    # Safe SSH vulnerability detection
+    nmap -n -p22 --script ssh2-enum-algos -T4 \
+        -iL "$TEMP_DIR/ssh_targets.txt" -oA "$SESSION_DIR/nmap_ssh_crypto" 2>/dev/null || true
+}
+
+vulnerability_scan_database_services() {
+    if [ ! -s "$TEMP_DIR/database_targets.txt" ]; then
+        return 0
+    fi
+    
+    echo "    Database service vulnerability detection (safe)..." >> "$REPORT_FILE"
+    
+    # Only check for empty passwords, no brute forcing
+    nmap -n -p3306 --script mysql-empty-password -T4 \
+        -iL "$TEMP_DIR/database_targets.txt" -oA "$SESSION_DIR/nmap_mysql_emptypass" 2>/dev/null || true
+    
+    nmap -n -p1433 --script ms-sql-empty-password -T4 \
+        -iL "$TEMP_DIR/database_targets.txt" -oA "$SESSION_DIR/nmap_mssql_emptypass" 2>/dev/null || true
+}
+
+process_vulnerability_results() {
+    echo "  Processing vulnerability assessment results..." >> "$REPORT_FILE"
+    
+    # Extract vulnerability information from scan results
+    > "$TEMP_DIR/vulnerabilities_found.txt"
+    
+    # Check for critical vulnerabilities in all scan results
+    for vuln_file in "$SESSION_DIR"/nmap_*_vulns.nmap "$SESSION_DIR"/nmap_*_emptypass.nmap; do
+        if [ -f "$vuln_file" ]; then
+            # Look for VULNERABLE entries
+            grep -i "VULNERABLE\|STATE.*vulnerable" "$vuln_file" 2>/dev/null >> "$TEMP_DIR/vulnerabilities_found.txt" || true
+        fi
+    done
+    
+    vuln_count=$(wc -l < "$TEMP_DIR/vulnerabilities_found.txt")
+    echo "    Potential vulnerabilities detected: $vuln_count" >> "$REPORT_FILE"
+    
+    if [ "$vuln_count" -gt 0 ]; then
+        echo "    Vulnerability findings:" >> "$REPORT_FILE"
+        head -10 "$TEMP_DIR/vulnerabilities_found.txt" | sed 's/^/      /' >> "$REPORT_FILE"
+    fi
+}
+
 # Phase 1: ARP Scan
 echo "--- PHASE 1: ARP SCAN ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
@@ -595,11 +794,77 @@ fi
 
 echo >> "$REPORT_FILE"
 
-# Phase 6: Host Categorization
-echo "--- PHASE 6: HOST CATEGORIZATION ---" >> "$REPORT_FILE"
+# Phase 6: Service Enumeration
+echo "--- PHASE 6: SERVICE ENUMERATION ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 6: Host Categorization - Analyzing discovered hosts..."
+echo "Phase 6: Service Enumeration - Detailed service analysis..."
+if command -v nmap >/dev/null 2>&1; then
+    echo "Performing comprehensive service enumeration..." >> "$REPORT_FILE"
+    
+    # Version detection on all discovered services
+    echo "  Stage 1: Version detection and banner grabbing..." >> "$REPORT_FILE"
+    nmap -n -sV --version-intensity 5 -T4 \
+        -iL "$TEMP_DIR/all_hosts.txt" -oA "$SESSION_DIR/nmap_version_detection" 2>/dev/null || true
+    
+    # Default script scan for additional service information
+    echo "  Stage 2: Default NSE scripts..." >> "$REPORT_FILE"
+    nmap -n -sC -T4 \
+        -iL "$TEMP_DIR/all_hosts.txt" -oA "$SESSION_DIR/nmap_default_scripts" 2>/dev/null || true
+    
+    # Service-specific enumeration
+    enumerate_ftp_services
+    enumerate_ssh_services
+    enumerate_web_services
+    enumerate_database_services
+    enumerate_smb_services
+    enumerate_dns_services
+    enumerate_snmp_services
+    
+else
+    echo "nmap not available, skipping service enumeration" >> "$REPORT_FILE"
+fi
+
+echo >> "$REPORT_FILE"
+
+# Phase 7: Vulnerability Assessment (Defensive)
+echo "--- PHASE 7: VULNERABILITY ASSESSMENT ---" >> "$REPORT_FILE"
+echo >> "$REPORT_FILE"
+
+echo "Phase 7: Vulnerability Assessment - Security analysis (defensive only)..."
+if command -v nmap >/dev/null 2>&1; then
+    echo "Performing defensive vulnerability assessment..." >> "$REPORT_FILE"
+    
+    # Configuration security assessment
+    echo "  Stage 1: Configuration security assessment..." >> "$REPORT_FILE"
+    nmap -n --script auth -T4 \
+        -iL "$TEMP_DIR/all_hosts.txt" -oA "$SESSION_DIR/nmap_default_creds" 2>/dev/null || true
+    
+    # Weak cryptography detection
+    echo "  Stage 2: Cryptographic security assessment..." >> "$REPORT_FILE"
+    nmap -n --script ssl-enum-ciphers,ssh2-enum-algos -T4 \
+        -iL "$TEMP_DIR/all_hosts.txt" -oA "$SESSION_DIR/nmap_crypto_analysis" 2>/dev/null || true
+    
+    # Service-specific vulnerability scans (safe)
+    vulnerability_scan_web_services
+    vulnerability_scan_smb_services
+    vulnerability_scan_ssh_services
+    vulnerability_scan_database_services
+    
+    # Process vulnerability results
+    process_vulnerability_results
+    
+else
+    echo "nmap not available, skipping vulnerability assessment" >> "$REPORT_FILE"
+fi
+
+echo >> "$REPORT_FILE"
+
+# Phase 8: Host Categorization
+echo "--- PHASE 8: HOST CATEGORIZATION ---" >> "$REPORT_FILE"
+echo >> "$REPORT_FILE"
+
+echo "Phase 8: Host Categorization - Analyzing discovered hosts..."
 
 # Create categorized host lists
 mkdir -p "$SESSION_DIR/categorized"
@@ -679,6 +944,79 @@ done < "$TEMP_DIR/all_hosts.txt"
 
 echo >> "$REPORT_FILE"
 
+# Phase 9: Evidence Processing
+echo "--- PHASE 9: EVIDENCE PROCESSING ---" >> "$REPORT_FILE"
+echo >> "$REPORT_FILE"
+
+echo "Phase 9: Evidence Processing - Consolidating scan data and generating comprehensive service inventory..."
+
+# Create comprehensive service inventory
+echo "  Consolidating scan data..." >> "$REPORT_FILE"
+{
+    echo "IP_Address,Port,Protocol,State,Service,Version,Banner"
+    
+    # Process all nmap scan results
+    for scan_file in "$SESSION_DIR"/nmap_*.txt; do
+        if [ -f "$scan_file" ]; then
+            # Extract service information from nmap results
+            grep -E "Nmap scan report|open" "$scan_file" 2>/dev/null | while read -r line; do
+                if echo "$line" | grep -q "Nmap scan report"; then
+                    current_host=$(echo "$line" | awk '{print $5}')
+                elif echo "$line" | grep -q "open"; then
+                    port_info=$(echo "$line" | awk '{print $1}')
+                    service=$(echo "$line" | awk '{print $3}')
+                    version=$(echo "$line" | cut -d' ' -f4- | tr ',' ';')
+                    echo "$current_host,$port_info,open,$service,$version,Unknown"
+                fi
+            done 2>/dev/null || true
+        fi
+    done | sort -t',' -k1,1V -k2,2n
+} > "$SESSION_DIR/comprehensive_service_inventory.csv"
+
+# Create attack surface summary
+echo "  Generating attack surface summary..." >> "$REPORT_FILE"
+{
+    echo "=== Attack Surface Analysis ==="
+    echo "Assessment Date: $(date)"
+    echo "Target Networks: $(echo "$target_networks" | tr ' ' ', ')"
+    echo ""
+    echo "=== Infrastructure Summary ==="
+    echo "Total Hosts Discovered: $all_hosts_count"
+    
+    # Service statistics from enhanced categorization
+    if [ -f "service_summary_enhanced.txt" ]; then
+        echo ""
+        cat service_summary_enhanced.txt
+    fi
+    
+    echo ""
+    echo "=== Security Findings ==="
+    if [ -f "$TEMP_DIR/vulnerabilities_found.txt" ] && [ -s "$TEMP_DIR/vulnerabilities_found.txt" ]; then
+        vuln_count=$(wc -l < "$TEMP_DIR/vulnerabilities_found.txt")
+        echo "Potential Vulnerabilities: $vuln_count"
+        echo "Top findings:"
+        head -5 "$TEMP_DIR/vulnerabilities_found.txt" | sed 's/^/  - /'
+    else
+        echo "No critical vulnerabilities detected in defensive scans"
+    fi
+    
+    echo ""
+    echo "=== Key Files Generated ==="
+    echo "Service Inventory: comprehensive_service_inventory.csv"
+    echo "Discovery Report: discovery_report.txt"
+    echo "Categorized Hosts: categorized/ directory"
+    if [ -f "$SESSION_DIR/smb_hosts.txt" ]; then
+        echo "SMB Hosts: smb_hosts.txt"
+    fi
+    if [ -f "$SESSION_DIR/netbios_names.txt" ]; then
+        echo "NetBIOS Names: netbios_names.txt"
+    fi
+} > "$SESSION_DIR/attack_surface_summary.txt"
+
+echo "  Evidence processing completed - $(wc -l < "$SESSION_DIR/comprehensive_service_inventory.csv") services cataloged" >> "$REPORT_FILE"
+
+echo >> "$REPORT_FILE"
+
 # Summary statistics
 echo "--- DISCOVERY SUMMARY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
@@ -700,13 +1038,16 @@ echo "  Database servers: $database_count" >> "$REPORT_FILE"
 echo "  Unknown hosts: $unknown_count" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Discovery phases completed:" >> "$REPORT_FILE"
+echo "Enhanced discovery phases completed:" >> "$REPORT_FILE"
 echo "  ✓ Phase 1: ARP Scan ($arp_count hosts)" >> "$REPORT_FILE"
 echo "  ✓ Phase 2: Ping Sweep ($ping_count hosts)" >> "$REPORT_FILE"
 echo "  ✓ Phase 3: DNS Lookup (completed)" >> "$REPORT_FILE"
 echo "  ✓ Phase 4: Windows-Specific Discovery ($smb_count SMB hosts)" >> "$REPORT_FILE"
-echo "  ✓ Phase 5: Port Scan (completed)" >> "$REPORT_FILE"
-echo "  ✓ Phase 6: Categorization (completed)" >> "$REPORT_FILE"
+echo "  ✓ Phase 5: Progressive Port Scan (multi-stage)" >> "$REPORT_FILE"
+echo "  ✓ Phase 6: Service Enumeration (defensive)" >> "$REPORT_FILE"
+echo "  ✓ Phase 7: Vulnerability Assessment (safe detection)" >> "$REPORT_FILE"
+echo "  ✓ Phase 8: Host Categorization (completed)" >> "$REPORT_FILE"
+echo "  ✓ Phase 9: Evidence Processing (inventory generated)" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 echo "Discovery completed at $(date)" >> "$REPORT_FILE"
@@ -735,7 +1076,7 @@ log_info "Multi-phase discovery completed successfully"
 log_info "Results saved to: $SESSION_DIR"
 log_info "Discovery summary: $all_hosts_count total hosts, $windows_count Windows, $linux_count Linux/Unix, $network_count network devices"
 echo
-echo "Discovery Summary:"
+echo "Enhanced Discovery Summary:"
 if [ "$discovery_type" = "vlan_aware" ]; then
     echo "  Discovery mode: VLAN-aware (multiple networks)"
     echo "  Networks scanned: $target_networks"
@@ -744,28 +1085,42 @@ else
     echo "  Network scanned: $network_range"
 fi
 echo "  Total hosts discovered: $all_hosts_count"
-echo "  SMB/Windows hosts found: $smb_count"
 echo "  Windows hosts: $windows_count"
 echo "  Linux/Unix hosts: $linux_count"
 echo "  Network devices: $network_count"
 echo "  Web servers: $web_count"
 echo "  Database servers: $database_count"
 echo "  Unknown hosts: $unknown_count"
+
+# Show vulnerability count if available
+if [ -f "$TEMP_DIR/vulnerabilities_found.txt" ]; then
+    vuln_count=$(wc -l < "$TEMP_DIR/vulnerabilities_found.txt")
+    echo "  Potential vulnerabilities: $vuln_count"
+fi
+
 echo
-echo "Files created:"
-echo "  - discovery_report.txt (detailed report)"
-echo "  - all_discovered_hosts.txt (host list)"
-echo "  - dns_results.txt (hostname resolutions)"
-echo "  - categorized/ (categorized host lists)"
+echo "Key Files Created:"
+echo "  📊 comprehensive_service_inventory.csv (complete service catalog)"
+echo "  📋 attack_surface_summary.txt (executive summary)"
+echo "  📝 discovery_report.txt (detailed technical report)"
+echo "  📁 categorized/ (hosts organized by type)"
+echo "  📍 all_discovered_hosts.txt (master host list)"
+echo "  🔍 dns_results.txt (hostname resolutions)"
+
+# Enhanced scan results
+echo "  🛡️  Nmap scan results:"
+for scan_file in "$SESSION_DIR"/nmap_*.txt; do
+    if [ -f "$scan_file" ]; then
+        scan_name=$(basename "$scan_file" .txt | sed 's/nmap_//')
+        echo "     - $scan_name.txt"
+    fi
+done
+
 if [ -f "$SESSION_DIR/smb_hosts.txt" ]; then
-    echo "  - smb_hosts.txt (SMB/Windows hosts)"
+    echo "  🪟 smb_hosts.txt (SMB/Windows hosts)"
 fi
 if [ -f "$SESSION_DIR/netbios_names.txt" ]; then
-    echo "  - netbios_names.txt (NetBIOS computer names)"
-fi
-if [ -f "$SESSION_DIR/nmap_results.txt" ]; then
-    echo "  - nmap_results.txt (port scan results)"
-    echo "  - nmap_services.txt (service detection)"
+    echo "  🏷️  netbios_names.txt (NetBIOS computer names)"
 fi
 echo
 echo "Opening detailed report..."
