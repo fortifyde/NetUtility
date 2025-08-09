@@ -472,6 +472,48 @@ perform_masscan_discovery() {
     done
 }
 
+# IPv6 Network Discovery - Integration with refactored IPv6 script
+perform_ipv6_discovery() {
+    local interface="$1"
+    local output_file="$2"
+    
+    echo "  Performing IPv6 network discovery..." >> "$REPORT_FILE"
+    
+    # Check if IPv6 is available on the interface
+    if ! ip -6 addr show "$interface" | grep -q "inet6"; then
+        echo "    No IPv6 addresses found on $interface, skipping IPv6 discovery" >> "$REPORT_FILE"
+        return 0
+    fi
+    
+    # Source the IPv6 discovery script to load the function
+    . "$(dirname "$0")/ipv6_discovery.sh"
+    
+    # Call the IPv6 discovery function with our evidence directory
+    perform_ipv6_discovery_main "$interface" "$EVIDENCE_DIR"
+    
+    # Extract discovered IPv6 hosts for integration into our workflow
+    IPV6_HOSTS_FILE="$EVIDENCE_DIR/ipv6_discovery/discovered_ipv6_hosts.txt"
+    if [ -f "$IPV6_HOSTS_FILE" ] && [ -s "$IPV6_HOSTS_FILE" ]; then
+        cat "$IPV6_HOSTS_FILE" >> "$output_file"
+        ipv6_count=$(wc -l < "$IPV6_HOSTS_FILE")
+        echo "    Found $ipv6_count unique IPv6 addresses" >> "$REPORT_FILE"
+        
+        if [ "$ipv6_count" -gt 0 ]; then
+            echo "    Sample IPv6 discoveries:" >> "$REPORT_FILE"
+            head -3 "$IPV6_HOSTS_FILE" | sed 's/^/      /' >> "$REPORT_FILE"
+        fi
+        
+        echo "    IPv6 evidence saved to: evidence/ipv6_discovery/" >> "$REPORT_FILE"
+    else
+        echo "    No IPv6 hosts discovered" >> "$REPORT_FILE"
+    fi
+    
+    # Remove duplicates from output
+    if [ -s "$output_file" ]; then
+        sort -u "$output_file" -o "$output_file"
+    fi
+}
+
 # Early OS detection and device classification
 perform_early_os_detection() {
     local host_file="$1"
@@ -1257,9 +1299,17 @@ masscan_count=$(wc -l < "$PHASE2_DIR/masscan_hosts.txt")
 echo "  Sub-phase 2.4 complete: Found $masscan_count hosts via masscan." >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
+# Sub-phase 2.5: IPv6 Network Discovery
+echo "  Sub-phase 2.5: IPv6 network discovery..." >> "$REPORT_FILE"
+> "$PHASE2_DIR/ipv6_hosts.txt"
+perform_ipv6_discovery "$selected_interface" "$PHASE2_DIR/ipv6_hosts.txt"
+ipv6_count=$(wc -l < "$PHASE2_DIR/ipv6_hosts.txt")
+echo "  Sub-phase 2.5 complete: Found $ipv6_count IPv6 hosts." >> "$REPORT_FILE"
+echo >> "$REPORT_FILE"
+
 # Combine all Phase 1 and Phase 2 results
 cat "$PHASE1_DIR/phase1_all_hosts.txt" "$PHASE2_DIR/ping_hosts.txt" "$PHASE2_DIR/tcp_hosts.txt" \
-    "$PHASE2_DIR/udp_hosts.txt" "$PHASE2_DIR/masscan_hosts.txt" | sort -u > "$CONSOLIDATED_DIR/all_hosts.txt"
+    "$PHASE2_DIR/udp_hosts.txt" "$PHASE2_DIR/masscan_hosts.txt" "$PHASE2_DIR/ipv6_hosts.txt" | sort -u > "$CONSOLIDATED_DIR/all_hosts.txt"
 all_hosts_count=$(wc -l < "$CONSOLIDATED_DIR/all_hosts.txt")
 
 echo "Phase 2 Comprehensive Host Discovery Summary:" >> "$REPORT_FILE"
@@ -1267,13 +1317,14 @@ echo "  ICMP-responsive hosts: $ping_count" >> "$REPORT_FILE"
 echo "  TCP-responsive hosts: $tcp_count" >> "$REPORT_FILE"
 echo "  UDP-responsive hosts: $udp_count" >> "$REPORT_FILE"
 echo "  Masscan-discovered hosts: $masscan_count" >> "$REPORT_FILE"
+echo "  IPv6-discovered hosts: $ipv6_count" >> "$REPORT_FILE"
 echo "  Combined unique hosts (Phases 1+2): $all_hosts_count" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-log_network_operation "Enhanced Phase 2 discovery" "$network_range" "Found $all_hosts_count total hosts (ICMP:$ping_count, TCP:$tcp_count, UDP:$udp_count, Masscan:$masscan_count)"
+log_network_operation "Enhanced Phase 2 discovery" "$network_range" "Found $all_hosts_count total hosts (ICMP:$ping_count, TCP:$tcp_count, UDP:$udp_count, Masscan:$masscan_count, IPv6:$ipv6_count)"
 
-# Sub-phase 2.5: Early OS Detection and Device Classification
-echo "  Sub-phase 2.5: Early OS detection and device classification..." >> "$REPORT_FILE"
+# Sub-phase 2.6: Early OS Detection and Device Classification
+echo "  Sub-phase 2.6: Early OS detection and device classification..." >> "$REPORT_FILE"
 
 # Initialize classification files
 > "$PHASE2_DIR/early_os_detection.txt"
