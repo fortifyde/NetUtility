@@ -931,16 +931,53 @@ enumerate_ssh_services() {
     
     echo "  SSH service enumeration (safe)..." >> "$REPORT_FILE"
     
-    # Safe SSH configuration analysis - no brute forcing
-    nmap -n -p22 --script ssh-hostkey,ssh2-enum-algos -T4 \
+    # Enhanced SSH enumeration with comprehensive analysis
+    nmap -n -p22 --script ssh-hostkey,ssh2-enum-algos,ssh-auth-methods,banner -T4 \
         -iL "$SERVICE_TARGETS_DIR/ssh_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_ssh_enum" 2>/dev/null || true
     
-    # SSH version enumeration via banner grabbing
-    echo "    SSH versions:" >> "$REPORT_FILE"
+    # Enhanced SSH fingerprinting and banner analysis
+    echo "    SSH service fingerprinting:" >> "$REPORT_FILE"
+    > "$PHASE6_DIR/ssh_service_details.txt"
+    
     while read -r target; do
         if [ -n "$target" ]; then
             echo "      $target:" >> "$REPORT_FILE"
-            timeout 10 nc "$target" 22 2>/dev/null | head -1 | sed 's/^/        /' >> "$REPORT_FILE" || true
+            
+            # Enhanced banner grab
+            ssh_banner=$(timeout 5 nc "$target" 22 2>/dev/null | head -1)
+            if [ -n "$ssh_banner" ]; then
+                echo "        Banner: $ssh_banner" >> "$REPORT_FILE"
+                echo "$target: $ssh_banner" >> "$PHASE6_DIR/ssh_service_details.txt"
+                
+                # Extract and analyze version information
+                if echo "$ssh_banner" | grep -q "OpenSSH"; then
+                    version=$(echo "$ssh_banner" | grep -o "OpenSSH_[0-9.]*[a-zA-Z0-9_-]*")
+                    echo "        Version: $version" >> "$REPORT_FILE"
+                    
+                    # Version analysis for vulnerability assessment
+                    case "$version" in
+                        *"OpenSSH_1."*|*"OpenSSH_2."*|*"OpenSSH_3."*|*"OpenSSH_4."*|*"OpenSSH_5."*)
+                            echo "        Risk: Very old SSH version" >> "$REPORT_FILE"
+                            ;;
+                        *"OpenSSH_6."*|*"OpenSSH_7.0"*|*"OpenSSH_7.1"*|*"OpenSSH_7.2"*)
+                            echo "        Risk: Older SSH version" >> "$REPORT_FILE"
+                            ;;
+                    esac
+                fi
+                
+                # OS fingerprinting from SSH banner
+                if echo "$ssh_banner" | grep -qi "ubuntu"; then
+                    echo "        OS: Ubuntu Linux" >> "$REPORT_FILE"
+                elif echo "$ssh_banner" | grep -qi "debian"; then
+                    echo "        OS: Debian Linux" >> "$REPORT_FILE"
+                elif echo "$ssh_banner" | grep -qi "centos\|rhel"; then
+                    echo "        OS: RedHat/CentOS" >> "$REPORT_FILE"
+                elif echo "$ssh_banner" | grep -qi "freebsd"; then
+                    echo "        OS: FreeBSD" >> "$REPORT_FILE"
+                fi
+            else
+                echo "        Banner: [No response]" >> "$REPORT_FILE"
+            fi
         fi
     done < "$SERVICE_TARGETS_DIR/ssh_targets.txt"
 }
@@ -952,13 +989,118 @@ enumerate_web_services() {
     
     echo "  Web service enumeration (safe)..." >> "$REPORT_FILE"
     
-    # Safe HTTP enumeration - headers, methods, titles only
-    nmap -n -p80,443,8080,8443 --script http-methods,http-headers,http-title,http-server-header -T4 \
+    # Enhanced HTTP enumeration with comprehensive fingerprinting
+    nmap -n -p80,443,8080,8443 --script http-methods,http-headers,http-title,http-server-header,http-robots.txt,http-security-headers -T4 \
         -iL "$SERVICE_TARGETS_DIR/web_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_web_enum" 2>/dev/null || true
     
-    # SSL certificate information (non-intrusive)
-    nmap -n -p443 --script ssl-cert -T4 \
+    # SSL certificate and security analysis
+    nmap -n -p443 --script ssl-cert,ssl-enum-ciphers,ssl-date -T4 \
         -iL "$SERVICE_TARGETS_DIR/web_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_ssl_info" 2>/dev/null || true
+    
+    # Enhanced web service fingerprinting
+    echo "    Web service fingerprinting:" >> "$REPORT_FILE"
+    > "$PHASE6_DIR/web_service_details.txt"
+    
+    while read -r target; do
+        if [ -n "$target" ]; then
+            echo "      $target:" >> "$REPORT_FILE"
+            
+            # HTTP banner grabbing and analysis
+            for port in 80 8080; do
+                if nc -z -w 2 "$target" "$port" 2>/dev/null; then
+                    echo "        HTTP Port $port:" >> "$REPORT_FILE"
+                    
+                    # Get HTTP headers and server information
+                    http_response=$(timeout 10 curl -s -I "http://$target:$port/" 2>/dev/null)
+                    if [ -n "$http_response" ]; then
+                        # Extract server information
+                        server_header=$(echo "$http_response" | grep -i "^server:" | cut -d' ' -f2-)
+                        if [ -n "$server_header" ]; then
+                            echo "          Server: $server_header" >> "$REPORT_FILE"
+                            echo "$target:$port Server: $server_header" >> "$PHASE6_DIR/web_service_details.txt"
+                            
+                            # Analyze server type and version
+                            case "$server_header" in
+                                *"Apache"*)
+                                    echo "          Technology: Apache HTTP Server" >> "$REPORT_FILE"
+                                    if echo "$server_header" | grep -qE "Apache/[0-2]\.[0-4]"; then
+                                        echo "          Risk: Very old Apache version" >> "$REPORT_FILE"
+                                    fi
+                                    ;;
+                                *"nginx"*)
+                                    echo "          Technology: Nginx" >> "$REPORT_FILE"
+                                    ;;
+                                *"IIS"*)
+                                    echo "          Technology: Microsoft IIS" >> "$REPORT_FILE"
+                                    echo "          OS: Windows Server" >> "$REPORT_FILE"
+                                    ;;
+                                *"lighttpd"*)
+                                    echo "          Technology: Lighttpd" >> "$REPORT_FILE"
+                                    ;;
+                            esac
+                        fi
+                        
+                        # Check for additional headers that reveal technology
+                        if echo "$http_response" | grep -qi "x-powered-by:"; then
+                            powered_by=$(echo "$http_response" | grep -i "x-powered-by:" | cut -d' ' -f2-)
+                            echo "          X-Powered-By: $powered_by" >> "$REPORT_FILE"
+                            
+                            case "$powered_by" in
+                                *"PHP"*)
+                                    echo "          Framework: PHP" >> "$REPORT_FILE"
+                                    ;;
+                                *"ASP.NET"*)
+                                    echo "          Framework: ASP.NET" >> "$REPORT_FILE"
+                                    echo "          OS: Windows" >> "$REPORT_FILE"
+                                    ;;
+                            esac
+                        fi
+                        
+                        # Check security headers
+                        if ! echo "$http_response" | grep -qi "x-frame-options:"; then
+                            echo "          Security: Missing X-Frame-Options header" >> "$REPORT_FILE"
+                        fi
+                        if ! echo "$http_response" | grep -qi "x-content-type-options:"; then
+                            echo "          Security: Missing X-Content-Type-Options header" >> "$REPORT_FILE"
+                        fi
+                    fi
+                fi
+            done
+            
+            # HTTPS analysis
+            for port in 443 8443; do
+                if nc -z -w 2 "$target" "$port" 2>/dev/null; then
+                    echo "        HTTPS Port $port:" >> "$REPORT_FILE"
+                    
+                    # Get HTTPS headers
+                    https_response=$(timeout 10 curl -s -I -k "https://$target:$port/" 2>/dev/null)
+                    if [ -n "$https_response" ]; then
+                        server_header=$(echo "$https_response" | grep -i "^server:" | cut -d' ' -f2-)
+                        if [ -n "$server_header" ]; then
+                            echo "          Server: $server_header" >> "$REPORT_FILE"
+                        fi
+                    fi
+                    
+                    # SSL certificate basic info (if openssl is available)
+                    if command -v openssl >/dev/null 2>&1; then
+                        cert_info=$(timeout 10 openssl s_client -connect "$target:$port" -servername "$target" 2>/dev/null < /dev/null)
+                        if [ -n "$cert_info" ]; then
+                            # Extract certificate subject
+                            cert_subject=$(echo "$cert_info" | grep "subject=" | head -1)
+                            if [ -n "$cert_subject" ]; then
+                                echo "          Certificate: $cert_subject" >> "$REPORT_FILE"
+                            fi
+                            
+                            # Check for certificate expiry warnings
+                            if echo "$cert_info" | grep -q "Verify return code: [^0]"; then
+                                echo "          SSL Warning: Certificate verification failed" >> "$REPORT_FILE"
+                            fi
+                        fi
+                    fi
+                fi
+            done
+        fi
+    done < "$SERVICE_TARGETS_DIR/web_targets.txt"
 }
 
 enumerate_database_services() {
@@ -968,15 +1110,94 @@ enumerate_database_services() {
     
     echo "  Database service enumeration (safe)..." >> "$REPORT_FILE"
     
-    # Safe database enumeration - info only, no brute forcing
-    nmap -n -p3306 --script mysql-info -T4 \
+    # Enhanced database enumeration with comprehensive fingerprinting
+    nmap -n -p3306 --script mysql-info,mysql-variables,banner -T4 \
         -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_mysql_info" 2>/dev/null || true
     
-    nmap -n -p1433 --script ms-sql-info -T4 \
+    nmap -n -p1433 --script ms-sql-info,ms-sql-config,banner -T4 \
         -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_mssql_info" 2>/dev/null || true
     
-    nmap -n -p27017 --script mongodb-info -T4 \
+    nmap -n -p27017 --script mongodb-info,mongodb-databases,banner -T4 \
         -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_mongodb_info" 2>/dev/null || true
+    
+    nmap -n -p5432 --script pgsql-databases,banner -T4 \
+        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_postgresql_info" 2>/dev/null || true
+    
+    nmap -n -p1521 --script oracle-sid-brute,oracle-enum-users,banner -T4 \
+        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_oracle_info" 2>/dev/null || true
+    
+    # Enhanced database service fingerprinting
+    echo "    Database service fingerprinting:" >> "$REPORT_FILE"
+    > "$PHASE6_DIR/database_service_details.txt"
+    
+    while read -r target; do
+        if [ -n "$target" ]; then
+            echo "      $target:" >> "$REPORT_FILE"
+            
+            # MySQL/MariaDB detection (port 3306)
+            if nc -z -w 2 "$target" 3306 2>/dev/null; then
+                echo "        MySQL/MariaDB Port 3306:" >> "$REPORT_FILE"
+                # Try to get MySQL version banner
+                mysql_banner=$(timeout 5 nc "$target" 3306 2>/dev/null | strings | head -5 | grep -i mysql)
+                if [ -n "$mysql_banner" ]; then
+                    echo "          Banner: $mysql_banner" >> "$REPORT_FILE"
+                    echo "$target:3306 MySQL: $mysql_banner" >> "$PHASE6_DIR/database_service_details.txt"
+                    
+                    # Version analysis
+                    if echo "$mysql_banner" | grep -qi "5\.0\|5\.1\|5\.5"; then
+                        echo "          Risk: Older MySQL version" >> "$REPORT_FILE"
+                    elif echo "$mysql_banner" | grep -qi "mariadb"; then
+                        echo "          Technology: MariaDB" >> "$REPORT_FILE"
+                    fi
+                else
+                    echo "          Service: MySQL/MariaDB detected" >> "$REPORT_FILE"
+                fi
+            fi
+            
+            # Microsoft SQL Server detection (port 1433)
+            if nc -z -w 2 "$target" 1433 2>/dev/null; then
+                echo "        Microsoft SQL Server Port 1433:" >> "$REPORT_FILE"
+                echo "          Service: MSSQL Server detected" >> "$REPORT_FILE"
+                echo "          OS: Windows Server" >> "$REPORT_FILE"
+                echo "$target:1433 MSSQL: Active" >> "$PHASE6_DIR/database_service_details.txt"
+            fi
+            
+            # PostgreSQL detection (port 5432)
+            if nc -z -w 2 "$target" 5432 2>/dev/null; then
+                echo "        PostgreSQL Port 5432:" >> "$REPORT_FILE"
+                echo "          Service: PostgreSQL detected" >> "$REPORT_FILE"
+                echo "$target:5432 PostgreSQL: Active" >> "$PHASE6_DIR/database_service_details.txt"
+            fi
+            
+            # MongoDB detection (port 27017)
+            if nc -z -w 2 "$target" 27017 2>/dev/null; then
+                echo "        MongoDB Port 27017:" >> "$REPORT_FILE"
+                echo "          Service: MongoDB detected" >> "$REPORT_FILE"
+                echo "$target:27017 MongoDB: Active" >> "$PHASE6_DIR/database_service_details.txt"
+            fi
+            
+            # Oracle detection (port 1521)
+            if nc -z -w 2 "$target" 1521 2>/dev/null; then
+                echo "        Oracle Database Port 1521:" >> "$REPORT_FILE"
+                echo "          Service: Oracle Database detected" >> "$REPORT_FILE"
+                echo "$target:1521 Oracle: Active" >> "$PHASE6_DIR/database_service_details.txt"
+            fi
+            
+            # Redis detection (port 6379)
+            if nc -z -w 2 "$target" 6379 2>/dev/null; then
+                echo "        Redis Port 6379:" >> "$REPORT_FILE"
+                # Try to get Redis info
+                redis_info=$(timeout 3 echo "INFO server" | nc "$target" 6379 2>/dev/null | head -10)
+                if echo "$redis_info" | grep -q "redis_version"; then
+                    version=$(echo "$redis_info" | grep "redis_version" | cut -d: -f2)
+                    echo "          Service: Redis $version" >> "$REPORT_FILE"
+                    echo "$target:6379 Redis: $version" >> "$PHASE6_DIR/database_service_details.txt"
+                else
+                    echo "          Service: Redis detected" >> "$REPORT_FILE"
+                fi
+            fi
+        fi
+    done < "$SERVICE_TARGETS_DIR/database_targets.txt"
 }
 
 enumerate_smb_services() {
@@ -986,20 +1207,88 @@ enumerate_smb_services() {
     
     echo "  SMB service enumeration (safe)..." >> "$REPORT_FILE"
     
-    # Safe SMB enumeration - protocols, security mode, OS discovery only
-    nmap -n -p445 --script smb-protocols,smb-security-mode,smb-os-discovery -T4 \
+    # Enhanced SMB enumeration with comprehensive fingerprinting
+    nmap -n -p445,139 --script smb-protocols,smb-security-mode,smb-os-discovery,smb2-capabilities -T4 \
         -iL "$SERVICE_TARGETS_DIR/smb_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_smb_info" 2>/dev/null || true
     
-    # Basic SMB information using smbclient if available (no authentication attempts)
-    if command -v smbclient >/dev/null 2>&1; then
-        echo "    SMB server information:" >> "$REPORT_FILE"
-        while read -r target; do
-            if [ -n "$target" ]; then
-                echo "      $target:" >> "$REPORT_FILE"
-                timeout 30 smbclient -L "//$target" -N 2>/dev/null | head -10 | sed 's/^/        /' >> "$REPORT_FILE" || true
+    # Detailed SMB banner grabbing and version detection
+    echo "    SMB server analysis:" >> "$REPORT_FILE"
+    while read -r target; do
+        if [ -n "$target" ]; then
+            echo "      SMB Analysis for $target:" >> "$REPORT_FILE"
+            
+            # SMB port 445 banner analysis
+            if nc -z -w 2 "$target" 445 2>/dev/null; then
+                echo "        SMB Port 445:" >> "$REPORT_FILE"
+                
+                # Try to get SMB dialect information
+                smb_info=$(timeout 5 nmap -n -p445 --script smb-protocols "$target" 2>/dev/null | grep -A 10 "smb-protocols")
+                if [ -n "$smb_info" ]; then
+                    # Extract SMB version information
+                    if echo "$smb_info" | grep -q "SMBv1"; then
+                        echo "          Protocol: SMBv1 (legacy)" >> "$REPORT_FILE"
+                        echo "          Risk: SMBv1 protocol enabled" >> "$REPORT_FILE"
+                    fi
+                    if echo "$smb_info" | grep -q "SMBv2"; then
+                        echo "          Protocol: SMBv2" >> "$REPORT_FILE"
+                    fi
+                    if echo "$smb_info" | grep -q "SMBv3"; then
+                        echo "          Protocol: SMBv3" >> "$REPORT_FILE"
+                    fi
+                fi
+                
+                # OS and architecture detection from SMB
+                os_info=$(timeout 5 nmap -n -p445 --script smb-os-discovery "$target" 2>/dev/null | grep -A 5 "OS:")
+                if [ -n "$os_info" ]; then
+                    os_name=$(echo "$os_info" | grep "OS:" | sed 's/.*OS: //' | cut -d'(' -f1)
+                    if [ -n "$os_name" ]; then
+                        echo "          OS: $os_name" >> "$REPORT_FILE"
+                        case "$os_name" in
+                            *"Windows Server 2003"*|*"Windows XP"*)
+                                echo "          Risk: End-of-life Windows version" >> "$REPORT_FILE"
+                                ;;
+                            *"Windows Server 2008"*)
+                                echo "          Risk: Extended support ended" >> "$REPORT_FILE"
+                                ;;
+                        esac
+                    fi
+                fi
+                
+                echo "$target:445 SMB: Active" >> "$PHASE6_DIR/smb_service_details.txt"
             fi
-        done < "$SERVICE_TARGETS_DIR/smb_targets.txt"
-    fi
+            
+            # NetBIOS port 139 analysis  
+            if nc -z -w 2 "$target" 139 2>/dev/null; then
+                echo "        NetBIOS Port 139:" >> "$REPORT_FILE"
+                echo "          Service: NetBIOS Session Service" >> "$REPORT_FILE"
+                echo "          Protocol: NetBIOS over TCP" >> "$REPORT_FILE"
+                echo "$target:139 NetBIOS: Active" >> "$PHASE6_DIR/smb_service_details.txt"
+                
+                # NetBIOS name resolution
+                if command -v nmblookup >/dev/null 2>&1; then
+                    nb_name=$(timeout 5 nmblookup -A "$target" 2>/dev/null | grep "<00>" | head -1 | awk '{print $1}')
+                    if [ -n "$nb_name" ]; then
+                        echo "          NetBIOS Name: $nb_name" >> "$REPORT_FILE"
+                    fi
+                fi
+            fi
+            
+            # Safe share enumeration (no authentication)
+            if command -v smbclient >/dev/null 2>&1; then
+                echo "        Share Information:" >> "$REPORT_FILE"
+                share_info=$(timeout 10 smbclient -L "//$target" -N 2>/dev/null | grep -E "Disk|IPC|Printer" | head -5)
+                if [ -n "$share_info" ]; then
+                    echo "$share_info" | sed 's/^/          /' >> "$REPORT_FILE"
+                    # Check for potentially sensitive shares
+                    if echo "$share_info" | grep -qi "admin\|c\$\|ipc\$"; then
+                        echo "          Note: Administrative shares detected" >> "$REPORT_FILE"
+                    fi
+                else
+                    echo "          Access: Anonymous access denied" >> "$REPORT_FILE"
+                fi
+            fi
+        fi
+    done < "$SERVICE_TARGETS_DIR/smb_targets.txt"
 }
 
 enumerate_dns_services() {
@@ -1009,9 +1298,85 @@ enumerate_dns_services() {
     
     echo "  DNS service enumeration (safe)..." >> "$REPORT_FILE"
     
-    # Safe DNS server information gathering
-    nmap -n -p53 --script dns-nsid -T4 \
+    # Enhanced DNS server enumeration and fingerprinting
+    nmap -n -p53 --script dns-nsid,dns-service-discovery,dns-recursion -T4 \
         -iL "$SERVICE_TARGETS_DIR/dns_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_dns_info" 2>/dev/null || true
+    
+    # Detailed DNS server analysis
+    echo "    DNS server analysis:" >> "$REPORT_FILE"
+    while read -r target; do
+        if [ -n "$target" ]; then
+            echo "      DNS Analysis for $target:" >> "$REPORT_FILE"
+            
+            # TCP DNS port 53 analysis
+            if nc -z -w 2 "$target" 53 2>/dev/null; then
+                echo "        DNS TCP Port 53:" >> "$REPORT_FILE"
+                echo "          Service: DNS Server (TCP)" >> "$REPORT_FILE"
+                
+                # Try to get DNS version information
+                if command -v dig >/dev/null 2>&1; then
+                    # Query for version (BIND servers often respond)
+                    version_info=$(timeout 5 dig @"$target" version.bind chaos txt +short 2>/dev/null | tr -d '"')
+                    if [ -n "$version_info" ]; then
+                        echo "          Version: $version_info" >> "$REPORT_FILE"
+                        # Check for known vulnerable versions
+                        case "$version_info" in
+                            *"BIND 9.8"*|*"BIND 9.9.0"*|*"BIND 9.9.1"*)
+                                echo "          Risk: Potentially outdated BIND version" >> "$REPORT_FILE"
+                                ;;
+                        esac
+                    fi
+                    
+                    # Test DNS recursion
+                    recursion_test=$(timeout 5 dig @"$target" google.com +short 2>/dev/null)
+                    if [ -n "$recursion_test" ]; then
+                        echo "          Configuration: Recursion enabled" >> "$REPORT_FILE"
+                        echo "          Risk: Open DNS resolver detected" >> "$REPORT_FILE"
+                    else
+                        echo "          Configuration: Recursion disabled/restricted" >> "$REPORT_FILE"
+                    fi
+                    
+                    # Check for zone transfer (safe test)
+                    zone_test=$(timeout 5 dig @"$target" . axfr 2>/dev/null | head -5)
+                    if echo "$zone_test" | grep -q "XFR size"; then
+                        echo "          Risk: Zone transfer may be allowed" >> "$REPORT_FILE"
+                    fi
+                fi
+                
+                echo "$target:53 DNS: Active (TCP)" >> "$PHASE6_DIR/dns_service_details.txt"
+            fi
+            
+            # UDP DNS port 53 analysis
+            if timeout 3 nc -u -z -w 1 "$target" 53 2>/dev/null; then
+                echo "        DNS UDP Port 53:" >> "$REPORT_FILE"
+                echo "          Service: DNS Server (UDP)" >> "$REPORT_FILE"
+                
+                # DNS server identification via UDP
+                if command -v dig >/dev/null 2>&1; then
+                    # Test basic DNS functionality
+                    dns_response=$(timeout 3 dig @"$target" . NS +short 2>/dev/null | head -1)
+                    if [ -n "$dns_response" ]; then
+                        echo "          Root NS Query: Successful" >> "$REPORT_FILE"
+                    fi
+                    
+                    # Check response rate (amplification risk)
+                    response_size=$(timeout 3 dig @"$target" . ANY +short 2>/dev/null | wc -c)
+                    if [ "$response_size" -gt 512 ]; then
+                        echo "          Risk: Large UDP responses (amplification risk)" >> "$REPORT_FILE"
+                    fi
+                fi
+                
+                echo "$target:53 DNS: Active (UDP)" >> "$PHASE6_DIR/dns_service_details.txt"
+            fi
+            
+            # DNS over HTTPS/TLS detection (ports 853, 443)
+            if nc -z -w 2 "$target" 853 2>/dev/null; then
+                echo "        DNS over TLS Port 853:" >> "$REPORT_FILE"
+                echo "          Service: DNS over TLS (DoT)" >> "$REPORT_FILE"
+                echo "$target:853 DoT: Active" >> "$PHASE6_DIR/dns_service_details.txt"
+            fi
+        fi
+    done < "$SERVICE_TARGETS_DIR/dns_targets.txt"
 }
 
 enumerate_snmp_services() {
@@ -1021,9 +1386,120 @@ enumerate_snmp_services() {
     
     echo "  SNMP service enumeration (safe)..." >> "$REPORT_FILE"
     
-    # Safe SNMP enumeration - system description only
-    nmap -n -sU -p161 --script snmp-sysdescr -T4 \
+    # Enhanced SNMP enumeration with comprehensive system information
+    nmap -n -sU -p161 --script snmp-sysdescr,snmp-info,snmp-interfaces -T4 \
         -iL "$SERVICE_TARGETS_DIR/snmp_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_snmp_info" 2>/dev/null || true
+    
+    # Detailed SNMP server analysis
+    echo "    SNMP server analysis:" >> "$REPORT_FILE"
+    while read -r target; do
+        if [ -n "$target" ]; then
+            echo "      SNMP Analysis for $target:" >> "$REPORT_FILE"
+            
+            # SNMP UDP port 161 analysis
+            if timeout 3 nc -u -z -w 1 "$target" 161 2>/dev/null; then
+                echo "        SNMP UDP Port 161:" >> "$REPORT_FILE"
+                echo "          Service: SNMP Agent" >> "$REPORT_FILE"
+                
+                # SNMP community string testing (safe defaults only)
+                if command -v snmpget >/dev/null 2>&1; then
+                    # Test with common read-only community strings (safe)
+                    for community in "public" "private" "community"; do
+                        snmp_test=$(timeout 5 snmpget -v2c -c "$community" "$target" 1.3.6.1.2.1.1.1.0 2>/dev/null)
+                        if [ -n "$snmp_test" ] && ! echo "$snmp_test" | grep -q "Timeout"; then
+                            echo "          Community: $community (accessible)" >> "$REPORT_FILE"
+                            
+                            # Get system description
+                            sys_desc=$(echo "$snmp_test" | grep "STRING:" | cut -d'"' -f2)
+                            if [ -n "$sys_desc" ]; then
+                                echo "          System: $sys_desc" >> "$REPORT_FILE"
+                                
+                                # Identify device type from system description
+                                case "$sys_desc" in
+                                    *"Cisco"*|*"cisco"*)
+                                        echo "          Device Type: Cisco Network Device" >> "$REPORT_FILE"
+                                        ;;
+                                    *"HP"*|*"Hewlett"*)
+                                        echo "          Device Type: HP Network Device" >> "$REPORT_FILE"
+                                        ;;
+                                    *"Juniper"*|*"JUNOS"*)
+                                        echo "          Device Type: Juniper Network Device" >> "$REPORT_FILE"
+                                        ;;
+                                    *"Linux"*|*"Ubuntu"*|*"CentOS"*|*"RedHat"*)
+                                        echo "          Device Type: Linux Server" >> "$REPORT_FILE"
+                                        ;;
+                                    *"Windows"*)
+                                        echo "          Device Type: Windows Server" >> "$REPORT_FILE"
+                                        ;;
+                                    *"VMware"*)
+                                        echo "          Device Type: VMware ESXi Host" >> "$REPORT_FILE"
+                                        ;;
+                                    *)
+                                        echo "          Device Type: Unknown SNMP Device" >> "$REPORT_FILE"
+                                        ;;
+                                esac
+                            fi
+                            
+                            # Get system uptime
+                            uptime_info=$(timeout 5 snmpget -v2c -c "$community" "$target" 1.3.6.1.2.1.1.3.0 2>/dev/null | grep "Timeticks")
+                            if [ -n "$uptime_info" ]; then
+                                uptime_val=$(echo "$uptime_info" | grep -o '([^)]*)')
+                                if [ -n "$uptime_val" ]; then
+                                    echo "          Uptime: $uptime_val" >> "$REPORT_FILE"
+                                fi
+                            fi
+                            
+                            # Get system contact and location (if available)
+                            contact_info=$(timeout 5 snmpget -v2c -c "$community" "$target" 1.3.6.1.2.1.1.4.0 2>/dev/null | grep "STRING:" | cut -d'"' -f2)
+                            if [ -n "$contact_info" ] && [ "$contact_info" != "NULL" ]; then
+                                echo "          Contact: $contact_info" >> "$REPORT_FILE"
+                            fi
+                            
+                            location_info=$(timeout 5 snmpget -v2c -c "$community" "$target" 1.3.6.1.2.1.1.6.0 2>/dev/null | grep "STRING:" | cut -d'"' -f2)
+                            if [ -n "$location_info" ] && [ "$location_info" != "NULL" ]; then
+                                echo "          Location: $location_info" >> "$REPORT_FILE"
+                            fi
+                            
+                            # Security assessment
+                            if [ "$community" = "public" ]; then
+                                echo "          Risk: Default 'public' community string active" >> "$REPORT_FILE"
+                            elif [ "$community" = "private" ]; then
+                                echo "          Risk: Default 'private' community string active" >> "$REPORT_FILE"
+                            fi
+                            
+                            break # Stop testing other communities once we find one that works
+                        fi
+                    done
+                    
+                    # If no community strings worked
+                    if ! echo "$snmp_test" | grep -q "STRING:"; then
+                        echo "          Access: Default community strings not accessible" >> "$REPORT_FILE"
+                    fi
+                elif command -v snmpwalk >/dev/null 2>&1; then
+                    # Fallback to snmpwalk if snmpget not available
+                    snmp_test=$(timeout 5 snmpwalk -v2c -c public "$target" 1.3.6.1.2.1.1.1.0 2>/dev/null | head -1)
+                    if [ -n "$snmp_test" ]; then
+                        echo "          Community: public (accessible)" >> "$REPORT_FILE"
+                        sys_desc=$(echo "$snmp_test" | cut -d'=' -f2 | sed 's/STRING: //' | tr -d '"')
+                        if [ -n "$sys_desc" ]; then
+                            echo "          System: $sys_desc" >> "$REPORT_FILE"
+                        fi
+                    fi
+                else
+                    echo "          Tool: snmp utilities not available" >> "$REPORT_FILE"
+                fi
+                
+                echo "$target:161 SNMP: Active" >> "$PHASE6_DIR/snmp_service_details.txt"
+            fi
+            
+            # SNMP Trap port 162 detection
+            if timeout 3 nc -u -z -w 1 "$target" 162 2>/dev/null; then
+                echo "        SNMP Trap Port 162:" >> "$REPORT_FILE"
+                echo "          Service: SNMP Trap Receiver" >> "$REPORT_FILE"
+                echo "$target:162 SNMP-Trap: Active" >> "$PHASE6_DIR/snmp_service_details.txt"
+            fi
+        fi
+    done < "$SERVICE_TARGETS_DIR/snmp_targets.txt"
 }
 
 # Safe vulnerability assessment functions (detection only, no exploitation)
@@ -1824,6 +2300,415 @@ fi
 if [ -s "$PHASE4_DIR/netbios_names.txt" ]; then
     cp "$PHASE4_DIR/netbios_names.txt" "$SESSION_DIR/netbios_names.txt"
 fi
+
+# Phase 9: Service Organization and Team Handoff File Generation
+echo "--- PHASE 9: SERVICE ORGANIZATION & TEAM HANDOFF ---" >> "$REPORT_FILE"
+echo >> "$REPORT_FILE"
+
+echo "Phase 9: Generating service organization and team handoff files..."
+
+# Create team handoff directory
+TEAM_HANDOFF_DIR="$SESSION_DIR/team_handoff"
+mkdir -p "$TEAM_HANDOFF_DIR"/{windows,linux,network,manual_assignment}
+
+# Generate comprehensive service inventory for team coordination
+generate_service_inventory() {
+    local inventory_file="$TEAM_HANDOFF_DIR/service_inventory.csv"
+    
+    echo "Host,Service,Port,Protocol,Version,Risk_Level,Team_Assignment,Notes" > "$inventory_file"
+    
+    # Process each service type
+    for service_dir in "$PHASE6_DIR"/*_service_details.txt; do
+        if [ -f "$service_dir" ]; then
+            service_type=$(basename "$service_dir" | sed 's/_service_details.txt//')
+            
+            while IFS=':' read -r host port_service rest; do
+                if [ -n "$host" ] && [ -n "$port_service" ]; then
+                    # Extract port and service info
+                    port=$(echo "$port_service" | cut -d' ' -f1)
+                    service=$(echo "$port_service" | cut -d' ' -f2-)
+                    
+                    # Determine team assignment and risk level
+                    case "$service_type" in
+                        "ssh"|"ftp"|"telnet"|"smtp"|"imap"|"pop3")
+                            team="Linux"
+                            risk="Medium"
+                            ;;
+                        "smb"|"rdp")
+                            team="Windows"
+                            risk="High"
+                            ;;
+                        "database"|"mysql"|"mssql"|"postgresql"|"mongodb"|"oracle"|"redis")
+                            team="Manual_Assignment"
+                            risk="Critical"
+                            ;;
+                        "web"|"http"|"https")
+                            team="Manual_Assignment"
+                            risk="Medium"
+                            ;;
+                        "dns"|"snmp")
+                            team="Network"
+                            risk="Low"
+                            ;;
+                        *)
+                            team="Manual_Assignment"
+                            risk="Low"
+                            ;;
+                    esac
+                    
+                    echo "$host,$service_type,$port,TCP,$service,$risk,$team," >> "$inventory_file"
+                fi
+            done < "$service_dir"
+        fi
+    done
+    
+    echo "  Service inventory created: $(wc -l < "$inventory_file") services catalogued" >> "$REPORT_FILE"
+}
+
+# Generate team-specific target lists with context
+generate_team_handoff_files() {
+    echo "  Creating team-specific handoff files..." >> "$REPORT_FILE"
+    
+    # Windows Team Handoff
+    {
+        echo "=== WINDOWS TEAM HANDOFF ==="
+        echo "Generated: $(date)"
+        echo "Assessment Phase: Initial Discovery"
+        echo ""
+        echo "== SMB/NetBIOS TARGETS =="
+        if [ -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ]; then
+            echo "SMB Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt")):"
+            cat "$SERVICE_TARGETS_DIR/smb_targets.txt" | sed 's/^/  /'
+            echo ""
+            echo "Key SMB Information:"
+            if [ -f "$PHASE6_DIR/smb_service_details.txt" ]; then
+                head -10 "$PHASE6_DIR/smb_service_details.txt" | sed 's/^/  /'
+            fi
+        else
+            echo "No SMB targets identified"
+        fi
+        echo ""
+        
+        echo "== RDP TARGETS =="
+        if [ -s "$SERVICE_TARGETS_DIR/rdp_targets.txt" ]; then
+            echo "RDP Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt")):"
+            cat "$SERVICE_TARGETS_DIR/rdp_targets.txt" | sed 's/^/  /'
+        else
+            echo "No RDP targets identified"
+        fi
+        echo ""
+        
+        echo "== WINDOWS HOST IDENTIFICATION =="
+        if [ -f "$PHASE8_DIR/team_windows.txt" ]; then
+            echo "Windows Hosts Identified ($(wc -l < "$PHASE8_DIR/team_windows.txt")):"
+            cat "$PHASE8_DIR/team_windows.txt" | sed 's/^/  /'
+        fi
+        echo ""
+        
+        echo "== NETBIOS NAMES =="
+        if [ -f "$SESSION_DIR/netbios_names.txt" ]; then
+            echo "NetBIOS Computer Names:"
+            head -20 "$SESSION_DIR/netbios_names.txt" | sed 's/^/  /'
+        fi
+        echo ""
+        
+        echo "== ASSESSMENT PRIORITIES =="
+        echo "1. SMB Protocol Analysis (versions, signing, shares)"
+        echo "2. Windows Version Identification"
+        echo "3. NetBIOS Name Enumeration"
+        echo "4. RDP Configuration Assessment"
+        echo "5. Windows-specific Vulnerability Assessment"
+        echo ""
+        echo "== RAW SCAN DATA =="
+        echo "SMB Nmap Scans: $PHASE6_DIR/raw_scans/nmap_smb_*"
+        echo "RDP Detection: $SERVICE_TARGETS_DIR/rdp_targets.txt"
+        echo "Team Assignment: $PHASE8_DIR/team_windows.txt"
+        
+    } > "$TEAM_HANDOFF_DIR/windows/WINDOWS_TEAM_HANDOFF.txt"
+    
+    # Linux Team Handoff
+    {
+        echo "=== LINUX TEAM HANDOFF ==="
+        echo "Generated: $(date)"
+        echo "Assessment Phase: Initial Discovery"
+        echo ""
+        echo "== SSH TARGETS =="
+        if [ -s "$SERVICE_TARGETS_DIR/ssh_targets.txt" ]; then
+            echo "SSH Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt")):"
+            cat "$SERVICE_TARGETS_DIR/ssh_targets.txt" | sed 's/^/  /'
+            echo ""
+            echo "Key SSH Information:"
+            if [ -f "$PHASE6_DIR/ssh_service_details.txt" ]; then
+                head -10 "$PHASE6_DIR/ssh_service_details.txt" | sed 's/^/  /'
+            fi
+        else
+            echo "No SSH targets identified"
+        fi
+        echo ""
+        
+        echo "== LINUX HOST IDENTIFICATION =="
+        if [ -f "$PHASE8_DIR/team_linux.txt" ]; then
+            echo "Linux/Unix Hosts Identified ($(wc -l < "$PHASE8_DIR/team_linux.txt")):"
+            cat "$PHASE8_DIR/team_linux.txt" | sed 's/^/  /'
+        fi
+        echo ""
+        
+        echo "== OTHER LINUX SERVICES =="
+        for service in ftp telnet smtp imap pop3; do
+            if [ -s "$SERVICE_TARGETS_DIR/${service}_targets.txt" ]; then
+                echo "${service^^} Targets ($(wc -l < "$SERVICE_TARGETS_DIR/${service}_targets.txt")):"
+                cat "$SERVICE_TARGETS_DIR/${service}_targets.txt" | sed 's/^/  /'
+                echo ""
+            fi
+        done
+        
+        echo "== ASSESSMENT PRIORITIES =="
+        echo "1. SSH Configuration Analysis (versions, key algorithms)"
+        echo "2. Operating System Identification"
+        echo "3. Service Version Enumeration"
+        echo "4. Linux-specific Vulnerability Assessment"
+        echo "5. Configuration Security Review"
+        echo ""
+        echo "== RAW SCAN DATA =="
+        echo "SSH Nmap Scans: $PHASE6_DIR/raw_scans/nmap_ssh_*"
+        echo "Service Scans: $PHASE6_DIR/raw_scans/nmap_*_enum.nmap"
+        echo "Team Assignment: $PHASE8_DIR/team_linux.txt"
+        
+    } > "$TEAM_HANDOFF_DIR/linux/LINUX_TEAM_HANDOFF.txt"
+    
+    # Network Team Handoff
+    {
+        echo "=== NETWORK TEAM HANDOFF ==="
+        echo "Generated: $(date)"
+        echo "Assessment Phase: Initial Discovery"
+        echo ""
+        echo "== NETWORK INFRASTRUCTURE =="
+        if [ -f "$PHASE8_DIR/team_network.txt" ]; then
+            echo "Network Devices Identified ($(wc -l < "$PHASE8_DIR/team_network.txt")):"
+            cat "$PHASE8_DIR/team_network.txt" | sed 's/^/  /'
+        fi
+        echo ""
+        
+        echo "== DNS SERVERS =="
+        if [ -s "$SERVICE_TARGETS_DIR/dns_targets.txt" ]; then
+            echo "DNS Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/dns_targets.txt")):"
+            cat "$SERVICE_TARGETS_DIR/dns_targets.txt" | sed 's/^/  /'
+        fi
+        echo ""
+        
+        echo "== SNMP DEVICES =="
+        if [ -s "$SERVICE_TARGETS_DIR/snmp_targets.txt" ]; then
+            echo "SNMP Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt")):"
+            cat "$SERVICE_TARGETS_DIR/snmp_targets.txt" | sed 's/^/  /'
+            echo ""
+            if [ -f "$PHASE6_DIR/snmp_service_details.txt" ]; then
+                echo "SNMP Device Information:"
+                head -15 "$PHASE6_DIR/snmp_service_details.txt" | sed 's/^/  /'
+            fi
+        fi
+        echo ""
+        
+        echo "== NETWORK TOPOLOGY =="
+        if [ -f "$PHASE1_DIR/topology_hosts.txt" ]; then
+            echo "Network Topology Findings:"
+            head -10 "$PHASE1_DIR/topology_hosts.txt" | sed 's/^/  /'
+        fi
+        echo ""
+        
+        echo "== ASSESSMENT PRIORITIES =="
+        echo "1. Network Device Configuration Review"
+        echo "2. SNMP Community String Assessment"
+        echo "3. DNS Configuration Analysis"
+        echo "4. Network Segmentation Validation"
+        echo "5. Infrastructure Security Assessment"
+        echo ""
+        echo "== RAW SCAN DATA =="
+        echo "DNS Scans: $PHASE6_DIR/raw_scans/nmap_dns_*"
+        echo "SNMP Scans: $PHASE6_DIR/raw_scans/nmap_snmp_*"
+        echo "Network Discovery: $PHASE1_DIR/"
+        
+    } > "$TEAM_HANDOFF_DIR/network/NETWORK_TEAM_HANDOFF.txt"
+    
+    # Manual Assignment Handoff (Web and Database services)
+    {
+        echo "=== MANUAL ASSIGNMENT HANDOFF ==="
+        echo "Generated: $(date)"
+        echo "Assessment Phase: Initial Discovery"
+        echo "Note: These services require manual team assignment based on availability"
+        echo ""
+        
+        echo "== WEB SERVICES (Manual Assignment Required) =="
+        if [ -s "$SERVICE_TARGETS_DIR/web_targets.txt" ]; then
+            echo "Web Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt")):"
+            cat "$SERVICE_TARGETS_DIR/web_targets.txt" | sed 's/^/  /'
+            echo ""
+            if [ -f "$PHASE6_DIR/web_service_details.txt" ]; then
+                echo "Web Service Details:"
+                head -15 "$PHASE6_DIR/web_service_details.txt" | sed 's/^/  /'
+            fi
+        else
+            echo "No web services identified"
+        fi
+        echo ""
+        
+        echo "== DATABASE SERVICES (Manual Assignment Required) =="
+        if [ -s "$SERVICE_TARGETS_DIR/database_targets.txt" ]; then
+            echo "Database Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt")):"
+            cat "$SERVICE_TARGETS_DIR/database_targets.txt" | sed 's/^/  /'
+            echo ""
+            if [ -f "$PHASE6_DIR/database_service_details.txt" ]; then
+                echo "Database Service Details:"
+                cat "$PHASE6_DIR/database_service_details.txt" | sed 's/^/  /'
+            fi
+        else
+            echo "No database services identified"
+        fi
+        echo ""
+        
+        echo "== VNC SERVICES (Manual Assignment Required) =="
+        if [ -s "$SERVICE_TARGETS_DIR/vnc_targets.txt" ]; then
+            echo "VNC Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/vnc_targets.txt")):"
+            cat "$SERVICE_TARGETS_DIR/vnc_targets.txt" | sed 's/^/  /'
+        fi
+        echo ""
+        
+        echo "== ASSIGNMENT RECOMMENDATIONS =="
+        echo "Web Services:"
+        echo "  • Can be assigned to any team with web application experience"
+        echo "  • Consider workload balance when assigning"
+        echo ""
+        echo "Database Services:"
+        echo "  • High priority - assign to team with database expertise"
+        echo "  • Consider criticality of database systems"
+        echo ""
+        echo "VNC Services:"
+        echo "  • Typically Linux/Unix systems - consider Linux team first"
+        echo "  • Can be assigned based on current team capacity"
+        echo ""
+        echo "== RAW SCAN DATA =="
+        echo "Web Scans: $PHASE6_DIR/raw_scans/nmap_web_*"
+        echo "Database Scans: $PHASE6_DIR/raw_scans/nmap_*_emptypass.nmap"
+        echo "Service Details: $PHASE6_DIR/web_service_details.txt, $PHASE6_DIR/database_service_details.txt"
+        
+    } > "$TEAM_HANDOFF_DIR/manual_assignment/MANUAL_ASSIGNMENT_HANDOFF.txt"
+    
+    echo "  Team handoff files generated successfully" >> "$REPORT_FILE"
+}
+
+# Generate priority assessment matrix
+generate_priority_matrix() {
+    local matrix_file="$TEAM_HANDOFF_DIR/PRIORITY_ASSESSMENT_MATRIX.txt"
+    
+    {
+        echo "=== PRIORITY ASSESSMENT MATRIX ==="
+        echo "Generated: $(date)"
+        echo "Assessment Context: Air-gapped Vulnerability Assessment"
+        echo "Team Structure: Windows, Linux, Network + Manual Assignment"
+        echo ""
+        echo "== CRITICAL PRIORITIES (Immediate Action Required) =="
+        
+        # Check for critical findings
+        critical_count=0
+        if [ -s "$SERVICE_TARGETS_DIR/database_targets.txt" ]; then
+            db_count=$(wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt")
+            echo "🔴 Database Services: $db_count hosts identified (MANUAL ASSIGNMENT)"
+            echo "   Action: Immediate authentication and configuration review"
+            echo "   Assignment: Assign to team with database expertise and current availability"
+            critical_count=$((critical_count + db_count))
+        fi
+        
+        if [ -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ]; then
+            smb_count=$(wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt")
+            echo "🔴 SMB Services: $smb_count hosts identified (WINDOWS TEAM)"
+            echo "   Action: Protocol version and share security assessment"
+            critical_count=$((critical_count + smb_count))
+        fi
+        
+        if [ "$critical_count" -eq 0 ]; then
+            echo "✅ No critical services requiring immediate attention identified"
+        fi
+        
+        echo ""
+        echo "== HIGH PRIORITIES (Next 48 Hours) =="
+        
+        high_count=0
+        if [ -s "$SERVICE_TARGETS_DIR/web_targets.txt" ]; then
+            web_count=$(wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt")
+            echo "🟡 Web Services: $web_count hosts identified (MANUAL ASSIGNMENT)"
+            echo "   Action: Web application security assessment"
+            echo "   Assignment: Assign based on team availability and web app experience"
+            high_count=$((high_count + web_count))
+        fi
+        
+        if [ -s "$SERVICE_TARGETS_DIR/rdp_targets.txt" ]; then
+            rdp_count=$(wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt")
+            echo "🟡 RDP Services: $rdp_count hosts identified (WINDOWS TEAM)" 
+            echo "   Action: Remote access configuration review"
+            high_count=$((high_count + rdp_count))
+        fi
+        
+        if [ "$high_count" -eq 0 ]; then
+            echo "✅ No high-priority services identified"
+        fi
+        
+        echo ""
+        echo "== MEDIUM PRIORITIES (Next Week) =="
+        
+        medium_count=0
+        if [ -s "$SERVICE_TARGETS_DIR/ssh_targets.txt" ]; then
+            ssh_count=$(wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt")
+            echo "🟢 SSH Services: $ssh_count hosts identified (LINUX TEAM)"
+            echo "   Action: SSH hardening and key management review"
+            medium_count=$((medium_count + ssh_count))
+        fi
+        
+        if [ -s "$SERVICE_TARGETS_DIR/snmp_targets.txt" ]; then
+            snmp_count=$(wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt")
+            echo "🟢 SNMP Services: $snmp_count hosts identified (NETWORK TEAM)"
+            echo "   Action: SNMP community and access control review"
+            medium_count=$((medium_count + snmp_count))
+        fi
+        
+        if [ "$medium_count" -eq 0 ]; then
+            echo "✅ No medium-priority services identified"
+        fi
+        
+        echo ""
+        echo "== TEAM WORKLOAD DISTRIBUTION =="
+        windows_total=$(($([ -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/rdp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt" || echo 0)))
+        linux_total=$(($([ -s "$SERVICE_TARGETS_DIR/ssh_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/ftp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/ftp_targets.txt" || echo 0)))
+        network_total=$(($([ -s "$SERVICE_TARGETS_DIR/dns_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/dns_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/snmp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt" || echo 0)))
+        manual_total=$(($([ -s "$SERVICE_TARGETS_DIR/web_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/database_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt" || echo 0)))
+        
+        echo "Windows Team: $windows_total assigned services"
+        echo "Linux Team: $linux_total assigned services"
+        echo "Network Team: $network_total assigned services"
+        echo "Manual Assignment Required: $manual_total services"
+        echo ""
+        echo "Recommended approach for manual assignments:"
+        if [ "$manual_total" -gt 0 ]; then
+            echo "• Prioritize database services for immediate assignment"
+            echo "• Consider team current workload when assigning web services"
+            echo "• Database services should go to most experienced database team"
+        fi
+        
+    } > "$matrix_file"
+    
+    echo "  Priority assessment matrix created" >> "$REPORT_FILE"
+}
+
+# Execute service organization functions
+echo "  Generating comprehensive service inventory..." >> "$REPORT_FILE"
+generate_service_inventory
+
+echo "  Creating team-specific handoff files..." >> "$REPORT_FILE"
+generate_team_handoff_files
+
+echo "  Building priority assessment matrix..." >> "$REPORT_FILE"
+generate_priority_matrix
+
+echo "Phase 9 complete: Service organization and team handoff files generated" >> "$REPORT_FILE"
+echo >> "$REPORT_FILE"
 
 echo
 echo "Multi-phase discovery complete!"
