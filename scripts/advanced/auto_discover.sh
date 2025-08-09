@@ -676,6 +676,172 @@ echo "Interfaces configured: $interfaces_configured" >> "$WORKFLOW_REPORT"
 echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
+# Session-level consolidation and reporting functions
+create_session_consolidation_reports() {
+    if [ -z "$SESSION_DISCOVERY_DIR" ]; then
+        echo "No session directory available for consolidation"
+        return 1
+    fi
+    
+    echo "Creating session-level consolidated reports..."
+    
+    # Create consolidated session report
+    CONSOLIDATED_REPORT="$SESSION_DISCOVERY_DIR/consolidated_report.txt"
+    {
+        echo "==============================================="
+        echo "    AUTO-DISCOVERY SESSION CONSOLIDATED REPORT"
+        echo "==============================================="
+        echo "Generated: $(date)"
+        echo "Session: auto_discovery_${TIMESTAMP}"
+        echo ""
+        
+        # Session overview
+        echo "SESSION OVERVIEW:"
+        if [ -f "$SESSION_METADATA" ]; then
+            grep -E "(Session ID|Started|Interface|VLANs|Network|Total)" "$SESSION_METADATA" | sed 's/^/  /'
+        fi
+        echo ""
+        
+        # Consolidate host counts across all VLANs/networks
+        echo "CONSOLIDATED HOST INVENTORY:"
+        total_hosts=0
+        total_services=0
+        
+        # Process each VLAN/network directory
+        for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
+            if [ -d "$net_dir" ]; then
+                net_name=$(basename "$net_dir")
+                echo "  $net_name:"
+                
+                # Count hosts if file exists
+                if [ -f "$net_dir/all_discovered_hosts.txt" ]; then
+                    host_count=$(wc -l < "$net_dir/all_discovered_hosts.txt" 2>/dev/null || echo 0)
+                    echo "    Hosts: $host_count"
+                    total_hosts=$((total_hosts + host_count))
+                fi
+                
+                # Count services from service_targets if available
+                if [ -d "$net_dir/service_targets" ]; then
+                    service_count=$(find "$net_dir/service_targets" -name "*_targets.txt" -exec wc -l {} + 2>/dev/null | tail -1 | awk '{print $1}' || echo 0)
+                    echo "    Services: $service_count"
+                    total_services=$((total_services + service_count))
+                fi
+            fi
+        done
+        
+        echo ""
+        echo "TOTAL SESSION INVENTORY:"
+        echo "  Total Hosts: $total_hosts"
+        echo "  Total Services: $total_services"
+        echo ""
+        
+        # Cross-VLAN service summary
+        echo "CROSS-VLAN SERVICE DISTRIBUTION:"
+        for service_type in ssh smb web database dns snmp rdp; do
+            service_total=0
+            for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
+                if [ -f "$net_dir/service_targets/${service_type}_targets.txt" ]; then
+                    count=$(wc -l < "$net_dir/service_targets/${service_type}_targets.txt" 2>/dev/null || echo 0)
+                    service_total=$((service_total + count))
+                fi
+            done
+            if [ $service_total -gt 0 ]; then
+                printf "  %-12s: %d hosts\n" "${service_type^^}" "$service_total"
+            fi
+        done
+        echo ""
+        
+        # Session-level recommendations
+        echo "SESSION-LEVEL RECOMMENDATIONS:"
+        echo "1. Review individual VLAN results for network-specific findings"
+        echo "2. Coordinate team assignments across VLANs to avoid duplication"
+        echo "3. Prioritize cross-VLAN services (databases, domain controllers)"
+        echo "4. Consider VLAN segmentation analysis for security assessment"
+        echo ""
+        
+        echo "DIRECTORY STRUCTURE:"
+        echo "  Session Directory: $SESSION_DISCOVERY_DIR"
+        for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
+            if [ -d "$net_dir" ]; then
+                echo "    $(basename "$net_dir")/: Individual network results"
+            fi
+        done
+        echo "  session_team_handoff/: Cross-VLAN team coordination"
+        echo "  consolidated_report.txt: This summary report"
+        
+    } > "$CONSOLIDATED_REPORT"
+    
+    # Create session-level team handoff consolidation
+    SESSION_TEAM_HANDOFF_DIR="$SESSION_DISCOVERY_DIR/session_team_handoff"
+    mkdir -p "$SESSION_TEAM_HANDOFF_DIR"
+    
+    # Consolidate team targets across all VLANs
+    {
+        echo "=== SESSION-LEVEL TEAM COORDINATION ==="
+        echo "Generated: $(date)"
+        echo "Session: auto_discovery_${TIMESTAMP}"
+        echo ""
+        echo "This file consolidates team assignments across all VLANs/networks"
+        echo "in this auto-discovery session for coordinated assessment planning."
+        echo ""
+        
+        # For each team, consolidate targets
+        for team in windows linux network; do
+            echo "== ${team^^} TEAM SESSION SUMMARY =="
+            total_targets=0
+            
+            for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
+                if [ -d "$net_dir/team_handoff/$team" ] && [ -f "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" ]; then
+                    net_name=$(basename "$net_dir")
+                    echo "$net_name targets:"
+                    
+                    # Extract target counts from individual handoff files
+                    case "$team" in
+                        "windows")
+                            smb_count=$(grep -c "SMB Service Hosts" "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" 2>/dev/null || echo 0)
+                            rdp_count=$(grep -c "RDP Service Hosts" "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" 2>/dev/null || echo 0)
+                            echo "  SMB: $smb_count, RDP: $rdp_count"
+                            total_targets=$((total_targets + smb_count + rdp_count))
+                            ;;
+                        "linux")
+                            ssh_count=$(grep -c "SSH Service Hosts" "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" 2>/dev/null || echo 0)
+                            echo "  SSH: $ssh_count"
+                            total_targets=$((total_targets + ssh_count))
+                            ;;
+                        "network")
+                            dns_count=$(grep -c "DNS Service Hosts" "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" 2>/dev/null || echo 0)
+                            snmp_count=$(grep -c "SNMP Service Hosts" "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" 2>/dev/null || echo 0)
+                            echo "  DNS: $dns_count, SNMP: $snmp_count"
+                            total_targets=$((total_targets + dns_count + snmp_count))
+                            ;;
+                    esac
+                fi
+            done
+            
+            echo "Total ${team^^} targets: $total_targets"
+            echo ""
+        done
+        
+        echo "== MANUAL ASSIGNMENT COORDINATION =="
+        echo "Web and database services requiring manual assignment:"
+        for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
+            if [ -f "$net_dir/team_handoff/manual_assignment/MANUAL_ASSIGNMENT_HANDOFF.txt" ]; then
+                net_name=$(basename "$net_dir")
+                web_count=$(grep -c "Web Service Hosts" "$net_dir/team_handoff/manual_assignment/MANUAL_ASSIGNMENT_HANDOFF.txt" 2>/dev/null || echo 0)
+                db_count=$(grep -c "Database Service Hosts" "$net_dir/team_handoff/manual_assignment/MANUAL_ASSIGNMENT_HANDOFF.txt" 2>/dev/null || echo 0)
+                if [ $web_count -gt 0 ] || [ $db_count -gt 0 ]; then
+                    echo "$net_name: Web: $web_count, Database: $db_count"
+                fi
+            fi
+        done
+        
+    } > "$SESSION_TEAM_HANDOFF_DIR/SESSION_TEAM_COORDINATION.txt"
+    
+    echo "Session consolidation complete"
+    echo "  Consolidated report: $CONSOLIDATED_REPORT"
+    echo "  Team coordination: $SESSION_TEAM_HANDOFF_DIR/SESSION_TEAM_COORDINATION.txt"
+}
+
 # Phase 4: Network Discovery
 echo
 echo "=== Phase 4: Network Discovery ==="
@@ -692,16 +858,29 @@ if [ -x "$discovery_script" ]; then
         echo "Running VLAN-aware discovery with separate results per VLAN..."
         echo "VLAN-aware discovery initiated" >> "$WORKFLOW_REPORT"
         
-        # Create VLAN-specific discovery directories
+        # Create session-based discovery structure with VLAN organization
         DISCOVERY_DIR="$WORKDIR/discovery"
-        mkdir -p "$DISCOVERY_DIR"
+        SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery_${TIMESTAMP}"
+        mkdir -p "$SESSION_DISCOVERY_DIR"
         discovery_success=0
+        
+        # Create session metadata
+        SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
+        {
+            echo "=== Auto-Discovery Session Metadata ==="
+            echo "Session ID: auto_discovery_${TIMESTAMP}"
+            echo "Started: $(date)"
+            echo "Interface: $target_interface"
+            echo "VLANs discovered: $selected_vlan_count"
+            echo "Session directory: $SESSION_DISCOVERY_DIR"
+            echo ""
+        } > "$SESSION_METADATA"
         
         # Discover networks on each configured VLAN interface
         while read -r vlan_id; do
             if [ -n "$vlan_id" ]; then
                 vlan_interface="${target_interface}.${vlan_id}"
-                vlan_discovery_dir="$DISCOVERY_DIR/${SESSION_NAME}_vlan_$vlan_id"
+                vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
                 
                 echo "=== Discovering VLAN $vlan_id on interface $vlan_interface ==="
                 echo "  VLAN $vlan_id discovery:" >> "$WORKFLOW_REPORT"
@@ -755,27 +934,31 @@ if [ -x "$discovery_script" ]; then
                         # Run discovery for this specific VLAN network
                         echo "  Starting multi-phase discovery on $vlan_discovery_network..."
                         
-                        # Set environment variable for multi_phase_discovery.sh to use our network
+                        # Set environment variables for multiphase script context
                         export MANUAL_NETWORK_RANGE="$vlan_discovery_network"
+                        export AUTO_DISCOVERY_SESSION="true"
+                        export AUTO_DISCOVERY_VLAN_ID="$vlan_id"
+                        export AUTO_DISCOVERY_VLAN_DIR="$vlan_discovery_dir"
+                        export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
                         
-                        NETUTIL_WORKDIR="$vlan_discovery_dir" "$discovery_script" "$vlan_interface" "1" > "$vlan_discovery_dir/discovery_output.txt" 2>&1
+                        "$discovery_script" "$vlan_interface" "1" > "$vlan_discovery_dir/discovery_output.txt" 2>&1
                         vlan_discovery_exit=$?
                         
-                        unset MANUAL_NETWORK_RANGE
+                        # Clean up environment variables
+                        unset MANUAL_NETWORK_RANGE AUTO_DISCOVERY_SESSION AUTO_DISCOVERY_VLAN_ID 
+                        unset AUTO_DISCOVERY_VLAN_DIR AUTO_DISCOVERY_SESSION_DIR
                         
                         if [ $vlan_discovery_exit -eq 0 ]; then
                             echo "  ✓ VLAN $vlan_id discovery completed successfully"
                             echo "    Status: SUCCESS" >> "$WORKFLOW_REPORT"
                             discovery_success=$((discovery_success + 1))
                             
-                            # Link to any created discovery results
-                            if [ -d "$vlan_discovery_dir/discovery" ]; then
-                                latest_vlan_discovery=$(ls -t "$vlan_discovery_dir/discovery/discovery_"* 2>/dev/null | head -1)
-                                if [ -n "$latest_vlan_discovery" ] && [ -d "$latest_vlan_discovery" ]; then
-                                    ln -sf "$latest_vlan_discovery" "$vlan_discovery_dir/results"
-                                    echo "    Results: $vlan_discovery_dir/results"
-                                fi
-                            fi
+                            # Results are now directly in VLAN directory
+                            echo "    Results: $vlan_discovery_dir"
+                            echo "    VLAN $vlan_id discovery results organized in VLAN-specific directory"
+                            
+                            # Update session metadata with successful VLAN
+                            echo "VLAN $vlan_id: SUCCESS - Network $vlan_discovery_network" >> "$SESSION_METADATA"
                         else
                             echo "  ✗ VLAN $vlan_id discovery failed"
                             echo "    Status: FAILED" >> "$WORKFLOW_REPORT"
@@ -802,16 +985,26 @@ if [ -x "$discovery_script" ]; then
         if [ $discovery_success -gt 0 ]; then
             echo "✓ VLAN-aware discovery completed: $discovery_success VLANs discovered successfully"
             echo "Status: SUCCESS ($discovery_success VLANs)" >> "$WORKFLOW_REPORT"
-            echo "Discovery results organized in: $DISCOVERY_DIR/"
+            echo "Discovery results organized in session: $SESSION_DISCOVERY_DIR"
+            
+            # Update latest symlinks for session results
+            update_latest_links "discovery" "$SESSION_DISCOVERY_DIR"
             
             # Create overall summary
             discovery_summary="$REPORT_SESSION_DIR/vlan_discovery_summary.txt"
             echo "VLAN Discovery Summary:" > "$discovery_summary"
-            find "$DISCOVERY_DIR" -name "${SESSION_NAME}_vlan_*" -type d | while read -r vlan_dir; do
-                vlan_name=$(basename "$vlan_dir" | sed "s/${SESSION_NAME}_//")
-                echo "- $vlan_name: $([ -d "$vlan_dir/results" ] && echo "SUCCESS" || echo "FAILED")" >> "$discovery_summary"
+            find "$SESSION_DISCOVERY_DIR" -name "vlan_*" -type d | while read -r vlan_dir; do
+                vlan_name=$(basename "$vlan_dir")
+                echo "- $vlan_name: $([ -f "$vlan_dir/discovery_output.txt" ] && echo "SUCCESS" || echo "FAILED")" >> "$discovery_summary"
             done
             echo "VLAN discovery summary: $discovery_summary"
+            
+            # Finalize session metadata
+            echo "Session completed: $(date)" >> "$SESSION_METADATA"
+            echo "Total successful VLANs: $discovery_success"
+            
+            # Create session-level consolidation and reporting
+            create_session_consolidation_reports >> "$SESSION_METADATA"
         else
             echo "✗ All VLAN discoveries failed"
             echo "Status: FAILED" >> "$WORKFLOW_REPORT"
@@ -934,38 +1127,62 @@ if [ -x "$discovery_script" ]; then
         # Run discovery on selected network
         echo
         echo "Starting network discovery on $discovery_network..."
+        
+        # Create session-based discovery structure for main network
         DISCOVERY_DIR="$WORKDIR/discovery"
-        mkdir -p "$DISCOVERY_DIR"
+        SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery_${TIMESTAMP}"
+        MAIN_NETWORK_DIR="$SESSION_DISCOVERY_DIR/main_network"
+        mkdir -p "$MAIN_NETWORK_DIR"
         
-        # Create temporary network range file for multi_phase_discovery.sh
-        echo "$discovery_network" > "$TEMP_DIR/manual_network_range.txt"
+        # Create session metadata
+        SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
+        {
+            echo "=== Auto-Discovery Session Metadata ==="
+            echo "Session ID: auto_discovery_${TIMESTAMP}"
+            echo "Started: $(date)"
+            echo "Interface: $target_interface"
+            echo "Discovery Mode: Standard (main network)"
+            echo "Network: $discovery_network"
+            echo "Session directory: $SESSION_DISCOVERY_DIR"
+            echo ""
+        } > "$SESSION_METADATA"
         
-        # Set environment variable for multi_phase_discovery.sh to use our network
+        # Set environment variables for multiphase script context
         export MANUAL_NETWORK_RANGE="$discovery_network"
+        export AUTO_DISCOVERY_SESSION="true"
+        export AUTO_DISCOVERY_MAIN_NETWORK="true"
+        export AUTO_DISCOVERY_MAIN_DIR="$MAIN_NETWORK_DIR"
+        export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
         
-        "$discovery_script" "$target_interface" "1" > "$TEMP_DIR/discovery_output.txt" 2>&1
+        "$discovery_script" "$target_interface" "1" > "$MAIN_NETWORK_DIR/discovery_output.txt" 2>&1
         discovery_exit_code=$?
         
-        unset MANUAL_NETWORK_RANGE
+        # Clean up environment variables
+        unset MANUAL_NETWORK_RANGE AUTO_DISCOVERY_SESSION AUTO_DISCOVERY_MAIN_NETWORK
+        unset AUTO_DISCOVERY_MAIN_DIR AUTO_DISCOVERY_SESSION_DIR
         
         if [ $discovery_exit_code -eq 0 ]; then
             echo "✓ Network discovery completed successfully"
             echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
             
-            # Update latest symlinks for discovery results
-            latest_discovery=$(ls -t "$DISCOVERY_DIR/discovery_"* 2>/dev/null | head -1 | tr -d '\n\r:')
-            if [ -n "$latest_discovery" ] && [ -d "$latest_discovery" ]; then
-                update_latest_links "discovery" "$latest_discovery"
-                echo "Discovery results saved to: $latest_discovery"
-            else
-                echo "⚠ Warning: Could not find or link discovery results directory"
-                log_warn "Discovery results directory not found or not accessible: $latest_discovery"
-            fi
+            # Results are now directly in main network directory
+            echo "Discovery results saved to: $SESSION_DISCOVERY_DIR"
+            echo "Main network results in: $MAIN_NETWORK_DIR"
+            
+            # Update session metadata with success
+            echo "Main Network: SUCCESS - Network $discovery_network" >> "$SESSION_METADATA"
+            echo "Session completed: $(date)" >> "$SESSION_METADATA"
+            
+            # Create session-level consolidation and reporting
+            create_session_consolidation_reports
+            
+            # Update latest symlinks for session results
+            update_latest_links "discovery" "$SESSION_DISCOVERY_DIR"
             
             # Include discovery output in report (first 50 lines)
             echo "Discovery output (summary):" >> "$WORKFLOW_REPORT"
-            head -50 "$TEMP_DIR/discovery_output.txt" >> "$WORKFLOW_REPORT"
-            echo "... (full output in discovery_results)" >> "$WORKFLOW_REPORT"
+            head -50 "$MAIN_NETWORK_DIR/discovery_output.txt" >> "$WORKFLOW_REPORT"
+            echo "... (full output in session results)" >> "$WORKFLOW_REPORT"
         else
             echo "✗ Network discovery failed"
             echo "Status: FAILED" >> "$WORKFLOW_REPORT"
