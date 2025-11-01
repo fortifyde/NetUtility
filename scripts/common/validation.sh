@@ -6,7 +6,9 @@
 
 # Source logging functions if not already loaded
 if [ -z "$NETUTIL_LOGGING_LOADED" ]; then
-    . "$(dirname "$0")/logging.sh" 2>/dev/null || . "$(dirname "${BASH_SOURCE[0]}")/logging.sh" 2>/dev/null || true
+    # Try to source logging.sh from common directory
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    . "$script_dir/logging.sh" 2>/dev/null || true
 fi
 
 # =============================================================================
