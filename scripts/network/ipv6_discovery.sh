@@ -36,8 +36,14 @@ perform_ipv6_discovery_main() {
     
     # Create IPv6 evidence directory structure
     IPV6_EVIDENCE_DIR="$evidence_base_dir/ipv6_discovery"
-    mkdir -p "$IPV6_EVIDENCE_DIR"/{multicast_discovery,neighbor_analysis,router_discovery,address_scanning,service_discovery,security_analysis}
-    mkdir -p "$IPV6_EVIDENCE_DIR"/{multicast_discovery,service_discovery}/raw_scans
+    mkdir -p "$IPV6_EVIDENCE_DIR/multicast_discovery" \
+             "$IPV6_EVIDENCE_DIR/neighbor_analysis" \
+             "$IPV6_EVIDENCE_DIR/router_discovery" \
+             "$IPV6_EVIDENCE_DIR/address_scanning" \
+             "$IPV6_EVIDENCE_DIR/service_discovery" \
+             "$IPV6_EVIDENCE_DIR/security_analysis"
+    mkdir -p "$IPV6_EVIDENCE_DIR/multicast_discovery/raw_scans" \
+             "$IPV6_EVIDENCE_DIR/service_discovery/raw_scans"
     
     # Set up output files
     IPV6_HOSTS_FILE="$IPV6_EVIDENCE_DIR/discovered_ipv6_hosts.txt"
@@ -251,10 +257,14 @@ perform_ipv6_discovery_main() {
 }
 
 # Main execution - determine if running standalone or as integration
-if [ "$0" = "${BASH_SOURCE[0]}" ] || [ "${0##*/}" = "ipv6_discovery.sh" ]; then
-    # Running standalone
-    perform_ipv6_discovery_main
-else
-    # Running as integration - function is available for calling
-    true
-fi
+# Check if script is being executed directly (not sourced)
+case "$0" in
+    *ipv6_discovery.sh)
+        # Running standalone
+        perform_ipv6_discovery_main
+        ;;
+    *)
+        # Running as integration - function is available for calling
+        true
+        ;;
+esac

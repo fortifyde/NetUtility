@@ -183,9 +183,25 @@ mkdir -p "$SESSION_DIR"
 
 # Create professional evidence directory structure
 EVIDENCE_DIR="$SESSION_DIR/evidence"
-mkdir -p "$EVIDENCE_DIR"/{phase1_network_discovery,phase2_host_discovery,phase3_dns_analysis,phase4_windows_discovery,phase5_port_scanning,phase6_service_enumeration,phase7_vulnerability_assessment,phase8_host_categorization,phase9_evidence_processing}
-mkdir -p "$EVIDENCE_DIR"/{phase1_network_discovery,phase2_host_discovery,phase3_dns_analysis,phase4_windows_discovery,phase5_port_scanning,phase6_service_enumeration,phase7_vulnerability_assessment}/raw_scans
-mkdir -p "$SESSION_DIR"/{service_targets,consolidated,reports}
+mkdir -p "$EVIDENCE_DIR/phase1_network_discovery" \
+         "$EVIDENCE_DIR/phase2_host_discovery" \
+         "$EVIDENCE_DIR/phase3_dns_analysis" \
+         "$EVIDENCE_DIR/phase4_windows_discovery" \
+         "$EVIDENCE_DIR/phase5_port_scanning" \
+         "$EVIDENCE_DIR/phase6_service_enumeration" \
+         "$EVIDENCE_DIR/phase7_vulnerability_assessment" \
+         "$EVIDENCE_DIR/phase8_host_categorization" \
+         "$EVIDENCE_DIR/phase9_evidence_processing"
+mkdir -p "$EVIDENCE_DIR/phase1_network_discovery/raw_scans" \
+         "$EVIDENCE_DIR/phase2_host_discovery/raw_scans" \
+         "$EVIDENCE_DIR/phase3_dns_analysis/raw_scans" \
+         "$EVIDENCE_DIR/phase4_windows_discovery/raw_scans" \
+         "$EVIDENCE_DIR/phase5_port_scanning/raw_scans" \
+         "$EVIDENCE_DIR/phase6_service_enumeration/raw_scans" \
+         "$EVIDENCE_DIR/phase7_vulnerability_assessment/raw_scans"
+mkdir -p "$SESSION_DIR/service_targets" \
+         "$SESSION_DIR/consolidated" \
+         "$SESSION_DIR/reports"
 
 # Define evidence directories for easy reference
 PHASE1_DIR="$EVIDENCE_DIR/phase1_network_discovery"
@@ -323,7 +339,8 @@ identify_network_devices() {
             echo "    SNMP scan on $network..." >> "$REPORT_FILE"
             
             # Use nmap to find SNMP services quickly
-            snmp_output="$PHASE1_DIR/raw_scans/snmp_scan_${network//\//_}_$$.txt"
+            network_sanitized=$(echo "$network" | tr '/' '_')
+            snmp_output="$PHASE1_DIR/raw_scans/snmp_scan_${network_sanitized}_$$.txt"
             if nmap -sU -p161 --open --host-timeout 10s --min-rate 1000 "$network" \
                   -oG "$snmp_output" >/dev/null 2>&1; then
                 
@@ -348,8 +365,8 @@ identify_network_devices() {
                 else
                     echo "      No SNMP services detected" >> "$REPORT_FILE"
                 fi
-                
-                rm -f "$snmp_output"
+
+                # Keep raw scan for evidence
             fi
         fi
     done
@@ -373,8 +390,9 @@ perform_tcp_discovery() {
     for network in $target_networks; do
         if [ -n "$network" ]; then
             echo "    TCP SYN discovery on $network..." >> "$REPORT_FILE"
-            
-            tcp_output="$PHASE2_DIR/raw_scans/tcp_discovery_${network//\//_}_$$.txt"
+
+            network_sanitized=$(echo "$network" | tr '/' '_')
+            tcp_output="$PHASE2_DIR/raw_scans/tcp_discovery_${network_sanitized}_$$.txt"
             
             # Use TCP SYN ping to bypass ICMP filtering
             if nmap -sn -PS"$tcp_ports" --min-rate 1000 --host-timeout 30s \
@@ -395,8 +413,8 @@ perform_tcp_discovery() {
                 else
                     echo "      No TCP-responsive hosts found" >> "$REPORT_FILE"
                 fi
-                
-                rm -f "$tcp_output"
+
+                # Keep raw scan for evidence
             else
                 echo "      TCP discovery failed on $network" >> "$REPORT_FILE"
             fi
@@ -422,8 +440,9 @@ perform_udp_discovery() {
     for network in $target_networks; do
         if [ -n "$network" ]; then
             echo "    UDP service probe on $network..." >> "$REPORT_FILE"
-            
-            udp_output="$PHASE2_DIR/raw_scans/udp_discovery_${network//\//_}_$$.txt"
+
+            network_sanitized=$(echo "$network" | tr '/' '_')
+            udp_output="$PHASE2_DIR/raw_scans/udp_discovery_${network_sanitized}_$$.txt"
             
             # Use UDP ping for service discovery
             if nmap -sn -PU"$udp_ports" --min-rate 500 --host-timeout 45s \
@@ -444,8 +463,8 @@ perform_udp_discovery() {
                 else
                     echo "      No UDP-responsive hosts found" >> "$REPORT_FILE"
                 fi
-                
-                rm -f "$udp_output"
+
+                # Keep raw scan for evidence
             else
                 echo "      UDP discovery failed on $network" >> "$REPORT_FILE"
             fi
@@ -468,15 +487,16 @@ perform_masscan_discovery() {
     for network in $target_networks; do
         if [ -n "$network" ]; then
             echo "    Masscan sweep on $network..." >> "$REPORT_FILE"
-            
-            masscan_output="$PHASE2_DIR/raw_scans/masscan_discovery_${network//\//_}_$$.txt"
+
+            network_sanitized=$(echo "$network" | tr '/' '_')
+            masscan_output="$PHASE2_DIR/raw_scans/masscan_discovery_${network_sanitized}_$$.txt"
             
             # High-speed scan of top ports
             if masscan -p80,443,22,21,25,53,135,139,445 "$network" \
                   --rate=1000 --open -oG "$masscan_output" >/dev/null 2>&1; then
-                
-                # Extract hosts with open ports
-                masscan_hosts=$(grep "open" "$masscan_output" 2>/dev/null | awk '{print $2}' | sort -u)
+
+                # Extract hosts with open ports (IP is in 4th column of grepable output)
+                masscan_hosts=$(grep "open" "$masscan_output" 2>/dev/null | awk '{print $4}' | sort -u)
                 
                 if [ -n "$masscan_hosts" ]; then
                     echo "      Masscan discovered hosts:" >> "$REPORT_FILE"
@@ -490,8 +510,8 @@ perform_masscan_discovery() {
                 else
                     echo "      No hosts found via masscan" >> "$REPORT_FILE"
                 fi
-                
-                rm -f "$masscan_output"
+
+                # Keep raw scan for evidence
             else
                 echo "      Masscan failed on $network" >> "$REPORT_FILE"
             fi
@@ -1812,8 +1832,11 @@ echo >> "$REPORT_FILE"
 
 # Combine all Phase 1 and Phase 2 results
 cat "$PHASE1_DIR/phase1_all_hosts.txt" "$PHASE2_DIR/ping_hosts.txt" "$PHASE2_DIR/tcp_hosts.txt" \
-    "$PHASE2_DIR/udp_hosts.txt" "$PHASE2_DIR/masscan_hosts.txt" "$PHASE2_DIR/ipv6_hosts.txt" | sort -u > "$CONSOLIDATED_DIR/all_hosts.txt"
-all_hosts_count=$(wc -l < "$CONSOLIDATED_DIR/all_hosts.txt")
+    "$PHASE2_DIR/udp_hosts.txt" "$PHASE2_DIR/masscan_hosts.txt" "$PHASE2_DIR/ipv6_hosts.txt" | sort -u > "$PHASE2_DIR/all_hosts.txt"
+all_hosts_count=$(wc -l < "$PHASE2_DIR/all_hosts.txt")
+
+# Also create a copy in consolidated directory for reference
+cp "$PHASE2_DIR/all_hosts.txt" "$CONSOLIDATED_DIR/all_hosts.txt"
 
 echo "Phase 2 Comprehensive Host Discovery Summary:" >> "$REPORT_FILE"
 echo "  ICMP-responsive hosts: $ping_count" >> "$REPORT_FILE"
@@ -2338,17 +2361,26 @@ echo "Phase 9: Generating service organization and team handoff files..."
 if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
     # Auto-discovery context - create both VLAN-specific and session-level handoff files
     TEAM_HANDOFF_DIR="$SESSION_DIR/team_handoff"
-    mkdir -p "$TEAM_HANDOFF_DIR"/{windows,linux,network,manual_assignment}
-    
+    mkdir -p "$TEAM_HANDOFF_DIR/windows" \
+             "$TEAM_HANDOFF_DIR/linux" \
+             "$TEAM_HANDOFF_DIR/network" \
+             "$TEAM_HANDOFF_DIR/manual_assignment"
+
     # Also prepare session-level team handoff directory if VLAN context
     if [ -n "$AUTO_DISCOVERY_VLAN_ID" ] || [ "$AUTO_DISCOVERY_MAIN_NETWORK" = "true" ]; then
         SESSION_TEAM_HANDOFF_DIR="$AUTO_DISCOVERY_SESSION_DIR/session_team_handoff"
-        mkdir -p "$SESSION_TEAM_HANDOFF_DIR"/{windows,linux,network,manual_assignment}
+        mkdir -p "$SESSION_TEAM_HANDOFF_DIR/windows" \
+                 "$SESSION_TEAM_HANDOFF_DIR/linux" \
+                 "$SESSION_TEAM_HANDOFF_DIR/network" \
+                 "$SESSION_TEAM_HANDOFF_DIR/manual_assignment"
     fi
 else
     # Standard standalone handoff
     TEAM_HANDOFF_DIR="$SESSION_DIR/team_handoff"
-    mkdir -p "$TEAM_HANDOFF_DIR"/{windows,linux,network,manual_assignment}
+    mkdir -p "$TEAM_HANDOFF_DIR/windows" \
+             "$TEAM_HANDOFF_DIR/linux" \
+             "$TEAM_HANDOFF_DIR/network" \
+             "$TEAM_HANDOFF_DIR/manual_assignment"
 fi
 
 # Generate comprehensive service inventory for team coordination
