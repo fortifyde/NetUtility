@@ -82,7 +82,7 @@ echo >> "$TEMP_DIR/restore_network_config.sh"
 echo "# VLAN Interface Restoration Commands" >> "$TEMP_DIR/restore_network_config.sh"
 echo "echo \"Restoring VLAN interfaces...\"" >> "$TEMP_DIR/restore_network_config.sh"
 ip link show | grep "@" | while read -r line; do
-    vlan_interface=$(echo "$line" | cut -d':' -f2 | tr -d ' ')
+    vlan_interface=$(echo "$line" | cut -d':' -f2 | tr -d ' ' | cut -d'@' -f1)
     parent_interface=$(echo "$line" | cut -d'@' -f2 | cut -d':' -f1)
     vlan_id=$(echo "$vlan_interface" | grep -o '\.[0-9]*$' | tr -d '.')
     if [ -n "$vlan_id" ]; then
@@ -112,7 +112,7 @@ fi
 
 # Bring interfaces up
 echo "Bringing interfaces up..."
-for interface in $(ip link show | grep "state DOWN" | cut -d':' -f2 | tr -d ' '); do
+for interface in $(ip link show | grep "state DOWN" | cut -d':' -f2 | tr -d ' ' | cut -d'@' -f1); do
     if [ "$interface" != "lo" ]; then
         ip link set "$interface" up
     fi

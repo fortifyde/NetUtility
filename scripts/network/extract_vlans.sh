@@ -164,7 +164,7 @@ if [ -s "$VLAN_FILE" ]; then
         echo
         echo "Current VLAN interfaces:"
         ip link show | grep "@" | while read -r line; do
-            interface=$(echo "$line" | cut -d':' -f2 | tr -d ' ')
+            interface=$(echo "$line" | cut -d':' -f2 | tr -d ' ' | cut -d'@' -f1)
             echo "  $interface"
             
             # Show IP addresses if assigned

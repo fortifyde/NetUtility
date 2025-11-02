@@ -92,7 +92,7 @@ case "$discovery_mode" in
         log_info "VLAN-aware discovery mode selected"
         
         # Check for existing VLAN interfaces
-        vlan_interfaces=$(ip link show | grep "@$selected_interface:" | cut -d':' -f2 | tr -d ' ')
+        vlan_interfaces=$(ip link show | grep "@$selected_interface:" | cut -d':' -f2 | tr -d ' ' | cut -d'@' -f1)
         if [ -n "$vlan_interfaces" ]; then
             echo "Found existing VLAN interfaces:"
             echo "$vlan_interfaces" | sed 's/^/  /'
@@ -243,9 +243,9 @@ fi
 
 # Network topology discovery functions
 discover_network_topology() {
-    local target_networks="$1"
-    local output_file="$2"
-    
+    target_networks="$1"
+    output_file="$2"
+
     echo "  Performing network topology discovery..." >> "$REPORT_FILE"
     
     # Gateway discovery for each network
@@ -288,9 +288,9 @@ discover_network_topology() {
 
 # Reverse DNS enumeration
 perform_reverse_dns_enumeration() {
-    local network="$1"
-    local output_file="$2"
-    
+    network="$1"
+    output_file="$2"
+
     echo "  Performing reverse DNS enumeration..." >> "$REPORT_FILE"
     
     network_base=$(echo "$network" | cut -d'/' -f1 | cut -d'.' -f1-3)
@@ -323,9 +323,9 @@ perform_reverse_dns_enumeration() {
 
 # Network device identification via SNMP
 identify_network_devices() {
-    local target_networks="$1"
-    local output_file="$2"
-    
+    target_networks="$1"
+    output_file="$2"
+
     echo "  Identifying network infrastructure devices..." >> "$REPORT_FILE"
     
     if ! command -v nmap >/dev/null 2>&1; then
@@ -374,9 +374,9 @@ identify_network_devices() {
 
 # TCP discovery with firewall bypass techniques
 perform_tcp_discovery() {
-    local target_networks="$1"
-    local output_file="$2"
-    
+    target_networks="$1"
+    output_file="$2"
+
     echo "  Performing TCP discovery with firewall bypass..." >> "$REPORT_FILE"
     
     if ! command -v nmap >/dev/null 2>&1; then
@@ -424,9 +424,9 @@ perform_tcp_discovery() {
 
 # UDP discovery for common services
 perform_udp_discovery() {
-    local target_networks="$1"
-    local output_file="$2"
-    
+    target_networks="$1"
+    output_file="$2"
+
     echo "  Performing UDP service discovery..." >> "$REPORT_FILE"
     
     if ! command -v nmap >/dev/null 2>&1; then
@@ -474,9 +474,9 @@ perform_udp_discovery() {
 
 # High-speed discovery using masscan (if available)
 perform_masscan_discovery() {
-    local target_networks="$1"
-    local output_file="$2"
-    
+    target_networks="$1"
+    output_file="$2"
+
     echo "  Attempting high-speed discovery with masscan..." >> "$REPORT_FILE"
     
     if ! command -v masscan >/dev/null 2>&1; then
@@ -521,9 +521,9 @@ perform_masscan_discovery() {
 
 # IPv6 Network Discovery - Integration with refactored IPv6 script
 perform_ipv6_discovery() {
-    local interface="$1"
-    local output_file="$2"
-    
+    interface="$1"
+    output_file="$2"
+
     echo "  Performing IPv6 network discovery..." >> "$REPORT_FILE"
     
     # Check if IPv6 is available on the interface
@@ -563,9 +563,9 @@ perform_ipv6_discovery() {
 
 # Early OS detection and device classification
 perform_early_os_detection() {
-    local host_file="$1"
-    local output_file="$2"
-    
+    host_file="$1"
+    output_file="$2"
+
     echo "  Performing early OS detection and device classification..." >> "$REPORT_FILE"
     
     if ! command -v nmap >/dev/null 2>&1; then
@@ -615,9 +615,9 @@ perform_early_os_detection() {
 
 # Early device classification via quick service probes
 perform_early_device_classification() {
-    local host_file="$1" 
-    local output_file="$2"
-    
+    host_file="$1"
+    output_file="$2"
+
     echo "  Performing early device classification..." >> "$REPORT_FILE"
     
     if ! command -v nmap >/dev/null 2>&1; then
@@ -693,9 +693,9 @@ perform_early_device_classification() {
 
 # Network segmentation analysis
 analyze_network_segmentation() {
-    local target_networks="$1"
-    local output_file="$2"
-    
+    target_networks="$1"
+    output_file="$2"
+
     echo "  Analyzing network segmentation and reachability..." >> "$REPORT_FILE"
     
     # Analyze subnet reachability
@@ -786,16 +786,19 @@ analyze_network_segmentation() {
 
 # Enhanced fping function with better reliability and error handling
 enhanced_fping_sweep() {
-    local network="$1"
-    local output_file="$2"
-    local temp_output="$PHASE2_DIR/raw_scans/fping_temp_$$"
-    local temp_errors="$PHASE2_DIR/raw_scans/fping_errors_$$"
-    
+    network="$1"
+    output_file="$2"
+
+    # Create descriptive temp file names (sanitize network for safe filenames)
+    network_sanitized=$(echo "$network" | tr '/' '_' | tr ':' '_')
+    temp_output="$PHASE2_DIR/raw_scans/fping_sweep_${network_sanitized}_$$.txt"
+    temp_errors="$PHASE2_DIR/raw_scans/fping_errors_${network_sanitized}_$$.txt"
+
     # Configuration for improved reliability
-    local timeout=1000    # Timeout per ping in ms (1 second)
-    local retries=2       # Number of retries per host
-    local interval=10     # Interval between pings in ms
-    local max_hosts=100   # Maximum concurrent hosts (reduce network load)
+    timeout=1000    # Timeout per ping in ms (1 second)
+    retries=2       # Number of retries per host
+    interval=10     # Interval between pings in ms
+    max_hosts=100   # Maximum concurrent hosts (reduce network load)
     
     echo "  Enhanced fping configuration:" >> "$REPORT_FILE"
     echo "    Network: $network" >> "$REPORT_FILE"
@@ -803,33 +806,35 @@ enhanced_fping_sweep() {
     
     # Attempt 1: Standard enhanced fping with optimal settings
     echo "  Attempting fping sweep (standard mode)..." >> "$REPORT_FILE"
-    if fping -a -g -t "$timeout" -r "$retries" -i "$interval" -q "$network" 2>"$temp_errors" >"$temp_output"; then
-        # fping succeeded
+    fping -a -g -t "$timeout" -r "$retries" -i "$interval" -q "$network" 2>"$temp_errors" >"$temp_output"
+    if [ -s "$temp_output" ]; then
+        # fping found hosts (exit code 1 is normal when some hosts are unreachable)
         cat "$temp_output" >> "$output_file"
         hosts_found=$(wc -l < "$temp_output")
         echo "    Standard mode: Found $hosts_found hosts" >> "$REPORT_FILE"
-        
+
         # Log any warnings (but not errors since we succeeded)
         if [ -s "$temp_errors" ] && ! grep -q "ICMP.*unreachable\|Permission denied" "$temp_errors"; then
             echo "    Warnings: $(head -3 "$temp_errors" | tr '\n' '; ')" >> "$REPORT_FILE"
         fi
-        
-        rm -f "$temp_output" "$temp_errors"
+
+        # Keep raw scan for evidence
         return 0
     fi
     
     # Attempt 2: Fallback with relaxed settings for difficult networks
     echo "  Standard mode failed, trying compatibility mode..." >> "$REPORT_FILE"
-    > "$temp_output"
-    > "$temp_errors"
-    
+    : > "$temp_output"
+    : > "$temp_errors"
+
     # More conservative settings for difficult networks
-    if fping -a -g -t 2000 -r 3 -i 50 -q "$network" 2>"$temp_errors" >"$temp_output"; then
+    fping -a -g -t 2000 -r 3 -i 50 -q "$network" 2>"$temp_errors" >"$temp_output"
+    if [ -s "$temp_output" ]; then
         cat "$temp_output" >> "$output_file"
         hosts_found=$(wc -l < "$temp_output")
         echo "    Compatibility mode: Found $hosts_found hosts" >> "$REPORT_FILE"
-        
-        rm -f "$temp_output" "$temp_errors"
+
+        # Keep raw scan for evidence
         return 0
     fi
     
@@ -843,12 +848,13 @@ enhanced_fping_sweep() {
         # Try unprivileged mode (uses UDP instead of ICMP)
         if command -v fping >/dev/null 2>&1 && fping -h 2>&1 | grep -q "\-S"; then
             echo "  Attempting unprivileged mode..." >> "$REPORT_FILE"
-            if fping -a -g -S 0 -t 2000 -r 2 -q "$network" 2>/dev/null >"$temp_output"; then
+            fping -a -g -S 0 -t 2000 -r 2 -q "$network" 2>/dev/null >"$temp_output"
+            if [ -s "$temp_output" ]; then
                 cat "$temp_output" >> "$output_file"
                 hosts_found=$(wc -l < "$temp_output")
                 echo "    Unprivileged mode: Found $hosts_found hosts" >> "$REPORT_FILE"
-                
-                rm -f "$temp_output" "$temp_errors"
+
+                # Keep raw scan for evidence
                 return 0
             fi
         fi
@@ -865,13 +871,14 @@ enhanced_fping_sweep() {
     
     # Attempt 4: Final fallback with basic settings
     echo "  Final attempt with minimal options..." >> "$REPORT_FILE"
-    > "$temp_output"
-    if timeout 30 fping -a -g "$network" 2>/dev/null >"$temp_output"; then
+    : > "$temp_output"
+    timeout 30 fping -a -g "$network" 2>/dev/null >"$temp_output"
+    if [ -s "$temp_output" ]; then
         cat "$temp_output" >> "$output_file"
         hosts_found=$(wc -l < "$temp_output")
         echo "    Basic mode: Found $hosts_found hosts" >> "$REPORT_FILE"
-        
-        rm -f "$temp_output" "$temp_errors"
+
+        # Keep raw scan for evidence
         return 0
     fi
     
@@ -2385,8 +2392,8 @@ fi
 
 # Generate comprehensive service inventory for team coordination
 generate_service_inventory() {
-    local inventory_file="$TEAM_HANDOFF_DIR/service_inventory.csv"
-    
+    inventory_file="$TEAM_HANDOFF_DIR/service_inventory.csv"
+
     echo "Host,Service,Port,Protocol,Version,Risk_Level,Team_Assignment,Notes" > "$inventory_file"
     
     # Process each service type
@@ -2714,8 +2721,8 @@ generate_team_handoff_files() {
 
 # Generate priority assessment matrix
 generate_priority_matrix() {
-    local matrix_file="$TEAM_HANDOFF_DIR/PRIORITY_ASSESSMENT_MATRIX.txt"
-    
+    matrix_file="$TEAM_HANDOFF_DIR/PRIORITY_ASSESSMENT_MATRIX.txt"
+
     {
         echo "=== PRIORITY ASSESSMENT MATRIX ==="
         echo "Generated: $(date)"
@@ -2832,8 +2839,8 @@ echo "Generating tactical assessment reports..."
 
 # Create tactical summary report
 generate_tactical_summary() {
-    local tactical_file="$SESSION_DIR/TACTICAL_SUMMARY.txt"
-    
+    tactical_file="$SESSION_DIR/TACTICAL_SUMMARY.txt"
+
     {
         echo "==============================================="
         echo "    TACTICAL ASSESSMENT SUMMARY"
@@ -2931,8 +2938,8 @@ generate_tactical_summary() {
 
 # Generate executive briefing (concise for leadership)
 generate_executive_briefing() {
-    local exec_file="$SESSION_DIR/EXECUTIVE_BRIEFING.txt"
-    
+    exec_file="$SESSION_DIR/EXECUTIVE_BRIEFING.txt"
+
     {
         echo "EXECUTIVE BRIEFING - NETWORK RECONNAISSANCE"
         echo "=========================================="
@@ -3030,8 +3037,8 @@ generate_executive_briefing() {
 
 # Generate quick reference card for assessment team
 generate_quick_reference() {
-    local ref_file="$SESSION_DIR/QUICK_REFERENCE_CARD.txt"
-    
+    ref_file="$SESSION_DIR/QUICK_REFERENCE_CARD.txt"
+
     {
         echo "═══════════════════════════════════════════════"
         echo "         ASSESSMENT QUICK REFERENCE CARD"
