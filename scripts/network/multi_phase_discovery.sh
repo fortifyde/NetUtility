@@ -913,22 +913,22 @@ categorize_services_enhanced() {
     > "$SERVICE_TARGETS_DIR/snmp_targets.txt"
     
     # Process all scan results
-    for scan_file in "$SESSION_DIR"/nmap_*.txt; do
+    for scan_file in "$SESSION_DIR"/nmap_*.txt "$PHASE5_DIR"/raw_scans/nmap_*.txt; do
         if [ -f "$scan_file" ]; then
-            # Extract services by port patterns
-            grep "21/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/ftp_targets.txt" || true
-            grep "22/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/ssh_targets.txt" || true
-            grep "23/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/telnet_targets.txt" || true
-            grep -E "25/tcp.*open|587/tcp.*open|465/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/smtp_targets.txt" || true
-            grep -E "53/tcp.*open|53/udp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/dns_targets.txt" || true
-            grep -E "80/tcp.*open|443/tcp.*open|8080/tcp.*open|8443/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/web_targets.txt" || true
-            grep -E "110/tcp.*open|995/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/pop3_targets.txt" || true
-            grep -E "143/tcp.*open|993/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/imap_targets.txt" || true
-            grep -E "135/tcp.*open|139/tcp.*open|445/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/smb_targets.txt" || true
-            grep -E "1433/tcp.*open|3306/tcp.*open|5432/tcp.*open|1521/tcp.*open|27017/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/database_targets.txt" || true
-            grep -E "3389/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/rdp_targets.txt" || true
-            grep -E "5900/tcp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/vnc_targets.txt" || true
-            grep -E "161/udp.*open" "$scan_file" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' >> "$SERVICE_TARGETS_DIR/snmp_targets.txt" || true
+            # Extract services by port patterns using awk
+            awk '/Nmap scan report for/{host=$5} /21\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/ftp_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /22\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/ssh_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /23\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/telnet_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /(25|587|465)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/smtp_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /53\/(tcp|udp).*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/dns_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /(80|443|8080|8443)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/web_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /(110|995)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/pop3_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /(143|993)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/imap_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /(135|139|445)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/smb_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /(1433|3306|5432|1521|27017)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/database_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /3389\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/rdp_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /5900\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/vnc_targets.txt" || true
+            awk '/Nmap scan report for/{host=$5} /161\/udp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/snmp_targets.txt" || true
         fi
     done
     
@@ -1985,8 +1985,8 @@ if command -v nmap >/dev/null 2>&1; then
     
     # Extract high-value targets for comprehensive scanning
     echo "  Identifying high-value targets..." >> "$REPORT_FILE"
-    grep -E "22/open|80/open|443/open|445/open|3389/open|21/open|23/open|25/open|53/open|135/open|139/open|1433/open|3306/open|5432/open" \
-        "$PHASE5_DIR/raw_scans/nmap_fast_scan.txt" 2>/dev/null | grep "Nmap scan report" | awk '{print $5}' | sort -u > "$PHASE5_DIR/high_value_targets.txt" || true
+    awk '/Nmap scan report for/{host=$5} /(22|80|443|445|3389|21|23|25|53|135|139|1433|3306|5432)\/(tcp|udp).*open/{print host}' \
+        "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null | sort -u > "$PHASE5_DIR/high_value_targets.txt" || true
     
     hv_count=$(wc -l < "$PHASE5_DIR/high_value_targets.txt")
     echo "    High-value targets identified: $hv_count" >> "$REPORT_FILE"
