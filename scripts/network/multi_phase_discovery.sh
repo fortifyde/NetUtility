@@ -308,9 +308,14 @@ perform_reverse_dns_enumeration() {
         fi
         
         if [ -n "$reverse_result" ] && [ "$reverse_result" != "$test_ip" ]; then
-            echo "      Reverse DNS: $test_ip -> $reverse_result" >> "$REPORT_FILE"
-            echo "$test_ip" >> "$output_file"
-            reverse_dns_found=$((reverse_dns_found + 1))
+            # Verify host is reachable before adding
+            if ping -c 1 -W 1 "$test_ip" >/dev/null 2>&1; then
+                echo "      Reverse DNS: $test_ip -> $reverse_result (verified alive)" >> "$REPORT_FILE"
+                echo "$test_ip" >> "$output_file"
+                reverse_dns_found=$((reverse_dns_found + 1))
+            else
+                echo "      Reverse DNS: $test_ip -> $reverse_result (not reachable, skipped)" >> "$REPORT_FILE"
+            fi
         fi
     done
     
