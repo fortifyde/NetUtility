@@ -44,7 +44,7 @@ echo "9. Saving bridge information..."
 bridge link show > "$TEMP_DIR/bridges.txt" 2>/dev/null || echo "No bridges" > "$TEMP_DIR/bridges.txt"
 
 echo "10. Saving current working directory..."
-echo "$(pwd)" > "$TEMP_DIR/workdir.txt"
+pwd > "$TEMP_DIR/workdir.txt"
 
 echo "11. Generating executable restoration script..."
 cat > "$TEMP_DIR/restore_network_config.sh" << 'EOF'
@@ -64,8 +64,9 @@ echo "Restoring IP addresses..."
 EOF
 
 # Generate IP restoration commands
-echo "# IP Address Restoration Commands" >> "$TEMP_DIR/restore_network_config.sh"
-ip addr show | awk '
+{
+    echo "# IP Address Restoration Commands"
+    ip addr show | awk '
 /^[0-9]+:/ {
     interface = $2
     gsub(/:/, "", interface)
@@ -75,7 +76,8 @@ ip addr show | awk '
     if ($2 != "127.0.0.1/8" && interface != "lo") {
         print "ip addr add " $2 " dev " interface
     }
-}' >> "$TEMP_DIR/restore_network_config.sh"
+}'
+} >> "$TEMP_DIR/restore_network_config.sh"
 
 # Generate VLAN restoration commands
 echo >> "$TEMP_DIR/restore_network_config.sh"
@@ -91,12 +93,14 @@ ip link show | grep "@" | while read -r line; do
 done
 
 # Generate route restoration commands
-echo >> "$TEMP_DIR/restore_network_config.sh"
-echo "# Route Restoration Commands" >> "$TEMP_DIR/restore_network_config.sh"
-echo "echo \"Restoring routes...\"" >> "$TEMP_DIR/restore_network_config.sh"
-ip route show | grep -v "proto kernel" | while read -r route; do
-    echo "ip route add $route" >> "$TEMP_DIR/restore_network_config.sh"
-done
+{
+    echo ""
+    echo "# Route Restoration Commands"
+    echo "echo \"Restoring routes...\""
+    ip route show | grep -v "proto kernel" | while read -r route; do
+        echo "ip route add $route"
+    done
+} >> "$TEMP_DIR/restore_network_config.sh"
 
 # Add final commands to restoration script
 cat >> "$TEMP_DIR/restore_network_config.sh" << 'EOF'

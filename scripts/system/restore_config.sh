@@ -122,9 +122,7 @@ if [ "$restore_mode" = "automatic" ]; then
         
         # Execute the restoration script in the same directory as the backup files
         echo "Executing automatic restoration..."
-        ./restore_network_config.sh
-        
-        if [ $? -eq 0 ]; then
+        if ./restore_network_config.sh; then
             echo "Automatic restoration completed successfully!"
         else
             echo "Automatic restoration encountered errors. Check the output above."
