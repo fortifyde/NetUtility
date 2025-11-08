@@ -83,7 +83,7 @@ case $option in
         
         ip link show | grep "@" | while read -r line; do
             # Extract interface name from line like "3: eth0.100@eth0:"
-            interface_name=$(echo "$line" | sed 's/^[0-9]*: *\([^:]*\):.*/\1/')
+            interface_name=$(echo "$line" | sed 's/^[0-9]*: *\([^@]*\)@.*/\1/')
             if [ -n "$interface_name" ]; then
                 vlan_count=$((vlan_count + 1))
                 echo "$vlan_count:$interface_name" >> /tmp/netutil_vlan_interfaces.$$
