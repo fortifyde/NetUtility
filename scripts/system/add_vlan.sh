@@ -24,13 +24,13 @@ echo "2. Remove VLAN interface"
 echo "3. List VLAN interfaces"
 echo "4. Exit"
 
-echo -n "Select option (1-4): "
-read option
+echo "Select option (1-4): " >&2
+read -r option
 
 case $option in
     1)
-        echo -n "Enter VLAN ID (1-4094): "
-        read vlan_id
+        echo "Enter VLAN ID (1-4094): " >&2
+        read -r vlan_id
         case "$vlan_id" in
             *[!0-9]*|'')
                 error_message "Invalid VLAN ID. Must be between 1-4094"
@@ -53,12 +53,13 @@ case $option in
         
         ip link add link "$parent_interface" name "$vlan_interface" type vlan id "$vlan_id"
         ip link set "$vlan_interface" up
-        
+        ip -6 addr flush dev "$vlan_interface" scope link 2>/dev/null || true
+
         success_message "VLAN interface $vlan_interface created and brought up"
         
         if confirm_action "Configure IP address for $vlan_interface?"; then
-            echo -n "Enter IP address with CIDR (e.g., 192.168.100.1/24): "
-            read ip_addr
+            echo "Enter IP address with CIDR (e.g., 192.168.100.1/24): " >&2
+            read -r ip_addr
             case "$ip_addr" in
                 [0-9]*.[0-9]*.[0-9]*.[0-9]*/[0-9]*)
                     # Basic IP/CIDR validation
@@ -109,7 +110,7 @@ case $option in
         done < /tmp/netutil_vlan_interfaces.$$
         
         printf "Select VLAN interface to remove (1-%d): " "$max_vlan_num"
-        read vlan_num
+        read -r vlan_num
         
         case "$vlan_num" in
             *[!0-9]*|'')

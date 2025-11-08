@@ -105,6 +105,7 @@ if [ -s "$VLAN_FILE" ]; then
                         # Create VLAN interface
                         if ip link add link "$parent_interface" name "$vlan_interface" type vlan id "$vlan_id" 2>/dev/null; then
                             ip link set "$vlan_interface" up
+                            ip -6 addr flush dev "$vlan_interface" scope link 2>/dev/null || true
                             success_message "VLAN interface $vlan_interface created and brought up"
                             log_config_change "VLAN interface created" "$vlan_interface (VLAN ID: $vlan_id)"
                             vlan_count=$((vlan_count + 1))

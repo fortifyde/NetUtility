@@ -211,6 +211,7 @@ if [ -s "$VLAN_FILE" ]; then
                     echo "Creating VLAN interface: $vlan_interface"
                     ip link add link "$interface" name "$vlan_interface" type vlan id "$vlan_id"
                     ip link set "$vlan_interface" up
+                    ip -6 addr flush dev "$vlan_interface" scope link 2>/dev/null || true
                     success_message "VLAN interface $vlan_interface created"
                     else
                         warning_message "VLAN interface $vlan_interface already exists"
