@@ -545,22 +545,22 @@ validate_ip_range() {
 
 # Function for smart target selection with memory
 select_target() {
-    echo "Target selection:"
-    echo "1. Single IP address"
-    echo "2. IP range (CIDR)"
-    echo "3. Host file"
-    echo "4. Auto-detect from network ranges"
-    echo "5. Recent targets"
-    echo
-    
+    echo "Target selection:" >&2
+    echo "1. Single IP address" >&2
+    echo "2. IP range (CIDR)" >&2
+    echo "3. Host file" >&2
+    echo "4. Auto-detect from network ranges" >&2
+    echo "5. Recent targets" >&2
+    echo >&2
+
     while true; do
-        printf "Select target type (1-5): "
-        read target_type
+        printf "Select target type (1-5): " >&2
+        read -r target_type
         
         case $target_type in
             1)
-                printf "Enter IP address: "
-                read target_value
+                echo "Enter IP address:" >&2
+                read -r target_value
                 if validate_ip "$target_value"; then
                     save_target "$target_value"
                     echo "$target_value"
@@ -568,8 +568,8 @@ select_target() {
                 fi
                 ;;
             2)
-                printf "Enter IP range (e.g., 192.168.1.0/24): "
-                read target_value
+                echo "Enter IP range (e.g., 192.168.1.0/24):" >&2
+                read -r target_value
                 if validate_ip_range "$target_value"; then
                     save_target "$target_value"
                     echo "$target_value"
@@ -584,21 +584,24 @@ select_target() {
                 fi
                 ;;
             4)
-                echo "Common IP ranges:"
+                echo "Common IP ranges:" >&2
                 # Get ranges and store in temp file
                 rm -f /tmp/netutil_target_ranges.$$
+                rm -f /tmp/netutil_target_ranges_raw.$$
+                detect_common_ranges > /tmp/netutil_target_ranges_raw.$$
                 range_count=0
-                detect_common_ranges | while read -r range; do
+                while read -r range; do
                     range_count=$((range_count + 1))
                     echo "$range_count:$range" >> /tmp/netutil_target_ranges.$$
-                done
+                done < /tmp/netutil_target_ranges_raw.$$
+                rm -f /tmp/netutil_target_ranges_raw.$$
                 
                 # Display ranges
                 if [ -f /tmp/netutil_target_ranges.$$ ]; then
                     while IFS=':' read -r num range; do
-                        printf "%d. %s\n" "$num" "$range"
+                        printf "%d. %s\n" "$num" "$range" >&2
                     done < /tmp/netutil_target_ranges.$$
-                    echo
+                    echo >&2
                     
                     # Get max range number
                     max_range_num=0
@@ -608,13 +611,13 @@ select_target() {
                         fi
                     done < /tmp/netutil_target_ranges.$$
                     
-                    printf "Select range (1-%d): " "$max_range_num"
-                    read range_num
+                    echo "Select range (1-$max_range_num):" >&2
+                    read -r range_num
                     
                     # Validate range selection
                     case "$range_num" in
                         ''|*[!0-9]*)
-                            echo "Error: Invalid range selection"
+                            echo "Error: Invalid range selection" >&2
                             ;;
                         *)
                             if [ "$range_num" -ge 1 ] && [ "$range_num" -le "$max_range_num" ]; then
@@ -628,7 +631,7 @@ select_target() {
                                     fi
                                 done < /tmp/netutil_target_ranges.$$
                             else
-                                echo "Error: Invalid range selection"
+                                echo "Error: Invalid range selection" >&2
                             fi
                             ;;
                     esac
@@ -636,23 +639,26 @@ select_target() {
                 fi
                 ;;
             5)
-                echo "Recent targets:"
+                echo "Recent targets:" >&2
                 # Get recent targets and store in temp file
                 rm -f /tmp/netutil_recent_targets.$$
+                rm -f /tmp/netutil_recent_targets_raw.$$
+                get_recent_targets > /tmp/netutil_recent_targets_raw.$$
                 target_count=0
-                get_recent_targets | while read -r target; do
+                while read -r target; do
                     if [ -n "$target" ]; then
                         target_count=$((target_count + 1))
                         echo "$target_count:$target" >> /tmp/netutil_recent_targets.$$
                     fi
-                done
+                done < /tmp/netutil_recent_targets_raw.$$
+                rm -f /tmp/netutil_recent_targets_raw.$$
                 
                 # Display recent targets
                 if [ -f /tmp/netutil_recent_targets.$$ ] && [ -s /tmp/netutil_recent_targets.$$ ]; then
                     while IFS=':' read -r num target; do
-                        printf "%d. %s\n" "$num" "$target"
+                        printf "%d. %s\n" "$num" "$target" >&2
                     done < /tmp/netutil_recent_targets.$$
-                    echo
+                    echo >&2
                     
                     # Get max target number
                     max_target_num=0
@@ -662,13 +668,13 @@ select_target() {
                         fi
                     done < /tmp/netutil_recent_targets.$$
                     
-                    printf "Select target (1-%d): " "$max_target_num"
-                    read target_num
+                    echo "Select target (1-$max_target_num):" >&2
+                    read -r target_num
                     
                     # Validate target selection
                     case "$target_num" in
                         ''|*[!0-9]*)
-                            echo "Error: Invalid target selection"
+                            echo "Error: Invalid target selection" >&2
                             ;;
                         *)
                             if [ "$target_num" -ge 1 ] && [ "$target_num" -le "$max_target_num" ]; then
@@ -682,17 +688,17 @@ select_target() {
                                     fi
                                 done < /tmp/netutil_recent_targets.$$
                             else
-                                echo "Error: Invalid target selection"
+                                echo "Error: Invalid target selection" >&2
                             fi
                             ;;
                     esac
                     rm -f /tmp/netutil_recent_targets.$$
                 else
-                    echo "No recent targets found."
+                    echo "No recent targets found." >&2
                 fi
                 ;;
             *)
-                echo "Error: Invalid option. Please select 1-5"
+                echo "Error: Invalid option. Please select 1-5" >&2
                 ;;
         esac
     done
