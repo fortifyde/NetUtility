@@ -7,10 +7,10 @@ echo "=== VLAN Interface Management ==="
 echo
 
 echo "Current VLAN interfaces:"
-ip link show | grep "@" || echo "No VLAN interfaces found"
+ip link show | grep "@" | sed 's/^[0-9]*: *\([^@]*\)@.*/  \1/' || echo "  No VLAN interfaces found"
 
 echo
-parent_interface=$(select_interface "Select parent interface" "vlan")
+parent_interface=$(select_interface "Select parent interface" "vlan" "true")
 if [ -z "$parent_interface" ]; then
     error_message "No interface selected"
     exit 1

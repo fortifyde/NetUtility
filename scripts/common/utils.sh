@@ -10,6 +10,8 @@
 
 # Function to get filtered interfaces with enhanced information
 get_interfaces() {
+    exclude_vlans="${1:-false}"  # Optional parameter to exclude VLAN interfaces
+
     # Clear previous interface data
     rm -f "./netutil_interfaces.$$"
     interface_count=0
@@ -48,7 +50,9 @@ get_interfaces() {
             
             # Determine interface type
             interface_type="Unknown"
-            if echo "$interface_name" | grep -q "^eth"; then
+            if echo "$interface_name" | grep -q "\."; then
+                interface_type="VLAN"
+            elif echo "$interface_name" | grep -q "^eth"; then
                 interface_type="Ethernet"
             elif echo "$interface_name" | grep -q "^wl"; then
                 interface_type="WiFi"
@@ -56,8 +60,6 @@ get_interfaces() {
                 interface_type="Ethernet"
             elif echo "$interface_name" | grep -q "^ww"; then
                 interface_type="WWAN"
-            elif echo "$interface_name" | grep -q "\."; then
-                interface_type="VLAN"
             elif echo "$interface_name" | grep -q "^tun"; then
                 interface_type="VPN"
             elif echo "$interface_name" | grep -q "^tap"; then
@@ -72,7 +74,12 @@ get_interfaces() {
             else
                 smart_alias="$interface_name ($state - $interface_type)"
             fi
-            
+
+            # Skip VLAN interfaces if requested
+            if [ "$exclude_vlans" = "true" ] && [ "$interface_type" = "VLAN" ]; then
+                continue
+            fi
+
             interface_count=$((interface_count + 1))
             echo "$interface_count:$interface_name:$state:$ip_info:$interface_type:$smart_alias" >> "./netutil_interfaces.$$"
         fi
@@ -142,8 +149,9 @@ validate_interface_number() {
 select_interface() {
     prompt_text="${1:-Select interface}"
     category="${2:-general}"
-    
-    get_interfaces
+    exclude_vlans="${3:-false}"  # Optional parameter to exclude VLAN interfaces
+
+    get_interfaces "$exclude_vlans"
     
     # Check if any interfaces were found
     if [ ! -f ./netutil_interfaces.$$ ] || [ ! -s ./netutil_interfaces.$$ ]; then
