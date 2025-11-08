@@ -1,5 +1,8 @@
 #!/bin/sh
 
+# Source shared utility functions
+. "$(dirname "$0")/../common/utils.sh"
+
 echo "=== IP Route Configuration ==="
 echo
 
@@ -15,18 +18,25 @@ echo "4. Show route to specific destination"
 echo "5. Exit"
 
 echo "Select option (1-5): " >&2
-read option
+read -r option
 
 case $option in
     1)
         echo "Adding a new route:"
         echo "Enter destination network (e.g., 192.168.2.0/24): " >&2
-        read dest_network
+        read -r dest_network
         echo "Enter gateway IP: " >&2
-        read gateway
-        echo "Enter interface (optional, press Enter to skip): " >&2
-        read interface
-        
+        read -r gateway
+
+        # Initialize interface as empty
+        interface=""
+
+        # Ask confirmation before requesting interface
+        if confirm_action "Do you want to specify an interface?"; then
+            echo "Enter interface: " >&2
+            read -r interface
+        fi
+
         if ! echo "$dest_network" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
             echo "Error: Invalid network format"
             exit 1
@@ -52,7 +62,7 @@ case $option in
     2)
         echo "Deleting a route:"
         echo "Enter destination network to delete (e.g., 192.168.2.0/24): " >&2
-        read dest_network
+        read -r dest_network
         
         if ! echo "$dest_network" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
             echo "Error: Invalid network format"
@@ -76,7 +86,7 @@ case $option in
         ;;
     4)
         echo "Enter destination IP: " >&2
-        read dest_ip
+        read -r dest_ip
         if ! echo "$dest_ip" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
             exit 1
