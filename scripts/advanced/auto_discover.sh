@@ -4,8 +4,19 @@
 # VLAN-aware network discovery with intelligent configuration:
 # 1. Interface UP verification → 2. Promiscuous capture → 3. VLAN analysis → 4. User VLAN selection → 5. Smart IP configuration → 6. VLAN-specific discovery
 
+# shellcheck source=../common/utils.sh
 . "$(dirname "$0")/../common/utils.sh"
+# shellcheck source=../common/logging.sh
 . "$(dirname "$0")/../common/logging.sh"
+
+# Disable SC3059: Case modification (${var^^}) is a bashism but works in sh on modern systems
+# Disable SC2162: read without -r is intentional for simple input
+# Disable SC2129: Individual redirects are clearer than grouped redirects in this context
+# Disable SC2034: Some variables are used in sourced scripts or future features
+# Disable SC2086: Word splitting is intentional in some cases
+# Disable SC2012: Using ls with parsing is acceptable for this use case
+# Disable SC2235: Subshell syntax is clearer for complex conditions
+# shellcheck disable=SC3059,SC2162,SC2129,SC2034,SC2086,SC2012,SC2235
 
 echo "=== Auto-Discovery Workflow ==="
 echo
@@ -125,7 +136,7 @@ log_info "Starting VLAN-aware auto-discovery workflow"
 
 # Get target interface
 echo "Available network interfaces:"
-target_interface=$(select_interface)
+target_interface=$(select_interface "Select parent interface for VLAN discovery" "auto_discover" "true")
 
 if [ -z "$target_interface" ]; then
     echo "No interface selected"
