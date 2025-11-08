@@ -9,14 +9,15 @@ echo
 # Load and display interfaces
 get_interfaces
 display_interfaces
+echo
 
-echo "Available actions:"
-echo "1. Bring interface UP"
-echo "2. Bring interface DOWN"
-echo "3. Bring all interfaces UP"
-echo "4. Bring all interfaces DOWN"
-echo "5. Show interface statistics"
-echo "6. Exit"
+echo "Available actions:" >&2
+echo "1. Bring interface UP" >&2
+echo "2. Bring interface DOWN" >&2
+echo "3. Bring all interfaces UP" >&2
+echo "4. Bring all interfaces DOWN" >&2
+echo "5. Show interface statistics" >&2
+echo "6. Exit" >&2
 
 echo "Select action (1-6): " >&2
 read -r action
