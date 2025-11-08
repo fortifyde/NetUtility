@@ -147,7 +147,7 @@ case $option in
     3)
         echo "VLAN interfaces:"
         ip link show | grep "@" | while read -r line; do
-            interface=$(echo "$line" | cut -d: -f2 | sed 's/^ *//')
+            interface=$(echo "$line" | sed 's/^[0-9]*: *\([^@]*\)@.*/\1/')
             echo "  $interface"
             ip addr show "$interface" | grep "inet " | sed 's/^/    /'
         done
