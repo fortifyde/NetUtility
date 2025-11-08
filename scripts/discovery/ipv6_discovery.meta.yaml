@@ -1,7 +1,7 @@
 script:
   name: "IPv6 Discovery"
   description: "Discover IPv6 hosts and services on the network using advanced IPv6 scanning techniques"
-  category: "network"
+  category: "discovery"
   subcategory: "discovery"
   
   file: "ipv6_discovery.sh"

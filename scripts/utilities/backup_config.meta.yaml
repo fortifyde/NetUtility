@@ -1,7 +1,7 @@
 script:
   name: "Backup Configuration"
   description: "Create backup of network configuration files and settings"
-  category: "system"
+  category: "utilities"
   subcategory: "backup"
   
   file: "backup_config.sh"

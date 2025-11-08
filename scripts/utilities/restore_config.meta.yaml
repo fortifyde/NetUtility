@@ -1,7 +1,7 @@
 script:
   name: "Restore Configuration"
   description: "Restore network configuration from backup archives"
-  category: "system"
+  category: "utilities"
   subcategory: "backup"
   
   file: "restore_config.sh"

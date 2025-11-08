@@ -1,7 +1,7 @@
 script:
   name: "Network Interfaces"
   description: "Manage and configure network interface settings"
-  category: "system"
+  category: "host-config"
   subcategory: "networking"
   
   file: "network_interfaces.sh"

@@ -1,7 +1,7 @@
 script:
   name: "Advanced Packet Analysis"
   description: "Deep protocol analysis with statistical reports and security assessment"
-  category: "network"
+  category: "discovery"
   subcategory: "analysis"
   
   file: "advanced_packet_analysis.sh"

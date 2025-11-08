@@ -1,7 +1,7 @@
 script:
   name: "MAC Address Analysis"
   description: "Analyze MAC addresses to identify device vendors, detect anomalies, and map network topology"
-  category: "network"
+  category: "discovery"
   subcategory: "analysis"
   
   file: "mac_analysis.sh"

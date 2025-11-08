@@ -1,7 +1,7 @@
 script:
   name: "Deep NSE Vulnerability Scan"
   description: "Comprehensive port scan with NSE vulnerability detection (may attempt exploits)"
-  category: "vulnerability"
+  category: "scanning"
   subcategory: "scanning"
   
   file: "deep_nse_scan.sh"

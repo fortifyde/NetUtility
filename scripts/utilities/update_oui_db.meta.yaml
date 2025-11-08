@@ -1,7 +1,7 @@
 script:
   name: "Update OUI Database"
   description: "Download and update the IEEE OUI database for MAC address vendor identification"
-  category: "system"
+  category: "utilities"
   subcategory: "database"
   
   file: "update_oui_db.sh"

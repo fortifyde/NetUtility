@@ -1,7 +1,7 @@
 script:
   name: "Configure DNS"
   description: "Manage DNS configuration and nameserver settings"
-  category: "system"
+  category: "host-config"
   subcategory: "networking"
   
   file: "configure_dns.sh"
