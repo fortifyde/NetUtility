@@ -13,11 +13,13 @@ display_interfaces
 echo "Available actions:"
 echo "1. Bring interface UP"
 echo "2. Bring interface DOWN"
-echo "3. Show interface statistics"
-echo "4. Exit"
+echo "3. Bring all interfaces UP"
+echo "4. Bring all interfaces DOWN"
+echo "5. Show interface statistics"
+echo "6. Exit"
 
-echo -n "Select action (1-4): "
-read action
+echo "Select action (1-6): " >&2
+read -r action
 
 case $action in
     1)
@@ -57,6 +59,38 @@ case $action in
         fi
         ;;
     3)
+        echo "Bringing all interfaces UP (excluding loopback)..."
+
+        ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | while read -r line; do
+            interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
+            if [ -n "$interface" ] && [ "$interface" != "lo" ]; then
+                if ip link set "$interface" up 2>/dev/null; then
+                    echo "  ✓ $interface UP"
+                else
+                    echo "  ✗ $interface FAILED"
+                fi
+            fi
+        done
+
+        success_message "All interfaces brought UP"
+        ;;
+    4)
+        echo "Bringing all interfaces DOWN (excluding loopback)..."
+
+        ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | while read -r line; do
+            interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
+            if [ -n "$interface" ] && [ "$interface" != "lo" ]; then
+                if ip link set "$interface" down 2>/dev/null; then
+                    echo "  ✓ $interface DOWN"
+                else
+                    echo "  ✗ $interface FAILED"
+                fi
+            fi
+        done
+
+        success_message "All interfaces brought DOWN"
+        ;;
+    5)
         interface=$(select_interface "Select interface to show statistics" "management")
         if [ -z "$interface" ]; then
             error_message "No interface selected"
@@ -74,7 +108,7 @@ case $action in
         echo "--- Link Status ---"
         ip link show "$interface"
         ;;
-    4)
+    6)
         echo "Exiting..."
         exit 0
         ;;
