@@ -1,7 +1,7 @@
 script:
   name: "Categorize Hosts"
   description: "Analyze and categorize discovered network hosts by type and function"
-  category: "network"
+  category: "discovery"
   subcategory: "analysis"
   
   file: "categorize_hosts.sh"

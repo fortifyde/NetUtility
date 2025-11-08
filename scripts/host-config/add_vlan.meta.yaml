@@ -1,7 +1,7 @@
 script:
   name: "Add VLAN Interface"
   description: "Create and configure VLAN subinterfaces on network adapters"
-  category: "system"
+  category: "host-config"
   subcategory: "networking"
   
   file: "add_vlan.sh"

@@ -1,7 +1,7 @@
 script:
   name: "Configure IP Addresses"
   description: "Enhanced IP address configuration with CLI support, validation, and logging"
-  category: "system"
+  category: "host-config"
   subcategory: "networking"
   
   file: "configure_ip.sh"

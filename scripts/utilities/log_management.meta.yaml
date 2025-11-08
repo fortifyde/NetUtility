@@ -1,7 +1,7 @@
 script:
   name: "Log Management"
   description: "View and manage system and network logs"
-  category: "system"
+  category: "utilities"
   subcategory: "logging"
   
   file: "log_management.sh"

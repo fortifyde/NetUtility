@@ -101,16 +101,18 @@ func (t *TUI) getCategoriesFromMetadata() []Category {
 // formatCategoryName converts metadata category names to display names
 func (t *TUI) formatCategoryName(category string) string {
 	switch category {
-	case "system":
-		return "System Configuration"
-	case "network":
-		return "Network Reconnaissance"
-	case "vulnerability":
-		return "Detailed Port Scan"
+	case "host-config":
+		return "Host Configuration"
+	case "utilities":
+		return "System Utilities"
+	case "discovery":
+		return "Network Discovery"
+	case "scanning":
+		return "Security Scanning"
 	case "advanced":
-		return "Advanced"
+		return "Advanced Workflows"
 	case "config":
-		return "Network Config Gatherer"
+		return "Configuration Gathering"
 	default:
 		// Capitalize first letter
 		if len(category) > 0 {

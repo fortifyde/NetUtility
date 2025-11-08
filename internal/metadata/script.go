@@ -190,8 +190,14 @@ func (r *ScriptRegistry) GetScriptsByCategory(category string) []ScriptMetadata 
 
 // GetAllCategories returns all available categories in fixed order
 func (r *ScriptRegistry) GetAllCategories() []string {
-	// Define the desired category order
-	desiredOrder := []string{"system", "network", "vulnerability", "advanced", "config"}
+	// Define the desired category order (workflow-aligned)
+	// 1. Configure scanning host
+	// 2. Set up workspace
+	// 3. Quick start workflows
+	// 4. Manual discovery + categorization
+	// 5. Detailed scanning
+	// 6. Device configuration extraction
+	desiredOrder := []string{"host-config", "utilities", "advanced", "discovery", "scanning", "config"}
 
 	// Build ordered list of existing categories
 	var orderedCategories []string

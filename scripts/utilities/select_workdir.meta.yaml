@@ -1,7 +1,7 @@
 script:
   name: "Select Working Directory"
   description: "Choose and configure the working directory for NetUtility operations"
-  category: "system"
+  category: "utilities"
   subcategory: "configuration"
   
   file: "select_workdir.sh"

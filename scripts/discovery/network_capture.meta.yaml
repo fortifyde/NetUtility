@@ -1,7 +1,7 @@
 script:
   name: "Network Capture"
   description: "Capture and analyze network traffic using tcpdump with advanced filtering options"
-  category: "network"
+  category: "discovery"
   subcategory: "capture"
   
   file: "network_capture.sh"

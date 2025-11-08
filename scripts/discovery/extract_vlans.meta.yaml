@@ -1,7 +1,7 @@
 script:
   name: "Extract VLANs"
   description: "Extract and analyze VLAN information from network traffic and devices"
-  category: "network"
+  category: "discovery"
   subcategory: "discovery"
   
   file: "extract_vlans.sh"

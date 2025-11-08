@@ -1,7 +1,7 @@
 script:
   name: "Configure Routes"
   description: "Manage IP routing table entries and network routes"
-  category: "system"
+  category: "host-config"
   subcategory: "networking"
   
   file: "configure_routes.sh"
