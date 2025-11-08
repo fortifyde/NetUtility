@@ -162,7 +162,7 @@ while true; do
     
     echo
     echo "Press Enter to continue..." >&2
-    read
+    read -r REPLY
     echo
 done
 

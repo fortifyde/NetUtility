@@ -110,8 +110,8 @@ parse_arguments() {
 
 # Function to check dependencies
 check_dependencies() {
-    local missing_tools=""
-    local required_tools="ip grep"
+    missing_tools=""
+    required_tools="ip grep"
     
     for tool in $required_tools; do
         if ! command -v "$tool" >/dev/null 2>&1; then
@@ -136,16 +136,16 @@ initialize_script() {
 
 # Function to cleanup on exit
 cleanup_and_exit() {
-    local exit_code=${1:-0}
+    exit_code=${1:-0}
     log_script_end "$SCRIPT_NAME" "$exit_code"
     exit "$exit_code"
 }
 
 # Function to handle errors consistently
 handle_error() {
-    local error_message="$1"
-    local exit_code="${2:-1}"
-    
+    error_message="$1"
+    exit_code="${2:-1}"
+
     error_message "$error_message"
     log_error "$error_message" "$SCRIPT_NAME"
     cleanup_and_exit "$exit_code"
@@ -170,9 +170,9 @@ show_current_config() {
 
 # Function to safely add IP address
 add_ip_address() {
-    local interface="$1"
-    local ip_addr="$2"
-    
+    interface="$1"
+    ip_addr="$2"
+
     # Validate inputs
     if ! validate_interface "$interface"; then
         error_message "Invalid interface: $interface"
@@ -215,9 +215,9 @@ add_ip_address() {
 
 # Function to safely remove IP address
 remove_ip_address() {
-    local interface="$1"
-    local ip_addr="$2"
-    
+    interface="$1"
+    ip_addr="$2"
+
     # Validate inputs
     if ! validate_interface "$interface"; then
         handle_error "Invalid interface: $interface"
@@ -249,8 +249,8 @@ remove_ip_address() {
 
 # Function to safely flush all IP addresses
 flush_ip_addresses() {
-    local interface="$1"
-    
+    interface="$1"
+
     # Validate input
     if ! validate_interface "$interface"; then
         warning_message "Invalid interface: $interface"
@@ -293,10 +293,10 @@ validate_menu_choice() {
 
 # Function to get valid IP address with CIDR (simplified to avoid stdin conflicts)
 get_ip_with_cidr() {
-    local prompt="$1"
-    local attempts=0
-    local max_attempts=3
-    
+    prompt="$1"
+    attempts=0
+    max_attempts=3
+
     while [ $attempts -lt $max_attempts ]; do
         echo "$prompt: " >&2
         read ip_input

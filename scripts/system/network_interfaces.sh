@@ -31,8 +31,7 @@ case $action in
         fi
         
         echo "Bringing interface $interface UP..."
-        ip link set "$interface" up
-        if [ $? -eq 0 ]; then
+        if ip link set "$interface" up; then
             success_message "Interface $interface brought UP"
             echo "Current status:"
             ip addr show "$interface"
@@ -49,8 +48,7 @@ case $action in
         fi
         
         echo "Bringing interface $interface DOWN..."
-        ip link set "$interface" down
-        if [ $? -eq 0 ]; then
+        if ip link set "$interface" down; then
             success_message "Interface $interface brought DOWN"
             echo "Current status:"
             ip addr show "$interface"
