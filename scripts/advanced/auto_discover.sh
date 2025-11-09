@@ -406,6 +406,98 @@ if [ "$vlan_count" -gt 0 ]; then
         echo "$selected_vlans" | tr ' ' '\n' | grep -v "^$" > "$TEMP_DIR/selected_vlans.txt"
         selected_vlan_count=$(wc -l < "$TEMP_DIR/selected_vlans.txt")
         echo "Will configure $selected_vlan_count VLAN interfaces"
+
+        # VLAN Priority Configuration (if multiple VLANs selected)
+        if [ "$selected_vlan_count" -gt 1 ]; then
+            echo >&2
+            echo "=== VLAN Scan Priority Configuration ===" >&2
+            echo "Network discovery can take hours for multiple VLANs." >&2
+            echo "You can prioritize specific VLANs to scan first." >&2
+            echo >&2
+            echo "Selected VLANs:" >&2
+
+            # Display VLANs with context
+            vlan_num=1
+            while read -r vlan_id <&3; do
+                # Get sample IPs for context
+                vlan_ips=$(tshark -r "$capture_file" -Y "vlan.id == $vlan_id" -T fields -e ip.src 2>/dev/null | \
+                           sort -u | head -3 | tr '\n' ' ')
+                echo "  $vlan_num. VLAN $vlan_id: ${vlan_ips:-No sample IPs}" >&2
+                vlan_num=$((vlan_num + 1))
+            done 3< "$TEMP_DIR/selected_vlans.txt"
+
+            echo >&2
+            echo "Do you want to prioritize certain VLANs for early scanning?" >&2
+            printf "Prioritize VLANs? (y/n) [n]: " >&2
+            read -r prioritize_choice
+
+            case "$prioritize_choice" in
+                y|Y|yes|YES)
+                    echo >&2
+                    echo "Enter VLAN IDs to scan first (space-separated):" >&2
+                    echo "Example: 300 500" >&2
+                    printf "Priority VLANs: " >&2
+                    read -r priority_vlans
+
+                    if [ -n "$priority_vlans" ]; then
+                        # Validate priority VLANs
+                        priority_list=""
+
+                        for pvlan in $priority_vlans; do
+                            if grep -q "^$pvlan$" "$TEMP_DIR/selected_vlans.txt"; then
+                                # Check for duplicates in priority list
+                                if echo "$priority_list" | grep -q "^$pvlan$"; then
+                                    echo "⚠ Warning: VLAN $pvlan specified multiple times. Ignoring duplicates." >&2
+                                else
+                                    priority_list="$priority_list$pvlan
+"
+                                fi
+                            else
+                                echo "⚠ Warning: VLAN $pvlan was not in your selection. Skipping." >&2
+                            fi
+                        done
+
+                        # If we have valid priority VLANs, reorder
+                        if [ -n "$priority_list" ]; then
+                            # Create new ordered list: priority VLANs first, then remaining
+                            temp_reordered="$TEMP_DIR/reordered_vlans.txt"
+
+                            # Add priority VLANs first
+                            echo "$priority_list" | grep -v "^$" > "$temp_reordered"
+
+                            # Add remaining VLANs (those not in priority list)
+                            while read -r vlan_id <&3; do
+                                if ! echo "$priority_list" | grep -q "^$vlan_id$"; then
+                                    echo "$vlan_id" >> "$temp_reordered"
+                                fi
+                            done 3< "$TEMP_DIR/selected_vlans.txt"
+
+                            # Replace original with reordered list
+                            mv "$temp_reordered" "$TEMP_DIR/selected_vlans.txt"
+
+                            # Display new order
+                            priority_count=$(echo "$priority_list" | grep -v "^$" | wc -l)
+                            remaining_count=$((selected_vlan_count - priority_count))
+
+                            echo "✓ Scan order configured:" >&2
+                            echo "  Priority ($priority_count): $(echo "$priority_list" | tr '\n' ' ')" >&2
+                            if [ $remaining_count -gt 0 ]; then
+                                remaining_vlans=$(tail -n "$remaining_count" "$TEMP_DIR/selected_vlans.txt" | tr '\n' ' ')
+                                echo "  Remaining ($remaining_count): $remaining_vlans" >&2
+                            fi
+                        else
+                            echo "No valid priority VLANs provided. Using original order." >&2
+                        fi
+                    else
+                        echo "No priority VLANs specified. Using original order." >&2
+                    fi
+                    ;;
+                *)
+                    echo "Using original order for VLAN scanning." >&2
+                    ;;
+            esac
+            echo >&2
+        fi
     else
         touch "$TEMP_DIR/selected_vlans.txt"  # Create empty file
         selected_vlan_count=0
@@ -526,6 +618,57 @@ if [ "$selected_vlan_count" -gt 0 ]; then
                         else
                             echo "⚠ No valid IP provided, skipping IP assignment for $vlan_interface"
                             log_warn "No valid IP provided for $vlan_interface"
+                        fi
+                    else
+                        # No IPs discovered for this VLAN (only broadcast traffic)
+                        echo "  No IP addresses discovered for VLAN $vlan_id (only broadcast traffic)" >&2
+                        echo "  Manual IP configuration required for $vlan_interface" >&2
+                        echo >&2
+
+                        # Prompt user for manual IP configuration
+                        ip_assigned=0
+                        retry_count=0
+                        max_retries=3
+
+                        while [ $ip_assigned -eq 0 ] && [ $retry_count -lt $max_retries ]; do
+                            retry_count=$((retry_count + 1))
+
+                            printf "  Enter IP address for $vlan_interface (with CIDR, e.g., 192.168.1.100/24): " >&2
+                            read -r custom_ip
+
+                            # Validate IP format
+                            if [ -n "$custom_ip" ] && echo "$custom_ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+                                echo "  Assigning IP: $custom_ip" >&2
+
+                                if ip addr add "$custom_ip" dev "$vlan_interface" 2>/dev/null; then
+                                    echo "✓ IP address $custom_ip assigned to $vlan_interface" >&2
+                                    echo "    IP assigned: $custom_ip" >> "$WORKFLOW_REPORT"
+                                    log_config_change "IP assigned to VLAN interface" "$vlan_interface: $custom_ip"
+                                    ip_assigned=1
+                                else
+                                    echo "✗ Failed to assign IP address $custom_ip to $vlan_interface" >&2
+                                    echo "    Error: IP may already be in use or interface issue" >&2
+                                    log_error "Failed to assign IP address $custom_ip to $vlan_interface"
+
+                                    if [ $retry_count -lt $max_retries ]; then
+                                        echo "    Please try a different IP address (attempt $retry_count of $max_retries)..." >&2
+                                    fi
+                                fi
+                            else
+                                echo "✗ Invalid IP address format: '$custom_ip'" >&2
+                                echo "    Format should be: x.x.x.x/xx (e.g., 192.168.1.100/24)" >&2
+                                log_error "Invalid IP address format provided: $custom_ip"
+
+                                if [ $retry_count -lt $max_retries ]; then
+                                    echo "    Please try again (attempt $retry_count of $max_retries)..." >&2
+                                fi
+                            fi
+                        done
+
+                        if [ $ip_assigned -eq 0 ]; then
+                            echo "⚠ Warning: Failed to assign IP address to $vlan_interface after $max_retries attempts" >&2
+                            echo "    VLAN interface created but has no IP configuration" >&2
+                            log_warn "No IP address assigned to $vlan_interface after $max_retries attempts"
                         fi
                     fi
                 else
