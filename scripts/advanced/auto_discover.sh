@@ -10,13 +10,13 @@
 . "$(dirname "$0")/../common/logging.sh"
 
 # Disable SC3059: Case modification (${var^^}) is a bashism but works in sh on modern systems
-# Disable SC2162: read without -r is intentional for simple input
 # Disable SC2129: Individual redirects are clearer than grouped redirects in this context
 # Disable SC2034: Some variables are used in sourced scripts or future features
 # Disable SC2086: Word splitting is intentional in some cases
 # Disable SC2012: Using ls with parsing is acceptable for this use case
 # Disable SC2235: Subshell syntax is clearer for complex conditions
-# shellcheck disable=SC3059,SC2162,SC2129,SC2034,SC2086,SC2012,SC2235
+# Disable SC3037: echo -n is more reliable than printf for prompts to avoid buffering issues
+# shellcheck disable=SC3059,SC2162,SC2129,SC2034,SC2086,SC2012,SC2235,SC3037
 
 echo "=== Auto-Discovery Workflow ==="
 echo
@@ -46,7 +46,7 @@ prompt_ip_choice() {
     echo "Choose IP assignment for VLAN interface $vlan_interface:" >&2
     echo "1) Accept suggested IP ($suggested_ip)" >&2
     echo "2) Provide custom IP address" >&2
-    printf "Choice [1-2]: " >&2
+    echo "Choice [1-2]: " >&2
     read -r choice
 
     case "$choice" in
@@ -56,7 +56,7 @@ prompt_ip_choice() {
             ;;
         2)
             while true; do
-                printf "Enter IP address (with CIDR, e.g., 192.168.1.100/24): " >&2
+                echo "Enter IP address (with CIDR, e.g., 192.168.1.100/24): " >&2
                 read -r custom_ip
 
                 # Basic validation
@@ -91,7 +91,7 @@ prompt_ip_choice() {
                 custom_network_base=$(echo "$ip_part" | cut -d'.' -f1-3)
                 if [ "$custom_network_base" != "$network_base" ]; then
                     echo "⚠ Warning: Custom IP ($custom_network_base.X) differs from discovered network ($network_base.0)" >&2
-                    printf "Continue anyway? [y/N]: " >&2
+                    echo "Continue anyway? [y/N]: " >&2
                     read -r confirm
                     case "$confirm" in
                         y|Y|yes|YES)
@@ -122,14 +122,14 @@ echo "Workflow started: $(date)" >> "$WORKFLOW_REPORT"
 echo "Reports directory: $REPORT_SESSION_DIR" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
-echo "This VLAN-aware workflow follows an intelligent sequence for comprehensive network discovery:"
-echo "1. Interface UP verification (ensure connectivity)"
-echo "2. Promiscuous packet capture (capture all traffic)"
+echo "This VLAN-aware workflow follows logical sequence for comprehensive network discovery:"
+echo "1. Interface state verification"
+echo "2. Promiscuous packet capture"
 echo "3. VLAN analysis (identify VLANs and network ranges)"
-echo "4. User VLAN selection (choose which VLANs to configure)"
-echo "5. Smart IP configuration (avoid gateway conflicts, use ipcalc)"
-echo "6. VLAN-specific discovery (separate categorized results per VLAN)"
-echo "7. Advanced analysis (security and protocol analysis)"
+echo "4. VLAN configuration"
+echo "5. Smart IP configuration"
+echo "6. VLAN-specific discovery (separate results per VLAN)"
+echo "7. Analysis (security and protocol analysis)"
 echo
 
 log_info "Starting VLAN-aware auto-discovery workflow"
@@ -226,10 +226,19 @@ else
     promisc_enabled=false
 fi
 
-# Capture traffic  
+# Capture traffic
 CAPTURE_DIR="$WORKDIR/captures"
 mkdir -p "$CAPTURE_DIR"
 capture_file="$CAPTURE_DIR/auto_discover_capture_${TIMESTAMP}.pcap"
+
+# Test if directory is writable before attempting capture
+test_file="$CAPTURE_DIR/.write_test_$$"
+if ! touch "$test_file" 2>/dev/null; then
+    echo "⚠ Capture directory not writable, will use fallback location if needed"
+else
+    rm -f "$test_file"
+fi
+
 echo "Starting promiscuous capture for $capture_duration minutes..."
 echo "Capture file: $capture_file"
 
@@ -270,24 +279,12 @@ if command -v tshark >/dev/null 2>&1; then
         echo "✓ Promiscuous capture completed successfully"
         echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
         log_network_operation "Promiscuous capture" "$target_interface" "Completed - $(du -h "$capture_file" | cut -f1)"
-        
-        # Copy capture file to captures directory for compatibility with analysis scripts
-        CAPTURES_DIR="${NETUTIL_WORKDIR:-$HOME}/captures"
-        mkdir -p "$CAPTURES_DIR"
-        CAPTURES_FILE="$CAPTURES_DIR/$(basename "$capture_file")"
-        if cp "$capture_file" "$CAPTURES_FILE" 2>/dev/null; then
-            echo "✓ Capture file also saved to: $CAPTURES_FILE"
-            # Update file permissions for original user if running as root
-            if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
-                chown "$SUDO_UID:$SUDO_GID" "$CAPTURES_FILE" 2>/dev/null || true
-            fi
-            # Update capture_file variable to point to captures location for subsequent operations
-            capture_file="$CAPTURES_FILE"
-        else
-            echo "⚠ Warning: Failed to copy capture file to captures directory"
-            log_warn "Failed to copy capture file to captures directory: $CAPTURES_DIR"
+
+        # Ensure proper file ownership if running as sudo
+        if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
+            chown "$SUDO_UID:$SUDO_GID" "$capture_file" 2>/dev/null || true
         fi
-        
+
         # Get basic capture stats
         if command -v capinfos >/dev/null 2>&1; then
             # Use capinfos for more reliable packet count
@@ -370,7 +367,7 @@ if [ "$vlan_count" -gt 0 ]; then
     echo
     echo "Which VLANs would you like to configure interfaces for?" >&2
     echo "Enter VLAN IDs separated by spaces (or 'all' for all VLANs, 'none' to skip):" >&2
-    printf "VLAN selection: " >&2
+    echo "VLAN selection: " >&2
     read -r vlan_selection
     
     # Process user selection
@@ -428,7 +425,7 @@ if [ "$vlan_count" -gt 0 ]; then
 
             echo >&2
             echo "Do you want to prioritize certain VLANs for early scanning?" >&2
-            printf "Prioritize VLANs? (y/n) [n]: " >&2
+            echo "Prioritize VLANs? (y/n) [n]: " >&2
             read -r prioritize_choice
 
             case "$prioritize_choice" in
@@ -436,7 +433,7 @@ if [ "$vlan_count" -gt 0 ]; then
                     echo >&2
                     echo "Enter VLAN IDs to scan first (space-separated):" >&2
                     echo "Example: 300 500" >&2
-                    printf "Priority VLANs: " >&2
+                    echo "Priority VLANs: " >&2
                     read -r priority_vlans
 
                     if [ -n "$priority_vlans" ]; then
@@ -633,7 +630,7 @@ if [ "$selected_vlan_count" -gt 0 ]; then
                         while [ $ip_assigned -eq 0 ] && [ $retry_count -lt $max_retries ]; do
                             retry_count=$((retry_count + 1))
 
-                            printf "  Enter IP address for $vlan_interface (with CIDR, e.g., 192.168.1.100/24): " >&2
+                            echo "  Enter IP address for $vlan_interface (with CIDR, e.g., 192.168.1.100/24): " >&2
                             read -r custom_ip
 
                             # Validate IP format
@@ -770,8 +767,8 @@ else
             if [ -n "$suggested_ip" ]; then
                 chosen_ip=$(prompt_ip_choice "$suggested_ip" "$network_base" "$target_interface")
             else
-                echo "No network traffic detected for IP suggestion."
-                echo "Please provide an IP address for interface $target_interface."
+                echo "No network traffic detected for IP suggestion." >&2
+                echo "Please provide an IP address for interface $target_interface." >&2
                 echo "Enter IP address in CIDR notation (e.g., 192.168.1.100/24): " >&2
                 read chosen_ip
             fi
@@ -1028,63 +1025,126 @@ if [ -x "$discovery_script" ]; then
             echo ""
         } > "$SESSION_METADATA"
         
-        # Discover networks on each configured VLAN interface
+        # Phase 4a: Network Collection
+        # Collect all VLAN networks upfront before starting discoveries
+        echo >&2
+        echo "=== Phase 4a: Network Collection ===" >&2
+        echo "Collecting discovery networks for all VLANs..." >&2
+        echo >&2
+
+        # Create temp file for network storage
+        VLAN_NETWORKS_FILE="$TEMP_DIR/vlan_networks.txt"
+        > "$VLAN_NETWORKS_FILE"  # Initialize empty file
+
+        # Loop through each VLAN and collect network choices
         while read -r vlan_id <&3; do
             if [ -n "$vlan_id" ]; then
                 vlan_interface="${target_interface}.${vlan_id}"
-                vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
-                
-                echo "=== Discovering VLAN $vlan_id on interface $vlan_interface ==="
-                echo "  VLAN $vlan_id discovery:" >> "$WORKFLOW_REPORT"
-                
+
+                echo "=== VLAN $vlan_id Network Configuration ===" >&2
+
                 # Check if interface exists and has IP
                 if ip addr show "$vlan_interface" >/dev/null 2>&1; then
                     vlan_network=$(get_network_range "$vlan_interface")
                     if [ -n "$vlan_network" ]; then
-                        echo "  VLAN $vlan_id interface network: $vlan_network"
-                        echo "    Interface network: $vlan_network" >> "$WORKFLOW_REPORT"
-                        
+                        echo "  VLAN $vlan_id interface network: $vlan_network" >&2
+
                         # Prompt user to confirm scan network for this VLAN
                         echo "  VLAN $vlan_id Discovery Network Configuration:" >&2
                         echo "  1. Use interface network: $vlan_network" >&2
                         echo "  2. Enter custom network range" >&2
                         echo "  Select discovery network for VLAN $vlan_id (1-2): " >&2
                         read vlan_network_choice
-                        
+
                         case "$vlan_network_choice" in
-                            1)
+                            1|"")
                                 vlan_discovery_network="$vlan_network"
-                                echo "  ✓ Using interface network: $vlan_discovery_network"
-                                echo "    Discovery network: $vlan_discovery_network (interface)" >> "$WORKFLOW_REPORT"
+                                echo "  ✓ Using interface network: $vlan_discovery_network" >&2
                                 ;;
                             2)
                                 echo "  Enter network range in CIDR notation (e.g., 192.168.1.0/24): " >&2
                                 read vlan_custom_network
-                                
+
                                 if [ -n "$vlan_custom_network" ] && echo "$vlan_custom_network" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
                                     vlan_discovery_network="$vlan_custom_network"
-                                    echo "  ✓ Using custom network: $vlan_discovery_network"
-                                    echo "    Discovery network: $vlan_discovery_network (custom)" >> "$WORKFLOW_REPORT"
+                                    echo "  ✓ Using custom network: $vlan_discovery_network" >&2
                                 else
-                                    echo "  Invalid format, using interface network: $vlan_network"
+                                    echo "  Invalid format, using interface network: $vlan_network" >&2
                                     vlan_discovery_network="$vlan_network"
-                                    echo "    Discovery network: $vlan_discovery_network (fallback)" >> "$WORKFLOW_REPORT"
                                 fi
                                 ;;
                             *)
-                                echo "  Invalid choice, using interface network: $vlan_network"
+                                echo "  Invalid choice, using interface network: $vlan_network" >&2
                                 vlan_discovery_network="$vlan_network"
-                                echo "    Discovery network: $vlan_discovery_network (default)" >> "$WORKFLOW_REPORT"
                                 ;;
                         esac
-                        
-                        log_info "VLAN $vlan_id discovery network selected: $vlan_discovery_network"
-                        
-                        # Create VLAN-specific discovery directory
-                        mkdir -p "$vlan_discovery_dir"
-                        
-                        # Run discovery for this specific VLAN network
-                        echo "  Starting multi-phase discovery on $vlan_discovery_network..."
+
+                        # Store VLAN and network in temp file
+                        echo "$vlan_id $vlan_discovery_network" >> "$VLAN_NETWORKS_FILE"
+                        echo "  Recorded: VLAN $vlan_id → $vlan_discovery_network" >&2
+
+                    else
+                        echo "  ⚠ No network range found for VLAN interface $vlan_interface" >&2
+                        echo "  VLAN $vlan_id will be skipped during discovery" >&2
+                    fi
+                else
+                    echo "  ⚠ VLAN interface $vlan_interface not found or not configured" >&2
+                    echo "  VLAN $vlan_id will be skipped during discovery" >&2
+                fi
+                echo >&2
+            fi
+        done 3< "$TEMP_DIR/selected_vlans.txt"
+
+        # Show summary of collected networks
+        echo >&2
+        echo "==========================================" >&2
+        echo "   Network Collection Complete" >&2
+        echo "==========================================" >&2
+        echo >&2
+
+        if [ -s "$VLAN_NETWORKS_FILE" ]; then
+            echo "The following networks will be scanned:" >&2
+            echo >&2
+            while read -r vlan_id network <&3; do
+                printf "  VLAN %-3s: %s\n" "$vlan_id" "$network" >&2
+            done 3< "$VLAN_NETWORKS_FILE"
+            echo >&2
+            vlan_network_count=$(wc -l < "$VLAN_NETWORKS_FILE")
+            echo "Ready to begin discovery on $vlan_network_count VLAN(s)" >&2
+            echo >&2
+            echo "Discovery will now begin. This may take some time." >&2
+            echo "You can safely leave this running." >&2
+            echo >&2
+        else
+            echo "⚠ No VLANs configured for discovery" >&2
+            echo "Status: SKIPPED (no networks)" >> "$WORKFLOW_REPORT"
+            log_warn "No VLANs configured for discovery"
+        fi
+
+        # Phase 4b: Network Discovery Execution
+        # Execute discoveries using pre-collected network ranges
+        echo >&2
+        echo "=== Phase 4b: Network Discovery Execution ===" >&2
+        echo "Running network discovery on configured VLANs..." >&2
+        echo >&2
+
+        # Discover networks on each configured VLAN interface
+        while read -r vlan_id vlan_discovery_network <&3; do
+            if [ -n "$vlan_id" ] && [ -n "$vlan_discovery_network" ]; then
+                vlan_interface="${target_interface}.${vlan_id}"
+                vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
+
+                echo "=== Discovering VLAN $vlan_id on $vlan_discovery_network ===" >&2
+                echo "  VLAN $vlan_id discovery:" >> "$WORKFLOW_REPORT"
+                echo "    Discovery network: $vlan_discovery_network" >> "$WORKFLOW_REPORT"
+
+                log_info "VLAN $vlan_id discovery network: $vlan_discovery_network"
+
+                # Create VLAN-specific discovery directory
+                mkdir -p "$vlan_discovery_dir"
+
+                # Run discovery for this specific VLAN network
+                echo "  Starting multi-phase discovery on $vlan_discovery_network..." >&2
                         
                         # Set environment variables for multiphase script context
                         export MANUAL_NETWORK_RANGE="$vlan_discovery_network"
@@ -1120,18 +1180,8 @@ if [ -x "$discovery_script" ]; then
                         # Add summary to report
                         echo "    Output summary:" >> "$WORKFLOW_REPORT"
                         head -20 "$vlan_discovery_dir/discovery_output.txt" 2>/dev/null | sed 's/^/      /' >> "$WORKFLOW_REPORT"
-                    else
-                        echo "  ⚠ No network range found for VLAN interface $vlan_interface"
-                        echo "    Status: SKIPPED (no network)" >> "$WORKFLOW_REPORT"
-                        log_warn "No network range found for VLAN interface $vlan_interface"
-                    fi
-                else
-                    echo "  ⚠ VLAN interface $vlan_interface not found or not configured"
-                    echo "    Status: SKIPPED (interface not found)" >> "$WORKFLOW_REPORT"
-                    log_warn "VLAN interface $vlan_interface not found for discovery"
-                fi
             fi
-        done 3< "$TEMP_DIR/selected_vlans.txt"
+        done 3< "$VLAN_NETWORKS_FILE"
         
         # Summary
         if [ $discovery_success -gt 0 ]; then
