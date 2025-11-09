@@ -195,12 +195,11 @@ func (c *Config) CreateWorkspace() error {
 	subdirs := []string{
 		"captures",
 		"discovery",
-		"vulnerability",
+		"security_scans",
 		"analysis",
 		"reports",
 		"configs",
 		"logs",
-		"advanced",
 	}
 
 	for _, subdir := range subdirs {
@@ -553,12 +552,11 @@ func (c *Config) FixWorkspacePermissions() error {
 	subdirs := []string{
 		"captures",
 		"discovery",
-		"vulnerability",
+		"security_scans",
 		"analysis",
 		"reports",
 		"configs",
 		"logs",
-		"advanced",
 		"latest",
 	}
 
