@@ -25,19 +25,17 @@ DISCOVERY_DIR="${NETUTIL_WORKDIR:-$HOME}/discovery"
 mkdir -p "$DISCOVERY_DIR"
 
 # Parse command line arguments for non-interactive mode
-# Usage: multi_phase_discovery.sh [interface] [discovery_mode]
-# discovery_mode: 1=standard, 2=vlan_aware
+# Usage: multi_phase_discovery.sh [interface]
 provided_interface="$1"
-provided_discovery_mode="$2"
 
 # Get current interface and network
 if [ -n "$provided_interface" ]; then
     selected_interface="$provided_interface"
     echo "Using provided interface: $selected_interface"
 else
-    echo "Available network interfaces:"
-    selected_interface=$(select_interface)
-    
+    echo "Available network interfaces (including VLANs):"
+    selected_interface=$(select_interface "Select interface or VLAN to scan" "" "false")
+
     if [ -z "$selected_interface" ]; then
         echo "No interface selected"
         exit 1
@@ -47,105 +45,76 @@ fi
 echo "Selected interface: $selected_interface"
 log_info "Selected interface: $selected_interface"
 
-# Check for VLAN interfaces and offer VLAN-aware discovery
-echo
-if [ -n "$provided_discovery_mode" ]; then
-    discovery_mode="$provided_discovery_mode"
-    echo "Using provided discovery mode: $discovery_mode"
+# Function to detect VLAN interface and extract VLAN ID
+detect_vlan_interface() {
+    interface="$1"
+    # Check if interface name contains dot (e.g., eth0.100)
+    if echo "$interface" | grep -q '\.'; then
+        vlan_id=$(echo "$interface" | cut -d'.' -f2)
+        # Validate VLAN ID is numeric
+        if echo "$vlan_id" | grep -qE '^[0-9]+$'; then
+            echo "$vlan_id"
+            return 0
+        fi
+    fi
+    return 1
+}
+
+# Detect if selected interface is a VLAN interface
+if detected_vlan_id=$(detect_vlan_interface "$selected_interface"); then
+    IS_VLAN_INTERFACE="true"
+    DETECTED_VLAN_ID="$detected_vlan_id"
+    echo "VLAN interface detected: $selected_interface (VLAN $DETECTED_VLAN_ID)"
+    log_info "VLAN interface detected: $selected_interface (VLAN $DETECTED_VLAN_ID)"
 else
-    echo "Discovery mode options:"
-    echo "1. Standard discovery (single network)"
-    echo "2. VLAN-aware discovery (scan multiple VLANs)"
-    echo
-    echo "Select discovery mode (1-2): " >&2
-    read discovery_mode
+    IS_VLAN_INTERFACE="false"
+    DETECTED_VLAN_ID=""
 fi
 
-case "$discovery_mode" in
-    1)
-        discovery_type="standard"
-        # Check for manually specified network range first
-        if [ -n "$MANUAL_NETWORK_RANGE" ]; then
-            network_range="$MANUAL_NETWORK_RANGE"
-            echo "Using manually specified network range: $network_range"
-            log_info "Using manually specified network range: $network_range"
-        else
-            # Get network range for standard discovery
-            network_range=$(get_network_range "$selected_interface")
-            if [ -z "$network_range" ]; then
-                echo "Could not determine network range for $selected_interface"
-                log_error "Could not determine network range for $selected_interface"
-                # Prompt user for manual input instead of failing
-                network_range=$(prompt_network_range)
-                if [ -z "$network_range" ]; then
-                    echo "No network range provided. Exiting."
-                    exit 1
-                fi
-            fi
-            echo "Network range: $network_range"
-            log_info "Network range: $network_range"
-        fi
-        ;;
-    2)
-        discovery_type="vlan_aware"
-        echo "VLAN-aware discovery selected"
-        log_info "VLAN-aware discovery mode selected"
-        
-        # Check for existing VLAN interfaces
-        vlan_interfaces=$(ip link show | grep "@$selected_interface:" | cut -d':' -f2 | tr -d ' ' | cut -d'@' -f1)
-        if [ -n "$vlan_interfaces" ]; then
-            echo "Found existing VLAN interfaces:"
-            echo "$vlan_interfaces" | sed 's/^/  /'
-            log_info "Found existing VLAN interfaces: $(echo "$vlan_interfaces" | tr '\n' ' ')"
-        else
-            echo "No existing VLAN interfaces found on $selected_interface"
-            echo "You may need to create VLAN interfaces first using the vlans command"
-            log_warn "No VLAN interfaces found for VLAN-aware discovery"
-        fi
-        
-        # Get network ranges for all interfaces (including VLANs)
-        network_ranges=""
-        for interface in $selected_interface $vlan_interfaces; do
-            range=$(get_network_range "$interface")
-            if [ -n "$range" ]; then
-                network_ranges="$network_ranges $range"
-                echo "  $interface: $range"
-            fi
-        done
-        
-        if [ -z "$network_ranges" ]; then
-            echo "No network ranges could be determined. Falling back to standard discovery."
-            discovery_type="standard"
-            network_range=$(get_network_range "$selected_interface")
-            if [ -z "$network_range" ]; then
-                echo "Could not determine network range for standard fallback either."
-                # Prompt user for manual input
-                network_range=$(prompt_network_range)
-                if [ -z "$network_range" ]; then
-                    echo "No network range provided. Exiting."
-                    exit 1
-                fi
-            fi
-        else
-            echo "Will scan networks: $network_ranges"
-            log_info "VLAN-aware discovery networks: $network_ranges"
-        fi
-        ;;
-    *)
-        echo "Invalid selection. Using standard discovery."
-        discovery_type="standard"
-        network_range=$(get_network_range "$selected_interface")
+# Network range detection and confirmation
+echo
+# Check for manually specified network range first
+if [ -n "$MANUAL_NETWORK_RANGE" ]; then
+    network_range="$MANUAL_NETWORK_RANGE"
+    echo "Using manually specified network range: $network_range"
+    log_info "Using manually specified network range: $network_range"
+else
+    # Get network range for selected interface
+    network_range=$(get_network_range "$selected_interface")
+    if [ -z "$network_range" ]; then
+        echo "Could not determine network range for $selected_interface"
+        log_error "Could not determine network range for $selected_interface"
+        # Prompt user for manual input instead of failing
+        network_range=$(prompt_network_range)
         if [ -z "$network_range" ]; then
-            echo "Could not determine network range for $selected_interface"
-            # Prompt user for manual input
-            network_range=$(prompt_network_range)
-            if [ -z "$network_range" ]; then
-                echo "No network range provided. Exiting."
-                exit 1
-            fi
+            echo "No network range provided. Exiting."
+            exit 1
         fi
-        ;;
-esac
+    else
+        # Network detected - prompt user for confirmation
+        echo "Detected network: $network_range"
+        echo "Scan this network? (Y/n/custom): " >&2
+        read -r confirm
+        case "$confirm" in
+            n|N|no|NO)
+                echo "Scan cancelled by user."
+                exit 0
+                ;;
+            c|C|custom|CUSTOM)
+                echo "Enter custom network range:"
+                network_range=$(prompt_network_range)
+                if [ -z "$network_range" ]; then
+                    echo "No network range provided. Exiting."
+                    exit 1
+                fi
+                ;;
+            *)
+                echo "Using detected network: $network_range"
+                ;;
+        esac
+    fi
+    log_info "Network range: $network_range"
+fi
 
 echo
 
@@ -157,29 +126,68 @@ if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
     # Running within auto-discovery workflow - use provided directories
     if [ "$AUTO_DISCOVERY_MAIN_NETWORK" = "true" ]; then
         # Main network discovery in auto-discovery
+        SESSION_ROOT_DIR="$AUTO_DISCOVERY_SESSION_DIR"
         SESSION_DIR="$AUTO_DISCOVERY_MAIN_DIR"
         echo "Auto-discovery context detected: Main network mode"
         log_info "Multiphase discovery running in auto-discovery main network context"
     elif [ -n "$AUTO_DISCOVERY_VLAN_ID" ]; then
         # VLAN-specific discovery in auto-discovery
+        SESSION_ROOT_DIR="$AUTO_DISCOVERY_SESSION_DIR"
         SESSION_DIR="$AUTO_DISCOVERY_VLAN_DIR"
         echo "Auto-discovery context detected: VLAN $AUTO_DISCOVERY_VLAN_ID"
         log_info "Multiphase discovery running in auto-discovery VLAN context: $AUTO_DISCOVERY_VLAN_ID"
     else
         # Fallback to standard behavior
-        SESSION_DIR="$DISCOVERY_DIR/discovery_${TIMESTAMP}"
+        SESSION_ROOT_DIR="$DISCOVERY_DIR/discovery_${TIMESTAMP}"
+        SESSION_DIR="$SESSION_ROOT_DIR"
         mkdir -p "$SESSION_DIR"
     fi
 else
-    # Standard standalone multiphase discovery
-    SESSION_DIR="$DISCOVERY_DIR/discovery_${TIMESTAMP}"
-    mkdir -p "$SESSION_DIR"
-    echo "Standalone discovery mode"
-    log_info "Multiphase discovery running in standalone mode"
+    # Standalone multiphase discovery - create VLAN-aware structure
+    SESSION_ROOT_DIR="$DISCOVERY_DIR/discovery_${TIMESTAMP}"
+    mkdir -p "$SESSION_ROOT_DIR"
+
+    # Determine subfolder based on VLAN detection
+    if [ "$IS_VLAN_INTERFACE" = "true" ]; then
+        # VLAN interface detected - create VLAN-specific subfolder
+        SESSION_DIR="$SESSION_ROOT_DIR/vlan_$DETECTED_VLAN_ID"
+        mkdir -p "$SESSION_DIR"
+        echo "Standalone discovery mode: VLAN $DETECTED_VLAN_ID"
+        echo "Results will be organized in: $SESSION_DIR"
+        log_info "Multiphase discovery running in standalone VLAN mode: VLAN $DETECTED_VLAN_ID"
+    else
+        # Non-VLAN interface - create main_network subfolder
+        SESSION_DIR="$SESSION_ROOT_DIR/main_network"
+        mkdir -p "$SESSION_DIR"
+        echo "Standalone discovery mode: Main network"
+        echo "Results will be organized in: $SESSION_DIR"
+        log_info "Multiphase discovery running in standalone main network mode"
+    fi
 fi
 
 # Ensure session directory exists
 mkdir -p "$SESSION_DIR"
+
+# Create session metadata file (only for standalone mode, not auto-discovery)
+if [ "$AUTO_DISCOVERY_SESSION" != "true" ]; then
+    SESSION_METADATA="$SESSION_ROOT_DIR/session_metadata.txt"
+    {
+        echo "=== Multi-Phase Discovery Session Metadata ==="
+        echo "Session ID: discovery_${TIMESTAMP}"
+        echo "Started: $(date)"
+        echo "Interface: $selected_interface"
+        if [ "$IS_VLAN_INTERFACE" = "true" ]; then
+            echo "VLAN ID: $DETECTED_VLAN_ID"
+            echo "Discovery Mode: Standalone VLAN Discovery"
+        else
+            echo "Discovery Mode: Standalone Main Network Discovery"
+        fi
+        echo "Network: $network_range"
+        echo "Session directory: $SESSION_ROOT_DIR"
+        echo "Results directory: $SESSION_DIR"
+        echo ""
+    } > "$SESSION_METADATA"
+fi
 
 # Create professional evidence directory structure
 EVIDENCE_DIR="$SESSION_DIR/evidence"
@@ -222,24 +230,13 @@ REPORT_FILE="$REPORTS_DIR/discovery_report.txt"
 
 echo "=== Multi-Phase Network Discovery Report ===" > "$REPORT_FILE"
 echo "Interface: $selected_interface" >> "$REPORT_FILE"
-echo "Discovery type: $discovery_type" >> "$REPORT_FILE"
-if [ "$discovery_type" = "standard" ]; then
-    echo "Network: $network_range" >> "$REPORT_FILE"
-else
-    echo "Networks: $network_ranges" >> "$REPORT_FILE"
-fi
+echo "Network: $network_range" >> "$REPORT_FILE"
 echo "Discovery started: $(date)" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-if [ "$discovery_type" = "standard" ]; then
-    echo "Starting multi-phase discovery on $network_range..."
-    log_info "Starting multi-phase discovery on $network_range"
-    target_networks="$network_range"
-else
-    echo "Starting VLAN-aware multi-phase discovery on multiple networks..."
-    log_info "Starting VLAN-aware multi-phase discovery on networks: $network_ranges"
-    target_networks="$network_ranges"
-fi
+echo "Starting multi-phase discovery on $network_range..."
+log_info "Starting multi-phase discovery on $network_range"
+target_networks="$network_range"
 
 # Network topology discovery functions
 discover_network_topology() {
@@ -727,28 +724,7 @@ analyze_network_segmentation() {
     else
         echo "      Found $reachable_subnets potentially reachable subnets" >> "$REPORT_FILE"
     fi
-    
-    # VLAN discovery enhancement (if VLAN-aware mode)
-    if [ "$discovery_type" = "vlan_aware" ]; then
-        echo "    Enhanced VLAN analysis..." >> "$REPORT_FILE"
-        
-        # Check for additional VLAN interfaces that might have been created
-        current_vlans=$(ip link show | grep "@$selected_interface:" | wc -l)
-        echo "      Active VLAN interfaces: $current_vlans" >> "$REPORT_FILE"
-        
-        # Look for CDP/LLDP information if tools are available
-        if command -v lldpctl >/dev/null 2>&1; then
-            echo "      Gathering LLDP neighbor information..." >> "$REPORT_FILE"
-            lldp_neighbors=$(lldpctl 2>/dev/null | grep -c "Interface:" || echo 0)
-            if [ "$lldp_neighbors" -gt 0 ]; then
-                echo "        LLDP neighbors detected: $lldp_neighbors" >> "$REPORT_FILE"
-                lldpctl 2>/dev/null | grep -A5 "Interface:" | head -20 >> "$REPORT_FILE" || true
-            else
-                echo "        No LLDP neighbors detected" >> "$REPORT_FILE"
-            fi
-        fi
-    fi
-    
+
     # Routing analysis
     echo "    Analyzing routing information..." >> "$REPORT_FILE"
     
@@ -1657,15 +1633,7 @@ identify_network_devices "$target_networks" "$PHASE1_DIR/infrastructure_hosts.tx
 
 # Sub-phase 1.3: Reverse DNS Pattern Analysis
 echo "  Sub-phase 1.3: Reverse DNS enumeration..." >> "$REPORT_FILE"
-if [ "$discovery_type" = "vlan_aware" ]; then
-    for network in $target_networks; do
-        if [ -n "$network" ]; then
-            perform_reverse_dns_enumeration "$network" "$PHASE1_DIR/topology_hosts.txt"
-        fi
-    done
-else
-    perform_reverse_dns_enumeration "$network_range" "$PHASE1_DIR/topology_hosts.txt"
-fi
+perform_reverse_dns_enumeration "$network_range" "$PHASE1_DIR/topology_hosts.txt"
 
 # Sub-phase 1.4: Network Segmentation Analysis
 echo "  Sub-phase 1.4: Network segmentation analysis..." >> "$REPORT_FILE"
@@ -1678,38 +1646,17 @@ echo >> "$REPORT_FILE"
 # Sub-phase 1.5: Layer 2 ARP Discovery
 echo "  Sub-phase 1.5: Layer 2 ARP discovery..." >> "$REPORT_FILE"
 
-if [ "$discovery_type" = "vlan_aware" ]; then
-    echo "Performing VLAN-aware ARP discovery..." >> "$REPORT_FILE"
-    # Scan each VLAN interface separately
-    for interface in $selected_interface $vlan_interfaces; do
-        if [ -n "$interface" ]; then
-            echo "  Scanning interface: $interface" >> "$REPORT_FILE"
-            if command -v arp-scan >/dev/null 2>&1; then
-                arp-scan --local --interface="$interface" 2>/dev/null | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
-                    awk -v iface="$interface" '{print $1 "\t" $2 "\t" $3 "\t" iface}' >> "$REPORT_FILE"
-                arp-scan --local --interface="$interface" 2>/dev/null | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
-                    awk '{print $1}' >> "$PHASE1_DIR/arp_hosts.txt"
-            else
-                ip neighbor show dev "$interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
-                    awk -v iface="$interface" '{print $1 "\t" $2 "\t" $3 "\t" iface}' >> "$REPORT_FILE"
-                ip neighbor show dev "$interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
-                    awk '{print $1}' >> "$PHASE1_DIR/arp_hosts.txt"
-            fi
-        fi
-    done
+if command -v arp-scan >/dev/null 2>&1; then
+    echo "Using arp-scan for Layer 2 discovery..." >> "$REPORT_FILE"
+    arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
+        awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
+    arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
+        awk '{print $1 "\t" $2 "\t" $3}' >> "$REPORT_FILE"
 else
-    if command -v arp-scan >/dev/null 2>&1; then
-        echo "Using arp-scan for Layer 2 discovery..." >> "$REPORT_FILE"
-        arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
-            awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
-        arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
-            awk '{print $1 "\t" $2 "\t" $3}' >> "$REPORT_FILE"
-    else
-        echo "arp-scan not available, using IP neighbor discovery..." >> "$REPORT_FILE"
-        ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
-            awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
-        ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" >> "$REPORT_FILE"
-    fi
+    echo "arp-scan not available, using IP neighbor discovery..." >> "$REPORT_FILE"
+    ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
+        awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
+    ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" >> "$REPORT_FILE"
 fi
 
 # Consolidate all Phase 1 discoveries
@@ -1754,38 +1701,18 @@ echo "Phase 2: Comprehensive Host Discovery - Multi-protocol discovery with fire
 # Sub-phase 2.1: ICMP Discovery (Traditional Ping Sweep)
 echo "  Sub-phase 2.1: ICMP connectivity testing..." >> "$REPORT_FILE"
 
-if [ "$discovery_type" = "vlan_aware" ]; then
-    echo "Performing VLAN-aware ping sweep..." >> "$REPORT_FILE"
-    for network in $target_networks; do
-        if [ -n "$network" ]; then
-            echo "  Ping sweep on network: $network" >> "$REPORT_FILE"
-            if command -v fping >/dev/null 2>&1; then
-                enhanced_fping_sweep "$network" "$PHASE2_DIR/ping_hosts.txt"
-            else
-                # Extract network portion for ping sweep
-                network_base=$(echo "$network" | cut -d'/' -f1 | cut -d'.' -f1-3)
-                for i in $(seq 1 254); do
-                    if ping -c 1 -W 1 "${network_base}.$i" >/dev/null 2>&1; then
-                        echo "${network_base}.$i" >> "$PHASE2_DIR/ping_hosts.txt"
-                    fi
-                done
-            fi
+if command -v fping >/dev/null 2>&1; then
+    echo "Using fping for fast ping sweep..." >> "$REPORT_FILE"
+    enhanced_fping_sweep "$network_range" "$PHASE2_DIR/ping_hosts.txt"
+else
+    echo "fping not available, using basic ping..." >> "$REPORT_FILE"
+    # Extract network portion for ping sweep
+    network_base=$(echo "$network_range" | cut -d'/' -f1 | cut -d'.' -f1-3)
+    for i in $(seq 1 254); do
+        if ping -c 1 -W 1 "${network_base}.$i" >/dev/null 2>&1; then
+            echo "${network_base}.$i" >> "$PHASE2_DIR/ping_hosts.txt"
         fi
     done
-else
-    if command -v fping >/dev/null 2>&1; then
-        echo "Using fping for fast ping sweep..." >> "$REPORT_FILE"
-        enhanced_fping_sweep "$network_range" "$PHASE2_DIR/ping_hosts.txt"
-    else
-        echo "fping not available, using basic ping..." >> "$REPORT_FILE"
-        # Extract network portion for ping sweep
-        network_base=$(echo "$network_range" | cut -d'/' -f1 | cut -d'.' -f1-3)
-        for i in $(seq 1 254); do
-            if ping -c 1 -W 1 "${network_base}.$i" >/dev/null 2>&1; then
-                echo "${network_base}.$i" >> "$PHASE2_DIR/ping_hosts.txt"
-            fi
-        done
-    fi
 fi
 
 # TTL-based OS fingerprinting
@@ -2854,15 +2781,10 @@ generate_tactical_summary() {
         echo "Assessment Type: Air-gapped Vulnerability Assessment"
         echo "Discovery Phase: Network Reconnaissance Complete"
         echo ""
-        
+
         # Network scope summary
-        if [ "$discovery_type" = "vlan_aware" ]; then
-            echo "SCOPE: Multi-network VLAN-aware assessment"
-            echo "Networks: $target_networks"
-        else
-            echo "SCOPE: Single network assessment"
-            echo "Network: $network_range"
-        fi
+        echo "SCOPE: Single network assessment"
+        echo "Network: $network_range"
         echo ""
         
         # Host distribution
@@ -2954,13 +2876,7 @@ generate_executive_briefing() {
         echo ""
         
         echo "NETWORK SCOPE:"
-        if [ "$discovery_type" = "vlan_aware" ]; then
-            echo "• Multi-network environment with VLAN segmentation"
-            network_count=$(echo "$target_networks" | wc -w)
-            echo "• $network_count network segments assessed"
-        else
-            echo "• Single network segment: $network_range"
-        fi
+        echo "• Single network segment: $network_range"
         echo ""
         
         echo "DISCOVERY RESULTS:"
@@ -3144,13 +3060,7 @@ log_info "Results saved to: $SESSION_DIR"
 log_info "Discovery summary: $all_hosts_count total hosts, $windows_count Windows, $linux_count Linux/Unix, $network_count network devices"
 echo
 echo "Enhanced Discovery Summary:"
-if [ "$discovery_type" = "vlan_aware" ]; then
-    echo "  Discovery mode: VLAN-aware (multiple networks)"
-    echo "  Networks scanned: $target_networks"
-else
-    echo "  Discovery mode: Standard (single network)"
-    echo "  Network scanned: $network_range"
-fi
+echo "  Network scanned: $network_range"
 echo "  Total hosts discovered: $all_hosts_count"
 echo "  Windows hosts: $windows_count"
 echo "  Linux/Unix hosts: $linux_count"
