@@ -112,8 +112,8 @@ var commandMappings = map[string]ScriptInfo{
 	"scan":              {"scripts/network/network_enum.sh", "Network Enumeration"},
 	"capture":           {"scripts/network/network_capture.sh", "Network Capture"},
 	"enum":              {"scripts/network/network_enum.sh", "Network Enumeration"},
-	"vuln":              {"scripts/vulnerability/deep_nse_scan.sh", "Vulnerability Scan"},
-	"vulnerability":     {"scripts/vulnerability/deep_nse_scan.sh", "Vulnerability Scan"},
+	"vuln":              {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
+	"vulnerability":     {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
 	"config-ip":         {"scripts/system/configure_ip.sh", "Configure IP"},
 	"ip":                {"scripts/system/configure_ip.sh", "Configure IP"},
 	"interfaces":        {"scripts/system/network_interfaces.sh", "Network Interfaces"},
@@ -126,7 +126,6 @@ var commandMappings = map[string]ScriptInfo{
 	"protocols":         {"scripts/network/unsafe_protocols.sh", "Unsafe Protocols"},
 	"categorize":        {"scripts/network/categorize_hosts.sh", "Categorize Hosts"},
 	"vlans":             {"scripts/network/extract_vlans.sh", "Extract VLANs"},
-	"analysis":          {"scripts/vulnerability/vuln_analysis.sh", "Vulnerability Analysis"},
 	"device-config":     {"scripts/config/device_config.sh", "Device Configuration"},
 	"advanced-analysis": {"scripts/network/advanced_packet_analysis.sh", "Advanced Packet Analysis"},
 	"mac-analysis":      {"scripts/network/mac_analysis.sh", "MAC Address Analysis"},
@@ -168,7 +167,7 @@ func runFirstTimeSetup(cfg *config.Config) error {
 var numericShortcuts = map[string]ScriptInfo{
 	"1": {"scripts/network/network_enum.sh", "Network Enumeration"},
 	"2": {"scripts/network/network_capture.sh", "Network Capture"},
-	"3": {"scripts/vulnerability/deep_nse_scan.sh", "Vulnerability Scan"},
+	"3": {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
 	"4": {"scripts/system/configure_ip.sh", "Configure IP"},
 	"5": {"scripts/system/network_interfaces.sh", "Network Interfaces"},
 }

@@ -6,7 +6,6 @@
 # Phase 2: Comprehensive Host Discovery (ICMP, TCP bypass, UDP probes, masscan, early classification)
 # Phase 3: DNS lookup → Phase 4: Windows Discovery → Phase 5: Progressive Port Scan
 # Phase 6: Service Enumeration → Phase 7: Vulnerability Assessment → Phase 8: Host Categorization
-# Phase 9: Evidence Processing
 
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/logging.sh"
@@ -199,8 +198,7 @@ mkdir -p "$EVIDENCE_DIR/phase1_network_discovery" \
          "$EVIDENCE_DIR/phase5_port_scanning" \
          "$EVIDENCE_DIR/phase6_service_enumeration" \
          "$EVIDENCE_DIR/phase7_vulnerability_assessment" \
-         "$EVIDENCE_DIR/phase8_host_categorization" \
-         "$EVIDENCE_DIR/phase9_evidence_processing"
+         "$EVIDENCE_DIR/phase8_host_categorization"
 mkdir -p "$EVIDENCE_DIR/phase1_network_discovery/raw_scans" \
          "$EVIDENCE_DIR/phase2_host_discovery/raw_scans" \
          "$EVIDENCE_DIR/phase3_dns_analysis/raw_scans" \
@@ -2348,8 +2346,7 @@ echo "  Creating evidence manifest..." >> "$REPORT_FILE"
     echo "    ├── team_linux.txt (Linux/Unix hosts for Linux team)"  
     echo "    └── team_network.txt (Network devices/unknown for Network team)"
     echo ""
-    echo "service_targets/ (Service-specific target lists)"
-    echo "consolidated/ (Summary files and reports)"
+    echo "service_targets/ (Service-specific target lists and enriched files)"
     echo "reports/ (Final analysis and summaries)"
     echo ""
     echo "=== File Checksums ==="

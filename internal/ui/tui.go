@@ -664,7 +664,7 @@ func (t *TUI) getScriptFolder(category string) string {
 	case "Network Reconnaissance":
 		return "network"
 	case "Detailed Port Scan":
-		return "vulnerability"
+		return "scanning"
 	case "Advanced":
 		return "network"
 	case "Network Config Gatherer":

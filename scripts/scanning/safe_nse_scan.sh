@@ -20,7 +20,7 @@ echo "    - Service discovery and mapping"
 echo "    - Baseline security assessments"
 echo
 
-RESULTS_DIR="${NETUTIL_WORKDIR:-$HOME}/vulnerability"
+RESULTS_DIR="${NETUTIL_WORKDIR:-$HOME}/security_scans"
 mkdir -p "$RESULTS_DIR"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)

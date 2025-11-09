@@ -948,9 +948,9 @@ show_latest_results() {
     fi
     
     echo "=== Latest Results ==="
-    
+
     # Check each expected category
-    for category in discovery analysis vulnerability reports captures; do
+    for category in discovery analysis security_scans reports captures; do
         category_link="$latest_dir/$category"
         if [ -L "$category_link" ] && [ -e "$category_link" ]; then
             target=$(readlink "$category_link" 2>/dev/null)
