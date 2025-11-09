@@ -2570,7 +2570,7 @@ generate_team_handoff_files() {
         echo "== OTHER LINUX SERVICES =="
         for service in ftp telnet smtp imap pop3; do
             if [ -s "$SERVICE_TARGETS_DIR/${service}_targets.txt" ]; then
-                echo "${service^^} Targets ($(wc -l < "$SERVICE_TARGETS_DIR/${service}_targets.txt")):"
+                echo "$(echo "$service" | tr '[:lower:]' '[:upper:]') Targets ($(wc -l < "$SERVICE_TARGETS_DIR/${service}_targets.txt")):"
                 cat "$SERVICE_TARGETS_DIR/${service}_targets.txt" | sed 's/^/  /'
                 echo ""
             fi
@@ -2879,7 +2879,8 @@ generate_tactical_summary() {
         for service in ssh smb web database dns snmp rdp; do
             if [ -s "$SERVICE_TARGETS_DIR/${service}_targets.txt" ]; then
                 count=$(wc -l < "$SERVICE_TARGETS_DIR/${service}_targets.txt")
-                printf "  %-12s: %d hosts\n" "${service^^}" "$count"
+                service_upper=$(echo "$service" | tr '[:lower:]' '[:upper:]')
+                printf "  %-12s: %d hosts\n" "$service_upper" "$count"
             fi
         done
         echo ""
@@ -3100,7 +3101,8 @@ generate_quick_reference() {
         for service in ssh smb web database dns snmp; do
             if [ -s "$SERVICE_TARGETS_DIR/${service}_targets.txt" ]; then
                 count=$(wc -l < "$SERVICE_TARGETS_DIR/${service}_targets.txt")
-                service_summary="${service_summary}${service^^}:$count "
+                service_upper=$(echo "$service" | tr '[:lower:]' '[:upper:]')
+                service_summary="${service_summary}${service_upper}:$count "
             fi
         done
         echo "$service_summary"
