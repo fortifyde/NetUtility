@@ -133,6 +133,7 @@ if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
     elif [ -n "$AUTO_DISCOVERY_VLAN_ID" ]; then
         # VLAN-specific discovery in auto-discovery
         SESSION_ROOT_DIR="$AUTO_DISCOVERY_SESSION_DIR"
+        # shellcheck disable=SC2153
         SESSION_DIR="$AUTO_DISCOVERY_VLAN_DIR"
         echo "Auto-discovery context detected: VLAN $AUTO_DISCOVERY_VLAN_ID"
         log_info "Multiphase discovery running in auto-discovery VLAN context: $AUTO_DISCOVERY_VLAN_ID"
@@ -208,7 +209,6 @@ mkdir -p "$EVIDENCE_DIR/phase1_network_discovery/raw_scans" \
          "$EVIDENCE_DIR/phase6_service_enumeration/raw_scans" \
          "$EVIDENCE_DIR/phase7_vulnerability_assessment/raw_scans"
 mkdir -p "$SESSION_DIR/service_targets" \
-         "$SESSION_DIR/consolidated" \
          "$SESSION_DIR/reports"
 
 # Define evidence directories for easy reference
@@ -220,9 +220,8 @@ PHASE5_DIR="$EVIDENCE_DIR/phase5_port_scanning"
 PHASE6_DIR="$EVIDENCE_DIR/phase6_service_enumeration"
 PHASE7_DIR="$EVIDENCE_DIR/phase7_vulnerability_assessment"
 PHASE8_DIR="$EVIDENCE_DIR/phase8_host_categorization"
-PHASE9_DIR="$EVIDENCE_DIR/phase9_evidence_processing"
+# Phase 9 removed - no longer generating team handoff files
 SERVICE_TARGETS_DIR="$SESSION_DIR/service_targets"
-CONSOLIDATED_DIR="$SESSION_DIR/consolidated"
 REPORTS_DIR="$SESSION_DIR/reports"
 
 # Discovery report
@@ -237,6 +236,182 @@ echo >> "$REPORT_FILE"
 echo "Starting multi-phase discovery on $network_range..."
 log_info "Starting multi-phase discovery on $network_range"
 target_networks="$network_range"
+
+# Helper functions for enriched file generation
+extract_version_from_nmap() {
+    ip="$1"
+    service="$2"
+
+    # Search nmap XML/gnmap files for version info
+    version="Unknown"
+    for scan_file in "$EVIDENCE_DIR"/raw_scans/nmap_*.gnmap "$EVIDENCE_DIR"/raw_scans/nmap_*.txt; do
+        if [ -f "$scan_file" ]; then
+            # Extract version from nmap output for this IP and service
+            version_line=$(grep "$ip" "$scan_file" 2>/dev/null | grep -i "$service" | grep -oP 'Version: \K[^,)]+' | head -1)
+            if [ -n "$version_line" ]; then
+                version="$version_line"
+                break
+            fi
+        fi
+    done
+    echo "$version"
+}
+
+extract_os_from_nmap() {
+    ip="$1"
+
+    # Try to extract OS from nmap scan results
+    os="Unknown"
+    for scan_file in "$EVIDENCE_DIR"/raw_scans/nmap_*.gnmap "$EVIDENCE_DIR"/raw_scans/nmap_*.txt; do
+        if [ -f "$scan_file" ]; then
+            os_line=$(grep -A5 "$ip" "$scan_file" 2>/dev/null | grep -i "OS:" | head -1 | sed 's/.*OS: //' | cut -d',' -f1)
+            if [ -n "$os_line" ]; then
+                os="$os_line"
+                break
+            fi
+        fi
+    done
+    echo "$os"
+}
+
+detect_vulnerability_flags() {
+    ip="$1"
+    service="$2"
+    version="$3"
+
+    flags=""
+
+    case "$service" in
+        smb)
+            # Check for SMBv1
+            if grep -q "$ip.*SMBv1" "$EVIDENCE_DIR"/raw_scans/nmap_*.txt 2>/dev/null; then
+                flags="${flags}[SMBv1_ENABLED]"
+            fi
+            # Check for signing disabled
+            if grep -q "$ip.*signing.*disabled" "$EVIDENCE_DIR"/raw_scans/nmap_*.txt 2>/dev/null; then
+                flags="${flags}[SIGNING_OFF]"
+            fi
+            ;;
+        ssh)
+            # Check for old OpenSSH versions
+            if echo "$version" | grep -qE "OpenSSH_[0-5]\.|OpenSSH_6\.[0-6]"; then
+                flags="${flags}[VULNERABLE_VERSION]"
+            fi
+            ;;
+        web|http|https)
+            # Check for outdated web servers
+            if echo "$version" | grep -qiE "Apache/[0-1]\.|Apache/2\.[0-2]"; then
+                flags="${flags}[OUTDATED]"
+            fi
+            ;;
+    esac
+
+    echo "$flags"
+}
+
+get_host_services() {
+    ip="$1"
+
+    services=""
+    [ -f "$SERVICE_TARGETS_DIR/ssh_targets.txt" ] && grep -q "^$ip$" "$SERVICE_TARGETS_DIR/ssh_targets.txt" && services="$services SSH:22,"
+    [ -f "$SERVICE_TARGETS_DIR/smb_targets.txt" ] && grep -q "^$ip$" "$SERVICE_TARGETS_DIR/smb_targets.txt" && services="$services SMB:445,"
+    [ -f "$SERVICE_TARGETS_DIR/web_targets.txt" ] && grep -q "^$ip$" "$SERVICE_TARGETS_DIR/web_targets.txt" && services="$services HTTP:80/443,"
+    [ -f "$SERVICE_TARGETS_DIR/rdp_targets.txt" ] && grep -q "^$ip$" "$SERVICE_TARGETS_DIR/rdp_targets.txt" && services="$services RDP:3389,"
+    [ -f "$SERVICE_TARGETS_DIR/database_targets.txt" ] && grep -q "^$ip$" "$SERVICE_TARGETS_DIR/database_targets.txt" && services="$services DB,"
+
+    # Remove trailing comma
+    services=$(echo "$services" | sed 's/,$//')
+    echo "$services"
+}
+
+create_enriched_service_target() {
+    service_name="$1"
+    base_file="$2"
+
+    enriched_file="${base_file%.txt}_enriched.txt"
+
+    # Header
+    echo "# Enriched $service_name targets - IP:PORT HOSTNAME VERSION OS [FLAGS]" > "$enriched_file"
+    echo "# Format: IP:PORT HOSTNAME VERSION OS [FLAGS]" >> "$enriched_file"
+    echo "#" >> "$enriched_file"
+
+    # Process each IP in the base file
+    if [ -f "$base_file" ] && [ -s "$base_file" ]; then
+        while read -r ip; do
+            if [ -z "$ip" ]; then
+                continue
+            fi
+
+            # Get hostname from dns_results.txt
+            hostname="-"
+            if [ -f "$SESSION_DIR/dns_results.txt" ]; then
+                hostname=$(grep "^${ip}[[:space:]]" "$SESSION_DIR/dns_results.txt" 2>/dev/null | awk '{print $2}' | head -1)
+                [ -z "$hostname" ] && hostname="-"
+            fi
+
+            # Get version and OS info
+            version=$(extract_version_from_nmap "$ip" "$service_name")
+            os=$(extract_os_from_nmap "$ip")
+            flags=$(detect_vulnerability_flags "$ip" "$service_name" "$version")
+
+            # Determine default port based on service
+            case "$service_name" in
+                ssh) port="22" ;;
+                smb) port="445" ;;
+                rdp) port="3389" ;;
+                web|http) port="80" ;;
+                https) port="443" ;;
+                database) port="3306" ;;
+                dns) port="53" ;;
+                ftp) port="21" ;;
+                *) port="?" ;;
+            esac
+
+            # Write enriched line
+            echo "$ip:$port $hostname $version $os $flags" >> "$enriched_file"
+        done < "$base_file"
+    fi
+
+    log_info "Created enriched file: $enriched_file"
+}
+
+create_enriched_categorized_hosts() {
+    category="$1"
+    base_file="$2"
+
+    enriched_file="${base_file%.txt}_enriched.txt"
+
+    # Header
+    echo "# Enriched $category hosts - IP HOSTNAME OS [SERVICES]" > "$enriched_file"
+    echo "# Format: IP HOSTNAME OS [SERVICES]" >> "$enriched_file"
+    echo "#" >> "$enriched_file"
+
+    # Process each IP
+    if [ -f "$base_file" ] && [ -s "$base_file" ]; then
+        while read -r ip; do
+            if [ -z "$ip" ]; then
+                continue
+            fi
+
+            # Get hostname
+            hostname="-"
+            if [ -f "$SESSION_DIR/dns_results.txt" ]; then
+                hostname=$(grep "^${ip}[[:space:]]" "$SESSION_DIR/dns_results.txt" 2>/dev/null | awk '{print $2}' | head -1)
+                [ -z "$hostname" ] && hostname="-"
+            fi
+
+            # Get OS and services
+            os=$(extract_os_from_nmap "$ip")
+            services=$(get_host_services "$ip")
+            [ -z "$services" ] && services="None"
+
+            # Write enriched line
+            echo "$ip $hostname $os [$services]" >> "$enriched_file"
+        done < "$base_file"
+    fi
+
+    log_info "Created enriched categorized file: $enriched_file"
+}
 
 # Network topology discovery functions
 discover_network_topology() {
@@ -779,7 +954,7 @@ enhanced_fping_sweep() {
     timeout=1000    # Timeout per ping in ms (1 second)
     retries=2       # Number of retries per host
     interval=10     # Interval between pings in ms
-    max_hosts=100   # Maximum concurrent hosts (reduce network load)
+    # max_hosts=100   # Maximum concurrent hosts (reduce network load) - unused
     
     echo "  Enhanced fping configuration:" >> "$REPORT_FILE"
     echo "    Network: $network" >> "$REPORT_FILE"
@@ -871,22 +1046,22 @@ enhanced_fping_sweep() {
 
 # Enhanced service categorization function
 categorize_services_enhanced() {
-    cd "$SESSION_DIR"
-    
+    cd "$SESSION_DIR" || return
+
     # Create service category files
-    > "$SERVICE_TARGETS_DIR/ftp_targets.txt"
-    > "$SERVICE_TARGETS_DIR/ssh_targets.txt"
-    > "$SERVICE_TARGETS_DIR/telnet_targets.txt"
-    > "$SERVICE_TARGETS_DIR/smtp_targets.txt"
-    > "$SERVICE_TARGETS_DIR/dns_targets.txt"
-    > "$SERVICE_TARGETS_DIR/web_targets.txt"
-    > "$SERVICE_TARGETS_DIR/pop3_targets.txt"
-    > "$SERVICE_TARGETS_DIR/imap_targets.txt"
-    > "$SERVICE_TARGETS_DIR/smb_targets.txt"
-    > "$SERVICE_TARGETS_DIR/database_targets.txt"
-    > "$SERVICE_TARGETS_DIR/rdp_targets.txt"
-    > "$SERVICE_TARGETS_DIR/vnc_targets.txt"
-    > "$SERVICE_TARGETS_DIR/snmp_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/ftp_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/ssh_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/telnet_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/smtp_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/dns_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/web_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/pop3_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/imap_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/smb_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/database_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/rdp_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/vnc_targets.txt"
+    : > "$SERVICE_TARGETS_DIR/snmp_targets.txt"
     
     # Process all scan results
     for scan_file in "$SESSION_DIR"/nmap_*.txt "$PHASE5_DIR"/raw_scans/nmap_*.txt; do
@@ -914,7 +1089,24 @@ categorize_services_enhanced() {
             sort -u "$target_file" -o "$target_file"
         fi
     done
-    
+
+    # Generate enriched service target files
+    echo "Creating enriched service target files..." >> "$REPORT_FILE"
+    create_enriched_service_target "ftp" "$SERVICE_TARGETS_DIR/ftp_targets.txt"
+    create_enriched_service_target "ssh" "$SERVICE_TARGETS_DIR/ssh_targets.txt"
+    create_enriched_service_target "telnet" "$SERVICE_TARGETS_DIR/telnet_targets.txt"
+    create_enriched_service_target "smtp" "$SERVICE_TARGETS_DIR/smtp_targets.txt"
+    create_enriched_service_target "dns" "$SERVICE_TARGETS_DIR/dns_targets.txt"
+    create_enriched_service_target "web" "$SERVICE_TARGETS_DIR/web_targets.txt"
+    create_enriched_service_target "pop3" "$SERVICE_TARGETS_DIR/pop3_targets.txt"
+    create_enriched_service_target "imap" "$SERVICE_TARGETS_DIR/imap_targets.txt"
+    create_enriched_service_target "smb" "$SERVICE_TARGETS_DIR/smb_targets.txt"
+    create_enriched_service_target "database" "$SERVICE_TARGETS_DIR/database_targets.txt"
+    create_enriched_service_target "rdp" "$SERVICE_TARGETS_DIR/rdp_targets.txt"
+    create_enriched_service_target "vnc" "$SERVICE_TARGETS_DIR/vnc_targets.txt"
+    create_enriched_service_target "snmp" "$SERVICE_TARGETS_DIR/snmp_targets.txt"
+    echo "Enriched service target files created" >> "$REPORT_FILE"
+
     # Generate service distribution summary
     {
         echo "=== Enhanced Service Distribution Summary ==="
@@ -972,7 +1164,7 @@ enumerate_ssh_services() {
     
     # Enhanced SSH fingerprinting and banner analysis
     echo "    SSH service fingerprinting:" >> "$REPORT_FILE"
-    > "$PHASE6_DIR/ssh_service_details.txt"
+    : > "$PHASE6_DIR/ssh_service_details.txt"
     
     while read -r target; do
         if [ -n "$target" ]; then
@@ -1034,7 +1226,7 @@ enumerate_web_services() {
     
     # Enhanced web service fingerprinting
     echo "    Web service fingerprinting:" >> "$REPORT_FILE"
-    > "$PHASE6_DIR/web_service_details.txt"
+    : > "$PHASE6_DIR/web_service_details.txt"
     
     while read -r target; do
         if [ -n "$target" ]; then
@@ -1163,7 +1355,7 @@ enumerate_database_services() {
     
     # Enhanced database service fingerprinting
     echo "    Database service fingerprinting:" >> "$REPORT_FILE"
-    > "$PHASE6_DIR/database_service_details.txt"
+    : > "$PHASE6_DIR/database_service_details.txt"
     
     while read -r target; do
         if [ -n "$target" ]; then
@@ -1593,7 +1785,7 @@ process_vulnerability_results() {
     echo "  Processing vulnerability assessment results..." >> "$REPORT_FILE"
     
     # Extract vulnerability information from scan results
-    > "$PHASE7_DIR/vulnerabilities_found.txt"
+    : > "$PHASE7_DIR/vulnerabilities_found.txt"
     
     # Check for critical vulnerabilities in all scan results
     for vuln_file in "$SESSION_DIR"/nmap_*_vulns.nmap "$SESSION_DIR"/nmap_*_emptypass.nmap; do
@@ -1619,9 +1811,9 @@ echo >> "$REPORT_FILE"
 echo "Phase 1: Enhanced Network Discovery - Layer 2 discovery, topology analysis, and infrastructure identification..."
 
 # Initialize host discovery files
-> "$PHASE1_DIR/arp_hosts.txt"
-> "$PHASE1_DIR/topology_hosts.txt"
-> "$PHASE1_DIR/infrastructure_hosts.txt"
+: > "$PHASE1_DIR/arp_hosts.txt"
+: > "$PHASE1_DIR/topology_hosts.txt"
+: > "$PHASE1_DIR/infrastructure_hosts.txt"
 
 # Sub-phase 1.1: Network Topology Discovery
 echo "  Sub-phase 1.1: Network topology and boundary analysis..." >> "$REPORT_FILE"
@@ -1637,7 +1829,7 @@ perform_reverse_dns_enumeration "$network_range" "$PHASE1_DIR/topology_hosts.txt
 
 # Sub-phase 1.4: Network Segmentation Analysis
 echo "  Sub-phase 1.4: Network segmentation analysis..." >> "$REPORT_FILE"
-> "$PHASE1_DIR/segmentation_analysis.txt"
+: > "$PHASE1_DIR/segmentation_analysis.txt"
 analyze_network_segmentation "$target_networks" "$PHASE1_DIR/segmentation_analysis.txt"
 segmentation_findings=$(wc -l < "$PHASE1_DIR/segmentation_analysis.txt")
 echo "  Sub-phase 1.4 complete: $segmentation_findings segmentation findings" >> "$REPORT_FILE"
@@ -1693,10 +1885,10 @@ echo >> "$REPORT_FILE"
 echo "Phase 2: Comprehensive Host Discovery - Multi-protocol discovery with firewall bypass techniques..."
 
 # Initialize discovery files
-> "$PHASE2_DIR/ping_hosts.txt"
-> "$PHASE2_DIR/tcp_hosts.txt"
-> "$PHASE2_DIR/udp_hosts.txt"
-> "$PHASE2_DIR/masscan_hosts.txt"
+: > "$PHASE2_DIR/ping_hosts.txt"
+: > "$PHASE2_DIR/tcp_hosts.txt"
+: > "$PHASE2_DIR/udp_hosts.txt"
+: > "$PHASE2_DIR/masscan_hosts.txt"
 
 # Sub-phase 2.1: ICMP Discovery (Traditional Ping Sweep)
 echo "  Sub-phase 2.1: ICMP connectivity testing..." >> "$REPORT_FILE"
@@ -1763,7 +1955,7 @@ echo >> "$REPORT_FILE"
 
 # Sub-phase 2.5: IPv6 Network Discovery
 echo "  Sub-phase 2.5: IPv6 network discovery..." >> "$REPORT_FILE"
-> "$PHASE2_DIR/ipv6_hosts.txt"
+: > "$PHASE2_DIR/ipv6_hosts.txt"
 perform_ipv6_discovery "$selected_interface" "$PHASE2_DIR/ipv6_hosts.txt"
 ipv6_count=$(wc -l < "$PHASE2_DIR/ipv6_hosts.txt")
 echo "  Sub-phase 2.5 complete: Found $ipv6_count IPv6 hosts." >> "$REPORT_FILE"
@@ -1773,9 +1965,6 @@ echo >> "$REPORT_FILE"
 cat "$PHASE1_DIR/phase1_all_hosts.txt" "$PHASE2_DIR/ping_hosts.txt" "$PHASE2_DIR/tcp_hosts.txt" \
     "$PHASE2_DIR/udp_hosts.txt" "$PHASE2_DIR/masscan_hosts.txt" "$PHASE2_DIR/ipv6_hosts.txt" | sort -u > "$PHASE2_DIR/all_hosts.txt"
 all_hosts_count=$(wc -l < "$PHASE2_DIR/all_hosts.txt")
-
-# Also create a copy in consolidated directory for reference
-cp "$PHASE2_DIR/all_hosts.txt" "$CONSOLIDATED_DIR/all_hosts.txt"
 
 echo "Phase 2 Comprehensive Host Discovery Summary:" >> "$REPORT_FILE"
 echo "  ICMP-responsive hosts: $ping_count" >> "$REPORT_FILE"
@@ -1792,14 +1981,14 @@ log_network_operation "Enhanced Phase 2 discovery" "$network_range" "Found $all_
 echo "  Sub-phase 2.6: Early OS detection and device classification..." >> "$REPORT_FILE"
 
 # Initialize classification files
-> "$PHASE2_DIR/early_os_detection.txt"
-> "$PHASE2_DIR/early_device_classification.txt"
+: > "$PHASE2_DIR/early_os_detection.txt"
+: > "$PHASE2_DIR/early_device_classification.txt"
 
 # Perform early OS detection on discovered hosts
-perform_early_os_detection "$CONSOLIDATED_DIR/all_hosts.txt" "$PHASE2_DIR/early_os_detection.txt"
+perform_early_os_detection "$PHASE2_DIR/all_hosts.txt" "$PHASE2_DIR/early_os_detection.txt"
 
 # Perform early device classification
-perform_early_device_classification "$CONSOLIDATED_DIR/all_hosts.txt" "$PHASE2_DIR/early_device_classification.txt"
+perform_early_device_classification "$PHASE2_DIR/all_hosts.txt" "$PHASE2_DIR/early_device_classification.txt"
 
 # Count classification results
 os_classified_count=$(wc -l < "$PHASE2_DIR/early_os_detection.txt")
@@ -1841,8 +2030,8 @@ echo "Phase 4: Windows-Specific Discovery - SMB and NetBIOS enumeration..."
 
 # SMB/NetBIOS discovery
 echo "SMB/NetBIOS enumeration:" >> "$REPORT_FILE"
-> "$PHASE4_DIR/smb_hosts.txt"
-> "$PHASE4_DIR/netbios_names.txt"
+: > "$PHASE4_DIR/smb_hosts.txt"
+: > "$PHASE4_DIR/netbios_names.txt"
 
 while read -r host; do
     if [ -n "$host" ]; then
@@ -1898,9 +2087,9 @@ echo >> "$REPORT_FILE"
 echo "Phase 5: Progressive Port Scan - Multi-layered port discovery..."
 if command -v nmap >/dev/null 2>&1; then
     echo "Using progressive scanning methodology..." >> "$REPORT_FILE"
-    
+
     # Create nmap targets file
-    tr '\n' ' ' < "$CONSOLIDATED_DIR/all_hosts.txt" > "$PHASE5_DIR/nmap_targets.txt"
+    tr '\n' ' ' < "$PHASE2_DIR/all_hosts.txt" > "$PHASE5_DIR/nmap_targets.txt"
     
     # Stage 1: Fast common port scan
     echo "  Stage 1: Fast common port scan..." >> "$REPORT_FILE"
@@ -2017,17 +2206,17 @@ mkdir -p "$SESSION_DIR/categorized"
 mkdir -p "$PHASE8_DIR"
 
 # Initialize detailed category files
-> "$SESSION_DIR/categorized/windows_hosts.txt"
-> "$SESSION_DIR/categorized/linux_hosts.txt"
-> "$SESSION_DIR/categorized/network_devices.txt"
-> "$SESSION_DIR/categorized/web_servers.txt"
-> "$SESSION_DIR/categorized/database_servers.txt"
-> "$SESSION_DIR/categorized/unknown_hosts.txt"
+: > "$SESSION_DIR/categorized/windows_hosts.txt"
+: > "$SESSION_DIR/categorized/linux_hosts.txt"
+: > "$SESSION_DIR/categorized/network_devices.txt"
+: > "$SESSION_DIR/categorized/web_servers.txt"
+: > "$SESSION_DIR/categorized/database_servers.txt"
+: > "$SESSION_DIR/categorized/unknown_hosts.txt"
 
 # Initialize simplified team assignment files 
-> "$PHASE8_DIR/team_windows.txt"
-> "$PHASE8_DIR/team_linux.txt" 
-> "$PHASE8_DIR/team_network.txt"
+: > "$PHASE8_DIR/team_windows.txt"
+: > "$PHASE8_DIR/team_linux.txt" 
+: > "$PHASE8_DIR/team_network.txt"
 
 # Categorize based on available information
 while read -r host; do
@@ -2110,6 +2299,16 @@ while read -r host; do
     fi
 done < "$PHASE2_DIR/all_hosts.txt"
 
+# Generate enriched categorized host files
+echo "  Creating enriched categorized host files..." >> "$REPORT_FILE"
+create_enriched_categorized_hosts "windows" "$SESSION_DIR/categorized/windows_hosts.txt"
+create_enriched_categorized_hosts "linux" "$SESSION_DIR/categorized/linux_hosts.txt"
+create_enriched_categorized_hosts "network_devices" "$SESSION_DIR/categorized/network_devices.txt"
+create_enriched_categorized_hosts "web_servers" "$SESSION_DIR/categorized/web_servers.txt"
+create_enriched_categorized_hosts "database_servers" "$SESSION_DIR/categorized/database_servers.txt"
+create_enriched_categorized_hosts "unknown" "$SESSION_DIR/categorized/unknown_hosts.txt"
+echo "  Enriched categorized host files created" >> "$REPORT_FILE"
+
 echo >> "$REPORT_FILE"
 
 # Phase 9: Evidence Processing and Manifest Creation
@@ -2163,65 +2362,57 @@ echo "  Creating evidence manifest..." >> "$REPORT_FILE"
 # Create comprehensive service inventory
 echo "  Consolidating scan data..." >> "$REPORT_FILE"
 {
-    echo "IP_Address,Port,Protocol,State,Service,Version,Banner"
-    
+    echo "IP_Address,Port,Protocol,State,Service,Version,Flags"
+
     # Process all nmap scan results from evidence directories
     for scan_file in "$EVIDENCE_DIR"/*/raw_scans/nmap_*.txt; do
         if [ -f "$scan_file" ]; then
-            # Extract service information from nmap results
-            grep -E "Nmap scan report|open" "$scan_file" 2>/dev/null | while read -r line; do
-                if echo "$line" | grep -q "Nmap scan report"; then
-                    current_host=$(echo "$line" | awk '{print $5}')
-                elif echo "$line" | grep -q "open"; then
-                    port_info=$(echo "$line" | awk '{print $1}')
-                    service=$(echo "$line" | awk '{print $3}')
-                    version=$(echo "$line" | cut -d' ' -f4- | tr ',' ';')
-                    echo "$current_host,$port_info,open,$service,$version,Unknown"
-                fi
-            done 2>/dev/null || true
-        fi
-    done | sort -t',' -k1,1V -k2,2n
-} > "$SESSION_DIR/comprehensive_service_inventory.csv"
+            # Extract service information from nmap results with improved parsing
+            current_host=""
+            while IFS= read -r line; do
+                # Check for host header
+                if echo "$line" | grep -q "Nmap scan report for"; then
+                    current_host=$(echo "$line" | awk '{print $5}' | tr -d '()')
+                # Check for open ports
+                elif echo "$line" | grep -qE "^[0-9]+/(tcp|udp).*(open|filtered)"; then
+                    if [ -n "$current_host" ]; then
+                        # Parse port line more carefully
+                        port=$(echo "$line" | awk '{print $1}' | cut -d'/' -f1)
+                        protocol=$(echo "$line" | awk '{print $1}' | cut -d'/' -f2)
+                        state=$(echo "$line" | awk '{print $2}')
+                        service=$(echo "$line" | awk '{print $3}')
 
-# Create attack surface summary
-echo "  Generating attack surface summary..." >> "$REPORT_FILE"
-{
-    echo "=== Attack Surface Analysis ==="
-    echo "Assessment Date: $(date)"
-    echo "Target Networks: $(echo "$target_networks" | tr ' ' ', ')"
-    echo ""
-    echo "=== Infrastructure Summary ==="
-    echo "Total Hosts Discovered: $all_hosts_count"
-    
-    # Service statistics from enhanced categorization
-    if [ -f "service_summary_enhanced.txt" ]; then
-        echo ""
-        cat service_summary_enhanced.txt
-    fi
-    
-    echo ""
-    echo "=== Security Findings ==="
-    if [ -f "$PHASE7_DIR/vulnerabilities_found.txt" ] && [ -s "$PHASE7_DIR/vulnerabilities_found.txt" ]; then
-        vuln_count=$(wc -l < "$PHASE7_DIR/vulnerabilities_found.txt")
-        echo "Potential Vulnerabilities: $vuln_count"
-        echo "Top findings:"
-        head -5 "$PHASE7_DIR/vulnerabilities_found.txt" | sed 's/^/  - /'
-    else
-        echo "No critical vulnerabilities detected in defensive scans"
-    fi
-    
-    echo ""
-    echo "=== Key Files Generated ==="
-    echo "Service Inventory: comprehensive_service_inventory.csv"
-    echo "Discovery Report: discovery_report.txt"
-    echo "Categorized Hosts: categorized/ directory"
-    if [ -f "$SESSION_DIR/smb_hosts.txt" ]; then
-        echo "SMB Hosts: smb_hosts.txt"
-    fi
-    if [ -f "$SESSION_DIR/netbios_names.txt" ]; then
-        echo "NetBIOS Names: netbios_names.txt"
-    fi
-} > "$SESSION_DIR/attack_surface_summary.txt"
+                        # Extract version info (everything after service name)
+                        version=$(echo "$line" | cut -d' ' -f4- | sed 's/,/;/g' | sed 's/  */ /g')
+                        [ -z "$version" ] && version="Unknown"
+
+                        # Detect vulnerability flags
+                        flags=""
+                        case "$service" in
+                            microsoft-ds|netbios-ssn|smb)
+                                if echo "$version" | grep -qi "SMBv1"; then
+                                    flags="SMBv1_ENABLED"
+                                fi
+                                ;;
+                            ssh)
+                                if echo "$version" | grep -qE "OpenSSH [0-5]\.|OpenSSH 6\.[0-6]"; then
+                                    flags="VULNERABLE_VERSION"
+                                fi
+                                ;;
+                            ftp)
+                                if echo "$version" | grep -qi "vsftpd 2\.[0-2]"; then
+                                    flags="VULNERABLE_VERSION"
+                                fi
+                                ;;
+                        esac
+
+                        echo "$current_host,$port,$protocol,$state,$service,$version,$flags"
+                    fi
+                fi
+            done < "$scan_file" 2>/dev/null || true
+        fi
+    done | sort -t',' -k1,1V -k2,2n -u
+} > "$SESSION_DIR/comprehensive_service_inventory.csv"
 
 echo "  Evidence processing completed - $(wc -l < "$SESSION_DIR/comprehensive_service_inventory.csv") services cataloged" >> "$REPORT_FILE"
 
@@ -2290,762 +2481,7 @@ if [ -s "$PHASE4_DIR/netbios_names.txt" ]; then
     cp "$PHASE4_DIR/netbios_names.txt" "$SESSION_DIR/netbios_names.txt"
 fi
 
-# Phase 9: Service Organization and Team Handoff File Generation
-echo "--- PHASE 9: SERVICE ORGANIZATION & TEAM HANDOFF ---" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
-echo "Phase 9: Generating service organization and team handoff files..."
-
-# Create team handoff directory - context-aware structure
-if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
-    # Auto-discovery context - create both VLAN-specific and session-level handoff files
-    TEAM_HANDOFF_DIR="$SESSION_DIR/team_handoff"
-    mkdir -p "$TEAM_HANDOFF_DIR/windows" \
-             "$TEAM_HANDOFF_DIR/linux" \
-             "$TEAM_HANDOFF_DIR/network" \
-             "$TEAM_HANDOFF_DIR/manual_assignment"
-
-    # Also prepare session-level team handoff directory if VLAN context
-    if [ -n "$AUTO_DISCOVERY_VLAN_ID" ] || [ "$AUTO_DISCOVERY_MAIN_NETWORK" = "true" ]; then
-        SESSION_TEAM_HANDOFF_DIR="$AUTO_DISCOVERY_SESSION_DIR/session_team_handoff"
-        mkdir -p "$SESSION_TEAM_HANDOFF_DIR/windows" \
-                 "$SESSION_TEAM_HANDOFF_DIR/linux" \
-                 "$SESSION_TEAM_HANDOFF_DIR/network" \
-                 "$SESSION_TEAM_HANDOFF_DIR/manual_assignment"
-    fi
-else
-    # Standard standalone handoff
-    TEAM_HANDOFF_DIR="$SESSION_DIR/team_handoff"
-    mkdir -p "$TEAM_HANDOFF_DIR/windows" \
-             "$TEAM_HANDOFF_DIR/linux" \
-             "$TEAM_HANDOFF_DIR/network" \
-             "$TEAM_HANDOFF_DIR/manual_assignment"
-fi
-
-# Generate comprehensive service inventory for team coordination
-generate_service_inventory() {
-    inventory_file="$TEAM_HANDOFF_DIR/service_inventory.csv"
-
-    echo "Host,Service,Port,Protocol,Version,Risk_Level,Team_Assignment,Notes" > "$inventory_file"
-    
-    # Process each service type
-    for service_dir in "$PHASE6_DIR"/*_service_details.txt; do
-        if [ -f "$service_dir" ]; then
-            service_type=$(basename "$service_dir" | sed 's/_service_details.txt//')
-            
-            while IFS=':' read -r host port_service rest; do
-                if [ -n "$host" ] && [ -n "$port_service" ]; then
-                    # Extract port and service info
-                    port=$(echo "$port_service" | cut -d' ' -f1)
-                    service=$(echo "$port_service" | cut -d' ' -f2-)
-                    
-                    # Determine team assignment and risk level
-                    case "$service_type" in
-                        "ssh"|"ftp"|"telnet"|"smtp"|"imap"|"pop3")
-                            team="Linux"
-                            risk="Medium"
-                            ;;
-                        "smb"|"rdp")
-                            team="Windows"
-                            risk="High"
-                            ;;
-                        "database"|"mysql"|"mssql"|"postgresql"|"mongodb"|"oracle"|"redis")
-                            team="Manual_Assignment"
-                            risk="Critical"
-                            ;;
-                        "web"|"http"|"https")
-                            team="Manual_Assignment"
-                            risk="Medium"
-                            ;;
-                        "dns"|"snmp")
-                            team="Network"
-                            risk="Low"
-                            ;;
-                        *)
-                            team="Manual_Assignment"
-                            risk="Low"
-                            ;;
-                    esac
-                    
-                    echo "$host,$service_type,$port,TCP,$service,$risk,$team," >> "$inventory_file"
-                fi
-            done < "$service_dir"
-        fi
-    done
-    
-    echo "  Service inventory created: $(wc -l < "$inventory_file") services catalogued" >> "$REPORT_FILE"
-}
-
-# Generate team-specific target lists with context
-generate_team_handoff_files() {
-    echo "  Creating team-specific handoff files..." >> "$REPORT_FILE"
-    
-    # Windows Team Handoff
-    {
-        echo "=== WINDOWS TEAM HANDOFF ==="
-        echo "Generated: $(date)"
-        echo "Assessment Phase: Initial Discovery"
-        
-        # Add context information
-        if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
-            if [ -n "$AUTO_DISCOVERY_VLAN_ID" ]; then
-                echo "Context: Auto-discovery VLAN $AUTO_DISCOVERY_VLAN_ID"
-                echo "Network: $network_range"
-            elif [ "$AUTO_DISCOVERY_MAIN_NETWORK" = "true" ]; then
-                echo "Context: Auto-discovery Main Network"
-                echo "Network: $network_range"
-            fi
-            echo "Session: $AUTO_DISCOVERY_SESSION_DIR"
-        else
-            echo "Context: Standalone Discovery"
-            echo "Network: $network_range"
-        fi
-        echo ""
-        echo "== SMB/NetBIOS TARGETS =="
-        if [ -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ]; then
-            echo "SMB Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt")):"
-            cat "$SERVICE_TARGETS_DIR/smb_targets.txt" | sed 's/^/  /'
-            echo ""
-            echo "Key SMB Information:"
-            if [ -f "$PHASE6_DIR/smb_service_details.txt" ]; then
-                head -10 "$PHASE6_DIR/smb_service_details.txt" | sed 's/^/  /'
-            fi
-        else
-            echo "No SMB targets identified"
-        fi
-        echo ""
-        
-        echo "== RDP TARGETS =="
-        if [ -s "$SERVICE_TARGETS_DIR/rdp_targets.txt" ]; then
-            echo "RDP Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt")):"
-            cat "$SERVICE_TARGETS_DIR/rdp_targets.txt" | sed 's/^/  /'
-        else
-            echo "No RDP targets identified"
-        fi
-        echo ""
-        
-        echo "== WINDOWS HOST IDENTIFICATION =="
-        if [ -f "$PHASE8_DIR/team_windows.txt" ]; then
-            echo "Windows Hosts Identified ($(wc -l < "$PHASE8_DIR/team_windows.txt")):"
-            cat "$PHASE8_DIR/team_windows.txt" | sed 's/^/  /'
-        fi
-        echo ""
-        
-        echo "== NETBIOS NAMES =="
-        if [ -f "$SESSION_DIR/netbios_names.txt" ]; then
-            echo "NetBIOS Computer Names:"
-            head -20 "$SESSION_DIR/netbios_names.txt" | sed 's/^/  /'
-        fi
-        echo ""
-        
-        echo "== ASSESSMENT PRIORITIES =="
-        echo "1. SMB Protocol Analysis (versions, signing, shares)"
-        echo "2. Windows Version Identification"
-        echo "3. NetBIOS Name Enumeration"
-        echo "4. RDP Configuration Assessment"
-        echo "5. Windows-specific Vulnerability Assessment"
-        echo ""
-        echo "== RAW SCAN DATA =="
-        echo "SMB Nmap Scans: $PHASE6_DIR/raw_scans/nmap_smb_*"
-        echo "RDP Detection: $SERVICE_TARGETS_DIR/rdp_targets.txt"
-        echo "Team Assignment: $PHASE8_DIR/team_windows.txt"
-        
-    } > "$TEAM_HANDOFF_DIR/windows/WINDOWS_TEAM_HANDOFF.txt"
-    
-    # Linux Team Handoff
-    {
-        echo "=== LINUX TEAM HANDOFF ==="
-        echo "Generated: $(date)"
-        echo "Assessment Phase: Initial Discovery"
-        
-        # Add context information
-        if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
-            if [ -n "$AUTO_DISCOVERY_VLAN_ID" ]; then
-                echo "Context: Auto-discovery VLAN $AUTO_DISCOVERY_VLAN_ID"
-                echo "Network: $network_range"
-            elif [ "$AUTO_DISCOVERY_MAIN_NETWORK" = "true" ]; then
-                echo "Context: Auto-discovery Main Network"
-                echo "Network: $network_range"
-            fi
-            echo "Session: $AUTO_DISCOVERY_SESSION_DIR"
-        else
-            echo "Context: Standalone Discovery"
-            echo "Network: $network_range"
-        fi
-        echo ""
-        echo "== SSH TARGETS =="
-        if [ -s "$SERVICE_TARGETS_DIR/ssh_targets.txt" ]; then
-            echo "SSH Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt")):"
-            cat "$SERVICE_TARGETS_DIR/ssh_targets.txt" | sed 's/^/  /'
-            echo ""
-            echo "Key SSH Information:"
-            if [ -f "$PHASE6_DIR/ssh_service_details.txt" ]; then
-                head -10 "$PHASE6_DIR/ssh_service_details.txt" | sed 's/^/  /'
-            fi
-        else
-            echo "No SSH targets identified"
-        fi
-        echo ""
-        
-        echo "== LINUX HOST IDENTIFICATION =="
-        if [ -f "$PHASE8_DIR/team_linux.txt" ]; then
-            echo "Linux/Unix Hosts Identified ($(wc -l < "$PHASE8_DIR/team_linux.txt")):"
-            cat "$PHASE8_DIR/team_linux.txt" | sed 's/^/  /'
-        fi
-        echo ""
-        
-        echo "== OTHER LINUX SERVICES =="
-        for service in ftp telnet smtp imap pop3; do
-            if [ -s "$SERVICE_TARGETS_DIR/${service}_targets.txt" ]; then
-                echo "$(echo "$service" | tr '[:lower:]' '[:upper:]') Targets ($(wc -l < "$SERVICE_TARGETS_DIR/${service}_targets.txt")):"
-                cat "$SERVICE_TARGETS_DIR/${service}_targets.txt" | sed 's/^/  /'
-                echo ""
-            fi
-        done
-        
-        echo "== ASSESSMENT PRIORITIES =="
-        echo "1. SSH Configuration Analysis (versions, key algorithms)"
-        echo "2. Operating System Identification"
-        echo "3. Service Version Enumeration"
-        echo "4. Linux-specific Vulnerability Assessment"
-        echo "5. Configuration Security Review"
-        echo ""
-        echo "== RAW SCAN DATA =="
-        echo "SSH Nmap Scans: $PHASE6_DIR/raw_scans/nmap_ssh_*"
-        echo "Service Scans: $PHASE6_DIR/raw_scans/nmap_*_enum.nmap"
-        echo "Team Assignment: $PHASE8_DIR/team_linux.txt"
-        
-    } > "$TEAM_HANDOFF_DIR/linux/LINUX_TEAM_HANDOFF.txt"
-    
-    # Network Team Handoff
-    {
-        echo "=== NETWORK TEAM HANDOFF ==="
-        echo "Generated: $(date)"
-        echo "Assessment Phase: Initial Discovery"
-        
-        # Add context information
-        if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
-            if [ -n "$AUTO_DISCOVERY_VLAN_ID" ]; then
-                echo "Context: Auto-discovery VLAN $AUTO_DISCOVERY_VLAN_ID"
-                echo "Network: $network_range"
-            elif [ "$AUTO_DISCOVERY_MAIN_NETWORK" = "true" ]; then
-                echo "Context: Auto-discovery Main Network"
-                echo "Network: $network_range"
-            fi
-            echo "Session: $AUTO_DISCOVERY_SESSION_DIR"
-        else
-            echo "Context: Standalone Discovery"
-            echo "Network: $network_range"
-        fi
-        echo ""
-        echo "== NETWORK INFRASTRUCTURE =="
-        if [ -f "$PHASE8_DIR/team_network.txt" ]; then
-            echo "Network Devices Identified ($(wc -l < "$PHASE8_DIR/team_network.txt")):"
-            cat "$PHASE8_DIR/team_network.txt" | sed 's/^/  /'
-        fi
-        echo ""
-        
-        echo "== DNS SERVERS =="
-        if [ -s "$SERVICE_TARGETS_DIR/dns_targets.txt" ]; then
-            echo "DNS Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/dns_targets.txt")):"
-            cat "$SERVICE_TARGETS_DIR/dns_targets.txt" | sed 's/^/  /'
-        fi
-        echo ""
-        
-        echo "== SNMP DEVICES =="
-        if [ -s "$SERVICE_TARGETS_DIR/snmp_targets.txt" ]; then
-            echo "SNMP Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt")):"
-            cat "$SERVICE_TARGETS_DIR/snmp_targets.txt" | sed 's/^/  /'
-            echo ""
-            if [ -f "$PHASE6_DIR/snmp_service_details.txt" ]; then
-                echo "SNMP Device Information:"
-                head -15 "$PHASE6_DIR/snmp_service_details.txt" | sed 's/^/  /'
-            fi
-        fi
-        echo ""
-        
-        echo "== NETWORK TOPOLOGY =="
-        if [ -f "$PHASE1_DIR/topology_hosts.txt" ]; then
-            echo "Network Topology Findings:"
-            head -10 "$PHASE1_DIR/topology_hosts.txt" | sed 's/^/  /'
-        fi
-        echo ""
-        
-        echo "== ASSESSMENT PRIORITIES =="
-        echo "1. Network Device Configuration Review"
-        echo "2. SNMP Community String Assessment"
-        echo "3. DNS Configuration Analysis"
-        echo "4. Network Segmentation Validation"
-        echo "5. Infrastructure Security Assessment"
-        echo ""
-        echo "== RAW SCAN DATA =="
-        echo "DNS Scans: $PHASE6_DIR/raw_scans/nmap_dns_*"
-        echo "SNMP Scans: $PHASE6_DIR/raw_scans/nmap_snmp_*"
-        echo "Network Discovery: $PHASE1_DIR/"
-        
-    } > "$TEAM_HANDOFF_DIR/network/NETWORK_TEAM_HANDOFF.txt"
-    
-    # Manual Assignment Handoff (Web and Database services)
-    {
-        echo "=== MANUAL ASSIGNMENT HANDOFF ==="
-        echo "Generated: $(date)"
-        echo "Assessment Phase: Initial Discovery"
-        echo "Note: These services require manual team assignment based on availability"
-        echo ""
-        
-        echo "== WEB SERVICES (Manual Assignment Required) =="
-        if [ -s "$SERVICE_TARGETS_DIR/web_targets.txt" ]; then
-            echo "Web Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt")):"
-            cat "$SERVICE_TARGETS_DIR/web_targets.txt" | sed 's/^/  /'
-            echo ""
-            if [ -f "$PHASE6_DIR/web_service_details.txt" ]; then
-                echo "Web Service Details:"
-                head -15 "$PHASE6_DIR/web_service_details.txt" | sed 's/^/  /'
-            fi
-        else
-            echo "No web services identified"
-        fi
-        echo ""
-        
-        echo "== DATABASE SERVICES (Manual Assignment Required) =="
-        if [ -s "$SERVICE_TARGETS_DIR/database_targets.txt" ]; then
-            echo "Database Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt")):"
-            cat "$SERVICE_TARGETS_DIR/database_targets.txt" | sed 's/^/  /'
-            echo ""
-            if [ -f "$PHASE6_DIR/database_service_details.txt" ]; then
-                echo "Database Service Details:"
-                cat "$PHASE6_DIR/database_service_details.txt" | sed 's/^/  /'
-            fi
-        else
-            echo "No database services identified"
-        fi
-        echo ""
-        
-        echo "== VNC SERVICES (Manual Assignment Required) =="
-        if [ -s "$SERVICE_TARGETS_DIR/vnc_targets.txt" ]; then
-            echo "VNC Service Hosts ($(wc -l < "$SERVICE_TARGETS_DIR/vnc_targets.txt")):"
-            cat "$SERVICE_TARGETS_DIR/vnc_targets.txt" | sed 's/^/  /'
-        fi
-        echo ""
-        
-        echo "== ASSIGNMENT RECOMMENDATIONS =="
-        echo "Web Services:"
-        echo "  • Can be assigned to any team with web application experience"
-        echo "  • Consider workload balance when assigning"
-        echo ""
-        echo "Database Services:"
-        echo "  • High priority - assign to team with database expertise"
-        echo "  • Consider criticality of database systems"
-        echo ""
-        echo "VNC Services:"
-        echo "  • Typically Linux/Unix systems - consider Linux team first"
-        echo "  • Can be assigned based on current team capacity"
-        echo ""
-        echo "== RAW SCAN DATA =="
-        echo "Web Scans: $PHASE6_DIR/raw_scans/nmap_web_*"
-        echo "Database Scans: $PHASE6_DIR/raw_scans/nmap_*_emptypass.nmap"
-        echo "Service Details: $PHASE6_DIR/web_service_details.txt, $PHASE6_DIR/database_service_details.txt"
-        
-    } > "$TEAM_HANDOFF_DIR/manual_assignment/MANUAL_ASSIGNMENT_HANDOFF.txt"
-    
-    echo "  Team handoff files generated successfully" >> "$REPORT_FILE"
-}
-
-# Generate priority assessment matrix
-generate_priority_matrix() {
-    matrix_file="$TEAM_HANDOFF_DIR/PRIORITY_ASSESSMENT_MATRIX.txt"
-
-    {
-        echo "=== PRIORITY ASSESSMENT MATRIX ==="
-        echo "Generated: $(date)"
-        echo "Assessment Context: Air-gapped Vulnerability Assessment"
-        echo "Team Structure: Windows, Linux, Network + Manual Assignment"
-        echo ""
-        echo "== CRITICAL PRIORITIES (Immediate Action Required) =="
-        
-        # Check for critical findings
-        critical_count=0
-        if [ -s "$SERVICE_TARGETS_DIR/database_targets.txt" ]; then
-            db_count=$(wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt")
-            echo "🔴 Database Services: $db_count hosts identified (MANUAL ASSIGNMENT)"
-            echo "   Action: Immediate authentication and configuration review"
-            echo "   Assignment: Assign to team with database expertise and current availability"
-            critical_count=$((critical_count + db_count))
-        fi
-        
-        if [ -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ]; then
-            smb_count=$(wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt")
-            echo "🔴 SMB Services: $smb_count hosts identified (WINDOWS TEAM)"
-            echo "   Action: Protocol version and share security assessment"
-            critical_count=$((critical_count + smb_count))
-        fi
-        
-        if [ "$critical_count" -eq 0 ]; then
-            echo "✅ No critical services requiring immediate attention identified"
-        fi
-        
-        echo ""
-        echo "== HIGH PRIORITIES (Next 48 Hours) =="
-        
-        high_count=0
-        if [ -s "$SERVICE_TARGETS_DIR/web_targets.txt" ]; then
-            web_count=$(wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt")
-            echo "🟡 Web Services: $web_count hosts identified (MANUAL ASSIGNMENT)"
-            echo "   Action: Web application security assessment"
-            echo "   Assignment: Assign based on team availability and web app experience"
-            high_count=$((high_count + web_count))
-        fi
-        
-        if [ -s "$SERVICE_TARGETS_DIR/rdp_targets.txt" ]; then
-            rdp_count=$(wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt")
-            echo "🟡 RDP Services: $rdp_count hosts identified (WINDOWS TEAM)" 
-            echo "   Action: Remote access configuration review"
-            high_count=$((high_count + rdp_count))
-        fi
-        
-        if [ "$high_count" -eq 0 ]; then
-            echo "✅ No high-priority services identified"
-        fi
-        
-        echo ""
-        echo "== MEDIUM PRIORITIES (Next Week) =="
-        
-        medium_count=0
-        if [ -s "$SERVICE_TARGETS_DIR/ssh_targets.txt" ]; then
-            ssh_count=$(wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt")
-            echo "🟢 SSH Services: $ssh_count hosts identified (LINUX TEAM)"
-            echo "   Action: SSH hardening and key management review"
-            medium_count=$((medium_count + ssh_count))
-        fi
-        
-        if [ -s "$SERVICE_TARGETS_DIR/snmp_targets.txt" ]; then
-            snmp_count=$(wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt")
-            echo "🟢 SNMP Services: $snmp_count hosts identified (NETWORK TEAM)"
-            echo "   Action: SNMP community and access control review"
-            medium_count=$((medium_count + snmp_count))
-        fi
-        
-        if [ "$medium_count" -eq 0 ]; then
-            echo "✅ No medium-priority services identified"
-        fi
-        
-        echo ""
-        echo "== TEAM WORKLOAD DISTRIBUTION =="
-        windows_total=$(($([ -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/rdp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt" || echo 0)))
-        linux_total=$(($([ -s "$SERVICE_TARGETS_DIR/ssh_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/ftp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/ftp_targets.txt" || echo 0)))
-        network_total=$(($([ -s "$SERVICE_TARGETS_DIR/dns_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/dns_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/snmp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt" || echo 0)))
-        manual_total=$(($([ -s "$SERVICE_TARGETS_DIR/web_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/database_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt" || echo 0)))
-        
-        echo "Windows Team: $windows_total assigned services"
-        echo "Linux Team: $linux_total assigned services"
-        echo "Network Team: $network_total assigned services"
-        echo "Manual Assignment Required: $manual_total services"
-        echo ""
-        echo "Recommended approach for manual assignments:"
-        if [ "$manual_total" -gt 0 ]; then
-            echo "• Prioritize database services for immediate assignment"
-            echo "• Consider team current workload when assigning web services"
-            echo "• Database services should go to most experienced database team"
-        fi
-        
-    } > "$matrix_file"
-    
-    echo "  Priority assessment matrix created" >> "$REPORT_FILE"
-}
-
-# Execute service organization functions
-echo "  Generating comprehensive service inventory..." >> "$REPORT_FILE"
-generate_service_inventory
-
-echo "  Creating team-specific handoff files..." >> "$REPORT_FILE"
-generate_team_handoff_files
-
-echo "  Building priority assessment matrix..." >> "$REPORT_FILE"
-generate_priority_matrix
-
-echo "Phase 9 complete: Service organization and team handoff files generated" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
-# Generate enhanced tactical reporting
-echo "Generating tactical assessment reports..."
-
-# Create tactical summary report
-generate_tactical_summary() {
-    tactical_file="$SESSION_DIR/TACTICAL_SUMMARY.txt"
-
-    {
-        echo "==============================================="
-        echo "    TACTICAL ASSESSMENT SUMMARY"
-        echo "==============================================="
-        echo "Generated: $(date)"
-        echo "Assessment Type: Air-gapped Vulnerability Assessment"
-        echo "Discovery Phase: Network Reconnaissance Complete"
-        echo ""
-
-        # Network scope summary
-        echo "SCOPE: Single network assessment"
-        echo "Network: $network_range"
-        echo ""
-        
-        # Host distribution
-        echo "HOST INVENTORY:"
-        echo "  Total hosts discovered: $all_hosts_count"
-        echo "  Windows systems: $windows_count"
-        echo "  Linux/Unix systems: $linux_count"
-        echo "  Network devices: $network_count"
-        echo "  Unknown/Other: $unknown_count"
-        echo ""
-        
-        # Service distribution
-        echo "SERVICE DISTRIBUTION:"
-        for service in ssh smb web database dns snmp rdp; do
-            if [ -s "$SERVICE_TARGETS_DIR/${service}_targets.txt" ]; then
-                count=$(wc -l < "$SERVICE_TARGETS_DIR/${service}_targets.txt")
-                service_upper=$(echo "$service" | tr '[:lower:]' '[:upper:]')
-                printf "  %-12s: %d hosts\n" "$service_upper" "$count"
-            fi
-        done
-        echo ""
-        
-        # Critical findings
-        echo "CRITICAL FINDINGS:"
-        critical_findings=0
-        
-        if [ -s "$SERVICE_TARGETS_DIR/database_targets.txt" ]; then
-            db_count=$(wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt")
-            echo "  🔴 Database services: $db_count hosts (HIGH PRIORITY)"
-            critical_findings=$((critical_findings + 1))
-        fi
-        
-        if [ -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ]; then
-            smb_count=$(wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt")
-            echo "  🔴 SMB services: $smb_count hosts (PROTOCOL ANALYSIS NEEDED)"
-            critical_findings=$((critical_findings + 1))
-        fi
-        
-        if [ -f "$PHASE7_DIR/vulnerabilities_found.txt" ] && [ -s "$PHASE7_DIR/vulnerabilities_found.txt" ]; then
-            vuln_count=$(wc -l < "$PHASE7_DIR/vulnerabilities_found.txt")
-            echo "  🔴 Potential vulnerabilities: $vuln_count findings (REQUIRES VALIDATION)"
-            critical_findings=$((critical_findings + 1))
-        fi
-        
-        if [ "$critical_findings" -eq 0 ]; then
-            echo "  ✅ No critical security findings in initial reconnaissance"
-        fi
-        echo ""
-        
-        # Team assignments
-        echo "TEAM ASSIGNMENTS:"
-        echo "  Windows Team: SMB, RDP, Windows host assessment"
-        echo "  Linux Team: SSH, *NIX services, Unix host assessment"
-        echo "  Network Team: DNS, SNMP, infrastructure assessment"
-        echo "  Manual Assignment: Web and database services (assign by availability)"
-        echo ""
-        
-        # Next steps
-        echo "IMMEDIATE NEXT STEPS:"
-        echo "1. Review team handoff files in team_handoff/ directory"
-        echo "2. Assign manual assignment services to available teams"
-        echo "3. Begin targeted vulnerability assessment on high-priority services"
-        echo "4. Validate critical findings through deeper enumeration"
-        echo "5. Document assessment progress in centralized tracking system"
-        echo ""
-        
-        # Files reference
-        echo "KEY FILES FOR ASSESSMENT CONTINUATION:"
-        echo "  • PRIORITY_ASSESSMENT_MATRIX.txt - prioritized target list"
-        echo "  • service_inventory.csv - complete service catalog"
-        echo "  • team_handoff/ - team-specific target assignments"
-        echo "  • evidence/ - all raw reconnaissance data"
-        echo "  • service_targets/ - service-specific target lists"
-        
-    } > "$tactical_file"
-    
-    echo "  Tactical summary report generated" >> "$REPORT_FILE"
-}
-
-# Generate executive briefing (concise for leadership)
-generate_executive_briefing() {
-    exec_file="$SESSION_DIR/EXECUTIVE_BRIEFING.txt"
-
-    {
-        echo "EXECUTIVE BRIEFING - NETWORK RECONNAISSANCE"
-        echo "=========================================="
-        echo "Date: $(date +%Y-%m-%d)"
-        echo "Assessment: Air-gapped Network Vulnerability Assessment"
-        echo ""
-        
-        echo "NETWORK SCOPE:"
-        echo "• Single network segment: $network_range"
-        echo ""
-        
-        echo "DISCOVERY RESULTS:"
-        echo "• $all_hosts_count total systems identified"
-        echo "• $windows_count Windows systems"
-        echo "• $linux_count Linux/Unix systems"
-        echo "• $network_count network infrastructure devices"
-        echo ""
-        
-        # Service summary
-        total_services=0
-        critical_services=0
-        
-        if [ -s "$SERVICE_TARGETS_DIR/database_targets.txt" ]; then
-            db_count=$(wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt")
-            total_services=$((total_services + db_count))
-            critical_services=$((critical_services + db_count))
-        fi
-        
-        if [ -s "$SERVICE_TARGETS_DIR/web_targets.txt" ]; then
-            web_count=$(wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt")
-            total_services=$((total_services + web_count))
-        fi
-        
-        if [ -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ]; then
-            smb_count=$(wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt")
-            total_services=$((total_services + smb_count))
-            critical_services=$((critical_services + smb_count))
-        fi
-        
-        echo "SECURITY POSTURE:"
-        echo "• $total_services network services identified"
-        if [ "$critical_services" -gt 0 ]; then
-            echo "• $critical_services services require immediate attention"
-            echo "• Database and file sharing services present (high priority)"
-        else
-            echo "• No immediately critical services identified"
-        fi
-        
-        if [ -f "$PHASE7_DIR/vulnerabilities_found.txt" ] && [ -s "$PHASE7_DIR/vulnerabilities_found.txt" ]; then
-            vuln_count=$(wc -l < "$PHASE7_DIR/vulnerabilities_found.txt")
-            echo "• $vuln_count potential vulnerabilities detected (validation required)"
-        fi
-        echo ""
-        
-        echo "ASSESSMENT STATUS:"
-        echo "• Network reconnaissance phase: COMPLETE"
-        echo "• Service enumeration: COMPLETE"
-        echo "• Team assignments: READY FOR DEPLOYMENT"
-        echo "• Next phase: Targeted vulnerability assessment"
-        echo ""
-        
-        echo "RESOURCE ALLOCATION:"
-        windows_total=$(($([ -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/rdp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt" || echo 0)))
-        linux_total=$(($([ -s "$SERVICE_TARGETS_DIR/ssh_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/ftp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/ftp_targets.txt" || echo 0)))
-        network_total=$(($([ -s "$SERVICE_TARGETS_DIR/dns_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/dns_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/snmp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt" || echo 0)))
-        manual_total=$(($([ -s "$SERVICE_TARGETS_DIR/web_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt" || echo 0) + $([ -s "$SERVICE_TARGETS_DIR/database_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt" || echo 0)))
-        
-        echo "• Windows team workload: $windows_total targets"
-        echo "• Linux team workload: $linux_total targets"
-        echo "• Network team workload: $network_total targets"
-        echo "• Manual assignment required: $manual_total targets"
-        echo ""
-        
-        echo "RECOMMENDATIONS:"
-        if [ "$critical_services" -gt 0 ]; then
-            echo "• Prioritize database and SMB service assessment"
-            echo "• Deploy experienced personnel to critical service evaluation"
-        fi
-        if [ "$manual_total" -gt 5 ]; then
-            echo "• Assign manual services based on current team capacity"
-        fi
-        echo "• Maintain evidence chain for compliance requirements"
-        echo "• Progress to targeted vulnerability validation phase"
-        
-    } > "$exec_file"
-    
-    echo "  Executive briefing generated" >> "$REPORT_FILE"
-}
-
-# Generate quick reference card for assessment team
-generate_quick_reference() {
-    ref_file="$SESSION_DIR/QUICK_REFERENCE_CARD.txt"
-
-    {
-        echo "═══════════════════════════════════════════════"
-        echo "         ASSESSMENT QUICK REFERENCE CARD"
-        echo "═══════════════════════════════════════════════"
-        echo ""
-        
-        echo "📋 TEAM ASSIGNMENTS:"
-        echo "Windows Team → $TEAM_HANDOFF_DIR/windows/WINDOWS_TEAM_HANDOFF.txt"
-        echo "Linux Team   → $TEAM_HANDOFF_DIR/linux/LINUX_TEAM_HANDOFF.txt"
-        echo "Network Team → $TEAM_HANDOFF_DIR/network/NETWORK_TEAM_HANDOFF.txt"
-        echo "Manual Assign → $TEAM_HANDOFF_DIR/manual_assignment/MANUAL_ASSIGNMENT_HANDOFF.txt"
-        echo ""
-        
-        echo "🎯 PRIORITY TARGETS:"
-        if [ -s "$SERVICE_TARGETS_DIR/database_targets.txt" ]; then
-            echo "Database Services (Critical):"
-            head -5 "$SERVICE_TARGETS_DIR/database_targets.txt" | sed 's/^/  • /'
-            db_remaining=$(($(wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt") - 5))
-            if [ "$db_remaining" -gt 0 ]; then
-                echo "  ... and $db_remaining more (see database_targets.txt)"
-            fi
-        fi
-        
-        if [ -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ]; then
-            echo "SMB Services (High Priority):"
-            head -5 "$SERVICE_TARGETS_DIR/smb_targets.txt" | sed 's/^/  • /'
-            smb_remaining=$(($(wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt") - 5))
-            if [ "$smb_remaining" -gt 0 ]; then
-                echo "  ... and $smb_remaining more (see smb_targets.txt)"
-            fi
-        fi
-        echo ""
-        
-        echo "📁 KEY DIRECTORIES:"
-        echo "Evidence Data    → $SESSION_DIR/evidence/"
-        echo "Service Targets  → $SESSION_DIR/service_targets/"
-        echo "Team Handoffs    → $SESSION_DIR/team_handoff/"
-        echo "Raw Scan Data    → $SESSION_DIR/evidence/phase*/raw_scans/"
-        echo ""
-        
-        echo "📊 ESSENTIAL FILES:"
-        echo "All Hosts        → $SESSION_DIR/all_discovered_hosts.txt"
-        echo "Service Inventory → $SESSION_DIR/team_handoff/service_inventory.csv"
-        echo "Priority Matrix  → $SESSION_DIR/team_handoff/PRIORITY_ASSESSMENT_MATRIX.txt"
-        echo "Main Report      → $SESSION_DIR/discovery_report.txt"
-        echo ""
-        
-        echo "⚡ QUICK STATS:"
-        echo "Total Hosts: $all_hosts_count | Windows: $windows_count | Linux: $linux_count | Network: $network_count"
-        
-        # Service counts
-        echo -n "Services: "
-        service_summary=""
-        for service in ssh smb web database dns snmp; do
-            if [ -s "$SERVICE_TARGETS_DIR/${service}_targets.txt" ]; then
-                count=$(wc -l < "$SERVICE_TARGETS_DIR/${service}_targets.txt")
-                service_upper=$(echo "$service" | tr '[:lower:]' '[:upper:]')
-                service_summary="${service_summary}${service_upper}:$count "
-            fi
-        done
-        echo "$service_summary"
-        echo ""
-        
-        echo "🔍 NEXT ACTIONS:"
-        echo "1. Review team handoff files"
-        echo "2. Assign manual services to teams"
-        echo "3. Begin targeted vulnerability assessment"
-        echo "4. Update progress in tracking system"
-        
-    } > "$ref_file"
-    
-    echo "  Quick reference card generated" >> "$REPORT_FILE"
-}
-
-# Execute tactical reporting functions
-echo "  Generating tactical summary report..." >> "$REPORT_FILE"
-generate_tactical_summary
-
-echo "  Creating executive briefing..." >> "$REPORT_FILE"
-generate_executive_briefing
-
-echo "  Building quick reference card..." >> "$REPORT_FILE"
-generate_quick_reference
-
-echo "Tactical reporting complete" >> "$REPORT_FILE"
+echo "Final reporting complete" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 echo
