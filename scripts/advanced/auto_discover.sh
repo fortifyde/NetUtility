@@ -42,13 +42,13 @@ prompt_ip_choice() {
     suggested_ip="$1"
     network_base="$2"
     vlan_interface="$3"
-    
-    echo "Choose IP assignment for VLAN interface $vlan_interface:"
-    echo "1) Accept suggested IP ($suggested_ip)"
-    echo "2) Provide custom IP address"
-    printf "Choice [1-2]: "
+
+    echo "Choose IP assignment for VLAN interface $vlan_interface:" >&2
+    echo "1) Accept suggested IP ($suggested_ip)" >&2
+    echo "2) Provide custom IP address" >&2
+    printf "Choice [1-2]: " >&2
     read -r choice
-    
+
     case "$choice" in
         1|"")
             echo "$suggested_ip"
@@ -56,42 +56,42 @@ prompt_ip_choice() {
             ;;
         2)
             while true; do
-                printf "Enter IP address (with CIDR, e.g., 192.168.1.100/24): "
+                printf "Enter IP address (with CIDR, e.g., 192.168.1.100/24): " >&2
                 read -r custom_ip
-                
+
                 # Basic validation
                 if [ -z "$custom_ip" ]; then
-                    echo "⚠ Empty IP address. Try again or press Ctrl+C to cancel."
+                    echo "⚠ Empty IP address. Try again or press Ctrl+C to cancel." >&2
                     continue
                 fi
-                
+
                 # Check if it contains CIDR notation
                 if ! echo "$custom_ip" | grep -q "/"; then
-                    echo "⚠ IP address must include CIDR notation (e.g., /24). Try again."
+                    echo "⚠ IP address must include CIDR notation (e.g., /24). Try again." >&2
                     continue
                 fi
-                
+
                 # Extract IP part for validation
                 ip_part=$(echo "$custom_ip" | cut -d'/' -f1)
                 cidr_part=$(echo "$custom_ip" | cut -d'/' -f2)
-                
+
                 # Basic IP format validation
                 if ! echo "$ip_part" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
-                    echo "⚠ Invalid IP format. Use format: X.X.X.X/XX"
+                    echo "⚠ Invalid IP format. Use format: X.X.X.X/XX" >&2
                     continue
                 fi
-                
+
                 # Basic CIDR validation
                 if ! echo "$cidr_part" | grep -qE '^[0-9]{1,2}$' || [ "$cidr_part" -lt 8 ] || [ "$cidr_part" -gt 30 ]; then
-                    echo "⚠ Invalid CIDR. Use range 8-30 (e.g., /24)"
+                    echo "⚠ Invalid CIDR. Use range 8-30 (e.g., /24)" >&2
                     continue
                 fi
-                
+
                 # Check if IP is in same network (optional warning)
                 custom_network_base=$(echo "$ip_part" | cut -d'.' -f1-3)
                 if [ "$custom_network_base" != "$network_base" ]; then
-                    echo "⚠ Warning: Custom IP ($custom_network_base.X) differs from discovered network ($network_base.0)"
-                    printf "Continue anyway? [y/N]: "
+                    echo "⚠ Warning: Custom IP ($custom_network_base.X) differs from discovered network ($network_base.0)" >&2
+                    printf "Continue anyway? [y/N]: " >&2
                     read -r confirm
                     case "$confirm" in
                         y|Y|yes|YES)
@@ -101,13 +101,13 @@ prompt_ip_choice() {
                             ;;
                     esac
                 fi
-                
+
                 echo "$custom_ip"
                 return 0
             done
             ;;
         *)
-            echo "⚠ Invalid choice. Using suggested IP: $suggested_ip"
+            echo "⚠ Invalid choice. Using suggested IP: $suggested_ip" >&2
             echo "$suggested_ip"
             return 0
             ;;
@@ -368,9 +368,9 @@ if [ "$vlan_count" -gt 0 ]; then
     done < "$TEMP_DIR/discovered_vlans.txt"
     
     echo
-    echo "Which VLANs would you like to configure interfaces for?"
-    echo "Enter VLAN IDs separated by spaces (or 'all' for all VLANs, 'none' to skip):"
-    printf "VLAN selection: "
+    echo "Which VLANs would you like to configure interfaces for?" >&2
+    echo "Enter VLAN IDs separated by spaces (or 'all' for all VLANs, 'none' to skip):" >&2
+    printf "VLAN selection: " >&2
     read -r vlan_selection
     
     # Process user selection
@@ -444,8 +444,8 @@ interfaces_configured=0
 if [ "$selected_vlan_count" -gt 0 ]; then
     echo "Creating VLAN interfaces for selected VLANs..."
     echo "Creating VLAN interfaces..." >> "$WORKFLOW_REPORT"
-    
-    while read -r vlan_id; do
+
+    while read -r vlan_id <&3; do
         if [ -n "$vlan_id" ]; then
             vlan_interface="${target_interface}.${vlan_id}"
             
@@ -538,7 +538,7 @@ if [ "$selected_vlan_count" -gt 0 ]; then
                 interfaces_configured=$((interfaces_configured + 1))
             fi
         fi
-    done < "$TEMP_DIR/selected_vlans.txt"
+    done 3< "$TEMP_DIR/selected_vlans.txt"
 else
     # No VLANs scenario - handle main interface configuration
     echo "No VLANs detected or selected for configuration"
@@ -552,9 +552,6 @@ else
     
     if [ -n "$current_ip_info" ] && [ "$current_ip_info" != "127.0.0.1/8" ]; then
         # Interface already has IP configured
-        current_ip=$(echo "$current_ip_info" | cut -d'/' -f1)
-        current_prefix=$(echo "$current_ip_info" | cut -d'/' -f2)
-        
         echo "✓ Interface $target_interface already has IP configured: $current_ip_info"
         echo "    Current IP: $current_ip_info" >> "$WORKFLOW_REPORT"
         log_info "Interface $target_interface already configured with IP: $current_ip_info"
@@ -863,7 +860,7 @@ echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 log_info "Starting Phase 4: Network discovery"
 
 echo "Running network discovery on configured interfaces..."
-discovery_script="$(dirname "$0")/../network/multi_phase_discovery.sh"
+discovery_script="$(dirname "$0")/../discovery/multi_phase_discovery.sh"
 
 if [ -x "$discovery_script" ]; then
     if [ "$selected_vlan_count" -gt 0 ]; then
@@ -889,7 +886,7 @@ if [ -x "$discovery_script" ]; then
         } > "$SESSION_METADATA"
         
         # Discover networks on each configured VLAN interface
-        while read -r vlan_id; do
+        while read -r vlan_id <&3; do
             if [ -n "$vlan_id" ]; then
                 vlan_interface="${target_interface}.${vlan_id}"
                 vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
@@ -905,9 +902,9 @@ if [ -x "$discovery_script" ]; then
                         echo "    Interface network: $vlan_network" >> "$WORKFLOW_REPORT"
                         
                         # Prompt user to confirm scan network for this VLAN
-                        echo "  VLAN $vlan_id Discovery Network Configuration:"
-                        echo "  1. Use interface network: $vlan_network"
-                        echo "  2. Enter custom network range"
+                        echo "  VLAN $vlan_id Discovery Network Configuration:" >&2
+                        echo "  1. Use interface network: $vlan_network" >&2
+                        echo "  2. Enter custom network range" >&2
                         echo "  Select discovery network for VLAN $vlan_id (1-2): " >&2
                         read vlan_network_choice
                         
@@ -991,7 +988,7 @@ if [ -x "$discovery_script" ]; then
                     log_warn "VLAN interface $vlan_interface not found for discovery"
                 fi
             fi
-        done < "$TEMP_DIR/selected_vlans.txt"
+        done 3< "$TEMP_DIR/selected_vlans.txt"
         
         # Summary
         if [ $discovery_success -gt 0 ]; then
@@ -1041,9 +1038,9 @@ if [ -x "$discovery_script" ]; then
             
             # Suggest scan network (user must confirm)
             echo
-            echo "Network Discovery Configuration:"
-            echo "1. Use interface network: $main_interface_network"
-            
+            echo "Network Discovery Configuration:" >&2
+            echo "1. Use interface network: $main_interface_network" >&2
+
             if [ -n "$main_ips" ]; then
                 # Analyze traffic for alternative networks
                 traffic_networks=$(echo "$main_ips" | while read -r ip; do
@@ -1052,12 +1049,12 @@ if [ -x "$discovery_script" ]; then
                         echo "${network_base}.0/24"
                     fi
                 done | sort -u)
-                
-                echo "2. Networks from captured traffic:"
-                echo "$traffic_networks" | head -3 | sed 's/^/   /'
-                echo "3. Enter custom network range"
+
+                echo "2. Networks from captured traffic:" >&2
+                echo "$traffic_networks" | head -3 | sed 's/^/   /' >&2
+                echo "3. Enter custom network range" >&2
             else
-                echo "2. Enter custom network range"
+                echo "2. Enter custom network range" >&2
             fi
             echo
             if [ -n "$main_ips" ]; then
@@ -1219,7 +1216,7 @@ echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 log_info "Starting Phase 5: Advanced analysis"
 
 echo "Running advanced packet analysis..."
-analysis_script="$(dirname "$0")/../network/advanced_packet_analysis.sh"
+analysis_script="$(dirname "$0")/../discovery/advanced_packet_analysis.sh"
 
 if [ -x "$analysis_script" ]; then
     "$analysis_script" "$capture_file" > "$TEMP_DIR/analysis_output.txt" 2>&1
