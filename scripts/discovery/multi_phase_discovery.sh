@@ -237,25 +237,35 @@ extract_version_from_nmap() {
     ip="$1"
     service="$2"
 
-    # Search nmap scan files for version info across all phase directories
     version="Unknown"
 
-    # Check multiple directories where nmap results might be
-    for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans"; do
-        for scan_file in "$scan_dir"/nmap_*.gnmap "$scan_dir"/nmap_*.txt; do
-            if [ -f "$scan_file" ]; then
-                # Try to extract version from standard nmap text output format
-                # Format: "PORT/PROTO open SERVICE VERSION-INFO"
-                # Example: "22/tcp open ssh OpenSSH 7.4 (protocol 2.0)"
-                version_line=$(grep "$ip" "$scan_file" 2>/dev/null | \
-                              grep -i "$service" | \
-                              grep "open" | \
-                              sed -n 's/.*open[[:space:]]\+[^[:space:]]\+[[:space:]]\+\(.*\)/\1/p' | \
-                              head -1)
+    # Prioritize Phase 6 version detection file (no REASON column)
+    if [ -f "$PHASE6_DIR/raw_scans/nmap_version_detection.nmap" ]; then
+        host_data=$(extract_host_data "$ip" "$PHASE6_DIR/raw_scans/nmap_version_detection.nmap")
 
-                if [ -n "$version_line" ]; then
-                    version="$version_line"
-                    break 2
+        # Match service name in the host's data only
+        # Format: "22/tcp open  ssh     OpenSSH 8.9p1 Ubuntu 3ubuntu0.13"
+        version_line=$(echo "$host_data" | grep -iE "^[0-9]+/tcp\s+open\s+${service}\s+" | sed "s/.*${service}[[:space:]]*//; s/[[:space:]]*$//" | head -1)
+
+        if [ -n "$version_line" ] && [ "$version_line" != "open" ]; then
+            echo "$version_line"
+            return
+        fi
+    fi
+
+    # Fallback: search other nmap results with proper host isolation
+    for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans"; do
+        for scan_file in "$scan_dir"/nmap_*.txt "$scan_dir"/nmap_*.nmap; do
+            if [ -f "$scan_file" ]; then
+                # Use extract_host_data to prevent cross-host bleeding
+                host_data=$(extract_host_data "$ip" "$scan_file")
+
+                # Extract version for this specific service
+                version_line=$(echo "$host_data" | grep -iE "^[0-9]+/tcp\s+open\s+${service}\s+" | sed "s/.*${service}[[:space:]]*//; s/[[:space:]]*$//" | head -1)
+
+                if [ -n "$version_line" ] && [ "$version_line" != "open" ]; then
+                    echo "$version_line"
+                    return
                 fi
             fi
         done
@@ -267,23 +277,37 @@ extract_version_from_nmap() {
 extract_os_from_nmap() {
     ip="$1"
 
-    # Try to extract OS from nmap scan results across all phase directories
-    os="Unknown"
+    # Prioritize Phase 2 early OS detection results (already parsed)
+    if [ -f "$PHASE2_DIR/early_os_detection.txt" ]; then
+        # Format: "IP<TAB>OS_INFO" (actual tab character)
+        os_line=$(grep "^$ip" "$PHASE2_DIR/early_os_detection.txt" 2>/dev/null | sed 's/.*\t//')
 
-    # Check multiple directories where nmap results might be
-    for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans"; do
-        for scan_file in "$scan_dir"/nmap_*.gnmap "$scan_dir"/nmap_*.txt; do
+        if [ -n "$os_line" ] && [ "$os_line" != "<no OS info>" ]; then
+            echo "$os_line"
+            return
+        fi
+    fi
+
+    # Fallback: search nmap output files with proper host isolation
+    for scan_dir in "$PHASE2_DIR" "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans"; do
+        for scan_file in "$scan_dir"/nmap_*.txt "$scan_dir"/nmap_*.nmap; do
             if [ -f "$scan_file" ]; then
-                os_line=$(grep -A5 "$ip" "$scan_file" 2>/dev/null | grep -i "OS:" | head -1 | sed 's/.*OS: //' | cut -d',' -f1)
+                # Use extract_host_data to prevent cross-host bleeding
+                host_data=$(extract_host_data "$ip" "$scan_file")
+
+                # Look for specific nmap OS detection output (not NSE scripts)
+                # Nmap formats: "Running: Linux 5.X" or "OS details: Linux 5.X"
+                os_line=$(echo "$host_data" | grep -E "^(Running|OS details):" | head -1 | sed 's/^[^:]*:[[:space:]]*//' | cut -d',' -f1)
+
                 if [ -n "$os_line" ]; then
-                    os="$os_line"
-                    break 2
+                    echo "$os_line"
+                    return
                 fi
             fi
         done
     done
 
-    echo "$os"
+    echo "Unknown"
 }
 
 detect_vulnerability_flags() {
@@ -295,14 +319,30 @@ detect_vulnerability_flags() {
 
     case "$service" in
         smb)
-            # Check for SMBv1
-            if grep -q "$ip.*SMBv1" "$EVIDENCE_DIR"/raw_scans/nmap_*.txt 2>/dev/null; then
-                flags="${flags}[SMBv1_ENABLED]"
-            fi
-            # Check for signing disabled
-            if grep -q "$ip.*signing.*disabled" "$EVIDENCE_DIR"/raw_scans/nmap_*.txt 2>/dev/null; then
-                flags="${flags}[SIGNING_OFF]"
-            fi
+            # Check for SMBv1 and signing issues using proper host isolation
+            for scan_dir in "$PHASE6_DIR/raw_scans" "$SESSION_DIR"; do
+                for scan_file in "$scan_dir"/nmap_*.txt "$scan_dir"/nmap_*.nmap; do
+                    if [ -f "$scan_file" ]; then
+                        # Use extract_host_data to prevent cross-host bleeding
+                        host_data=$(extract_host_data "$ip" "$scan_file")
+
+                        # Check for SMBv1 in this host's data only
+                        if echo "$host_data" | grep -qi "SMBv1"; then
+                            flags="${flags}[SMBv1_ENABLED]"
+                        fi
+
+                        # Check for signing disabled
+                        if echo "$host_data" | grep -qi "signing.*disabled"; then
+                            flags="${flags}[SIGNING_OFF]"
+                        fi
+
+                        # Exit if we found flags
+                        if [ -n "$flags" ]; then
+                            break 2
+                        fi
+                    fi
+                done
+            done
             ;;
         ssh)
             # Check for old OpenSSH versions
@@ -926,7 +966,12 @@ create_enriched_service_target() {
 
     enriched_file="${base_file%.txt}_enriched.txt"
 
-    # Header
+    # Only create enriched file if base file exists and has content
+    if [ ! -f "$base_file" ] || [ ! -s "$base_file" ]; then
+        return 0  # Skip if base file doesn't exist or is empty
+    fi
+
+    # Write header
     echo "# Enriched $service_name targets - IP:PORT HOSTNAME VERSION OS [FLAGS]" > "$enriched_file"
     echo "# Format: IP:PORT HOSTNAME VERSION OS [FLAGS]" >> "$enriched_file"
     echo "#" >> "$enriched_file"
@@ -980,7 +1025,12 @@ create_enriched_categorized_hosts() {
 
     enriched_file="${base_file%.txt}_enriched.txt"
 
-    # Header
+    # Only create enriched file if base file exists and has content
+    if [ ! -f "$base_file" ] || [ ! -s "$base_file" ]; then
+        return 0  # Skip if base file doesn't exist or is empty
+    fi
+
+    # Write header
     echo "# Enriched $category hosts - IP HOSTNAME OS [SERVICES]" > "$enriched_file"
     echo "# Format: IP HOSTNAME OS [SERVICES]" >> "$enriched_file"
     echo "#" >> "$enriched_file"
@@ -1647,38 +1697,50 @@ enhanced_fping_sweep() {
 categorize_services_enhanced() {
     cd "$SESSION_DIR" || return
 
-    # Create service category files
-    : > "$SERVICE_TARGETS_DIR/ftp_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/ssh_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/telnet_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/smtp_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/dns_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/web_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/pop3_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/imap_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/smb_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/database_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/rdp_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/vnc_targets.txt"
-    : > "$SERVICE_TARGETS_DIR/snmp_targets.txt"
-    
-    # Process all scan results
+    # Service category files will be created on-demand when data is written
+
+    # Process all scan results - only create files if data exists
     for scan_file in "$SESSION_DIR"/nmap_*.txt "$PHASE5_DIR"/raw_scans/nmap_*.txt; do
         if [ -f "$scan_file" ]; then
-            # Extract services by port patterns using awk
-            awk '/Nmap scan report for/{host=$5} /21\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/ftp_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /22\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/ssh_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /23\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/telnet_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /(25|587|465)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/smtp_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /53\/(tcp|udp).*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/dns_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /(80|443|8080|8443)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/web_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /(110|995)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/pop3_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /(143|993)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/imap_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /(135|139|445)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/smb_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /(1433|3306|5432|1521|27017)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/database_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /3389\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/rdp_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /5900\/tcp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/vnc_targets.txt" || true
-            awk '/Nmap scan report for/{host=$5} /161\/udp.*open/{print host}' "$scan_file" 2>/dev/null >> "$SERVICE_TARGETS_DIR/snmp_targets.txt" || true
+            # Extract services by port patterns using awk - capture output first
+            output=$(awk '/Nmap scan report for/{host=$5} /21\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/ftp_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /22\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/ssh_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /23\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/telnet_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /(25|587|465)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/smtp_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /53\/(tcp|udp).*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/dns_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /(80|443|8080|8443)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/web_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /(110|995)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/pop3_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /(143|993)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/imap_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /(135|139|445)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/smb_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /(1433|3306|5432|1521|27017)\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/database_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /3389\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/rdp_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /5900\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/vnc_targets.txt"
+
+            output=$(awk '/Nmap scan report for/{host=$5} /161\/udp.*open/{print host}' "$scan_file" 2>/dev/null)
+            [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/snmp_targets.txt"
         fi
     done
     
@@ -2743,18 +2805,7 @@ echo "Phase 7: Host Categorization - Analyzing discovered hosts..."
 mkdir -p "$SESSION_DIR/categorized"
 mkdir -p "$PHASE7_DIR"
 
-# Initialize detailed category files
-: > "$SESSION_DIR/categorized/windows_hosts.txt"
-: > "$SESSION_DIR/categorized/linux_hosts.txt"
-: > "$SESSION_DIR/categorized/network_devices.txt"
-: > "$SESSION_DIR/categorized/web_servers.txt"
-: > "$SESSION_DIR/categorized/database_servers.txt"
-: > "$SESSION_DIR/categorized/unknown_hosts.txt"
-
-# Initialize simplified team assignment files 
-: > "$PHASE7_DIR/team_windows.txt"
-: > "$PHASE7_DIR/team_linux.txt" 
-: > "$PHASE7_DIR/team_network.txt"
+# Category files and team assignment files will be created on-demand when data is written
 
 # Create network device subdirectory
 mkdir -p "$SESSION_DIR/categorized/network_devices"
