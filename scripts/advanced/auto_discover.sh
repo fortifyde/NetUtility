@@ -351,9 +351,9 @@ if [ "$vlan_count" -gt 0 ]; then
     vlan_info=""
     while read -r vlan_id; do
         if [ -n "$vlan_id" ]; then
-            # Get sample IPs for this VLAN
+            # Get sample IPs for this VLAN (filtered for valid unicast addresses)
             sample_ips=$(tshark -r "$capture_file" -Y "vlan.id == $vlan_id" -T fields -e ip.src -e ip.dst 2>/dev/null | \
-                tr '\t' '\n' | grep -v "^$" | sort -u | head -3 | tr '\n' ' ')
+                tr '\t' '\n' | grep -v "^$" | filter_valid_unicast_ips | sort -u | head -3 | tr '\n' ' ')
             
             echo "  VLAN $vlan_id: ${sample_ips:-No IPs found}"
             vlan_info="$vlan_info$vlan_id:$sample_ips\n"
@@ -551,8 +551,9 @@ if [ "$selected_vlan_count" -gt 0 ]; then
                     interfaces_configured=$((interfaces_configured + 1))
                     
                     # Try to assign IP address based on discovered traffic with improved calculation
+                    # Filter out multicast, broadcast, and other special-purpose addresses
                     vlan_ips=$(tshark -r "$capture_file" -Y "vlan.id == $vlan_id" -T fields -e ip.src -e ip.dst 2>/dev/null | \
-                              tr '\t' '\n' | grep -v "^$" | sort -u)
+                              tr '\t' '\n' | grep -v "^$" | filter_valid_unicast_ips | sort -u)
                     
                     if [ -n "$vlan_ips" ]; then
                         # Use first IP to determine network characteristics
@@ -617,8 +618,9 @@ if [ "$selected_vlan_count" -gt 0 ]; then
                             log_warn "No valid IP provided for $vlan_interface"
                         fi
                     else
-                        # No IPs discovered for this VLAN (only broadcast traffic)
-                        echo "  No IP addresses discovered for VLAN $vlan_id (only broadcast traffic)" >&2
+                        # No valid unicast IPs found (only multicast/broadcast traffic)
+                        echo "  No valid unicast IP addresses found for VLAN $vlan_id" >&2
+                        echo "  (Only multicast/broadcast addresses detected in traffic)" >&2
                         echo "  Manual IP configuration required for $vlan_interface" >&2
                         echo >&2
 
@@ -706,10 +708,9 @@ else
         log_info "Interface $target_interface requires IP configuration"
         
         # Extract non-VLAN IP addresses from captured traffic for suggestions
+        # Filter out multicast, broadcast, and other special-purpose addresses
         main_ips=$(tshark -r "$capture_file" -Y "not vlan" -T fields -e ip.src -e ip.dst 2>/dev/null | \
-                  tr '\t' '\n' | grep -v "^$" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | \
-                  grep -v '^127\.' | grep -v '^169\.254\.' | grep -v '^0\.0\.0\.0$' | \
-                  grep -v '^255\.255\.255\.255$' | sort -u)
+                  tr '\t' '\n' | grep -v "^$" | filter_valid_unicast_ips | sort -u)
         
         if [ -n "$main_ips" ]; then
             # Use captured traffic to suggest IP

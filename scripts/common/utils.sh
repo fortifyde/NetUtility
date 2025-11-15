@@ -543,6 +543,27 @@ validate_ip_range() {
     esac
 }
 
+# Function to filter out special-purpose IP addresses, keeping only valid unicast addresses
+# Filters: loopback, link-local, multicast, broadcast, network/broadcast addresses
+# Input: IP addresses via stdin (one per line)
+# Output: Filtered IP addresses via stdout
+filter_valid_unicast_ips() {
+    grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | \
+    grep -v '^0\.' | \
+    grep -v '^127\.' | \
+    grep -v '^169\.254\.' | \
+    grep -v '^224\.' | \
+    grep -v '^225\.' | \
+    grep -v '^226\.' | \
+    grep -v '^227\.' | \
+    grep -v '^228\.' | \
+    grep -v '^229\.' | \
+    grep -v '^23[0-9]\.' | \
+    grep -v '^255\.' | \
+    grep -v '\.0$' | \
+    grep -v '\.255$'
+}
+
 # Function for smart target selection with memory
 select_target() {
     echo "Target selection:" >&2
