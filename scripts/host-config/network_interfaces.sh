@@ -32,6 +32,7 @@ case $action in
         
         echo "Bringing interface $interface UP..."
         if ip link set "$interface" up; then
+            ip -6 addr flush dev "$interface" scope link 2>/dev/null || true
             success_message "Interface $interface brought UP"
             echo "Current status:"
             ip addr show "$interface"
@@ -64,6 +65,7 @@ case $action in
             interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
             if [ -n "$interface" ] && [ "$interface" != "lo" ]; then
                 if ip link set "$interface" up 2>/dev/null; then
+                    ip -6 addr flush dev "$interface" scope link 2>/dev/null || true
                     echo "  ✓ $interface UP"
                 else
                     echo "  ✗ $interface FAILED"
