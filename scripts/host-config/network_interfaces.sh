@@ -14,8 +14,8 @@ echo
 echo "Available actions:" >&2
 echo "1. Bring interface UP" >&2
 echo "2. Bring interface DOWN" >&2
-echo "3. Bring all interfaces UP" >&2
-echo "4. Bring all interfaces DOWN" >&2
+echo "3. Bring all VLAN interfaces UP" >&2
+echo "4. Bring all VLAN interfaces DOWN" >&2
 echo "5. Show interface statistics" >&2
 echo "6. Exit" >&2
 
@@ -59,37 +59,41 @@ case $action in
         fi
         ;;
     3)
-        echo "Bringing all interfaces UP (excluding loopback)..."
+        echo "Bringing all interfaces UP (excluding loopback and parent interfaces)..."
+        echo "Only affecting VLAN interfaces (interfaces with '.' in name)"
 
         ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | while read -r line; do
             interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
-            if [ -n "$interface" ] && [ "$interface" != "lo" ]; then
+            # Only affect VLAN interfaces (contain dot) and exclude loopback
+            if [ -n "$interface" ] && [ "$interface" != "lo" ] && echo "$interface" | grep -q "\."; then
                 if ip link set "$interface" up 2>/dev/null; then
                     ip -6 addr flush dev "$interface" scope link 2>/dev/null || true
-                    echo "  ✓ $interface UP"
+                    echo "  ✓ $interface UP (VLAN)"
                 else
-                    echo "  ✗ $interface FAILED"
+                    echo "  ✗ $interface FAILED (VLAN)"
                 fi
             fi
         done
 
-        success_message "All interfaces brought UP"
+        success_message "All VLAN interfaces brought UP"
         ;;
     4)
-        echo "Bringing all interfaces DOWN (excluding loopback)..."
+        echo "Bringing all interfaces DOWN (excluding loopback and parent interfaces)..."
+        echo "Only affecting VLAN interfaces (interfaces with '.' in name)"
 
         ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | while read -r line; do
             interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
-            if [ -n "$interface" ] && [ "$interface" != "lo" ]; then
+            # Only affect VLAN interfaces (contain dot) and exclude loopback
+            if [ -n "$interface" ] && [ "$interface" != "lo" ] && echo "$interface" | grep -q "\."; then
                 if ip link set "$interface" down 2>/dev/null; then
-                    echo "  ✓ $interface DOWN"
+                    echo "  ✓ $interface DOWN (VLAN)"
                 else
-                    echo "  ✗ $interface FAILED"
+                    echo "  ✗ $interface FAILED (VLAN)"
                 fi
             fi
         done
 
-        success_message "All interfaces brought DOWN"
+        success_message "All VLAN interfaces brought DOWN"
         ;;
     5)
         interface=$(select_interface "Select interface to show statistics" "management")
