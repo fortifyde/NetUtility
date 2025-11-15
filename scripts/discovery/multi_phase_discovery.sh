@@ -5,7 +5,7 @@
 # Phase 1: Enhanced Network Discovery (topology, infrastructure, DNS, segmentation, ARP)
 # Phase 2: Comprehensive Host Discovery (ICMP, TCP bypass, UDP probes, masscan, early classification)
 # Phase 3: DNS lookup → Phase 4: Windows Discovery → Phase 5: Progressive Port Scan
-# Phase 6: Service Enumeration → Phase 7: Vulnerability Assessment → Phase 8: Host Categorization
+# Phase 6: Service Enumeration → Phase 7: Host Categorization → Phase 8: Evidence Processing
 
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/logging.sh"
@@ -197,15 +197,13 @@ mkdir -p "$EVIDENCE_DIR/phase1_network_discovery" \
          "$EVIDENCE_DIR/phase4_windows_discovery" \
          "$EVIDENCE_DIR/phase5_port_scanning" \
          "$EVIDENCE_DIR/phase6_service_enumeration" \
-         "$EVIDENCE_DIR/phase7_vulnerability_assessment" \
-         "$EVIDENCE_DIR/phase8_host_categorization"
+         "$EVIDENCE_DIR/phase7_host_categorization"
 mkdir -p "$EVIDENCE_DIR/phase1_network_discovery/raw_scans" \
          "$EVIDENCE_DIR/phase2_host_discovery/raw_scans" \
          "$EVIDENCE_DIR/phase3_dns_analysis/raw_scans" \
          "$EVIDENCE_DIR/phase4_windows_discovery/raw_scans" \
          "$EVIDENCE_DIR/phase5_port_scanning/raw_scans" \
-         "$EVIDENCE_DIR/phase6_service_enumeration/raw_scans" \
-         "$EVIDENCE_DIR/phase7_vulnerability_assessment/raw_scans"
+         "$EVIDENCE_DIR/phase6_service_enumeration/raw_scans"
 mkdir -p "$SESSION_DIR/service_targets" \
          "$SESSION_DIR/reports"
 
@@ -216,9 +214,8 @@ PHASE3_DIR="$EVIDENCE_DIR/phase3_dns_analysis"
 PHASE4_DIR="$EVIDENCE_DIR/phase4_windows_discovery"
 PHASE5_DIR="$EVIDENCE_DIR/phase5_port_scanning"
 PHASE6_DIR="$EVIDENCE_DIR/phase6_service_enumeration"
-PHASE7_DIR="$EVIDENCE_DIR/phase7_vulnerability_assessment"
-PHASE8_DIR="$EVIDENCE_DIR/phase8_host_categorization"
-# Phase 9 removed - no longer generating team handoff files
+PHASE7_DIR="$EVIDENCE_DIR/phase7_host_categorization"
+# Phase 7 (formerly Phase 9) removed - no longer generating separate team handoff files
 SERVICE_TARGETS_DIR="$SESSION_DIR/service_targets"
 REPORTS_DIR="$SESSION_DIR/reports"
 
@@ -1727,80 +1724,9 @@ enumerate_snmp_services() {
     done < "$SERVICE_TARGETS_DIR/snmp_targets.txt"
 }
 
-# Safe vulnerability assessment functions (detection only, no exploitation)
-vulnerability_scan_web_services() {
-    if [ ! -s "$SERVICE_TARGETS_DIR/web_targets.txt" ]; then
-        return 0
-    fi
-    
-    echo "    Web service vulnerability detection (safe)..." >> "$REPORT_FILE"
-    
-    # Safe web vulnerability detection - no exploitation attempts
-    nmap -n -p443 --script ssl-heartbleed,ssl-poodle -T4 \
-        -iL "$SERVICE_TARGETS_DIR/web_targets.txt" -oA "$PHASE7_DIR/raw_scans/nmap_web_vulns" 2>/dev/null || true
-}
-
-vulnerability_scan_smb_services() {
-    if [ ! -s "$SERVICE_TARGETS_DIR/smb_targets.txt" ]; then
-        return 0
-    fi
-    
-    echo "    SMB service vulnerability detection (safe)..." >> "$REPORT_FILE"
-    
-    # Safe SMB vulnerability detection - no exploitation
-    nmap -n -p445 --script smb-vuln-ms17-010,smb-vuln-ms08-067 -T4 \
-        -iL "$SERVICE_TARGETS_DIR/smb_targets.txt" -oA "$PHASE7_DIR/raw_scans/nmap_smb_vulns" 2>/dev/null || true
-}
-
-vulnerability_scan_ssh_services() {
-    if [ ! -s "$SERVICE_TARGETS_DIR/ssh_targets.txt" ]; then
-        return 0
-    fi
-    
-    echo "    SSH service vulnerability detection (safe)..." >> "$REPORT_FILE"
-    
-    # Safe SSH vulnerability detection
-    nmap -n -p22 --script ssh2-enum-algos -T4 \
-        -iL "$SERVICE_TARGETS_DIR/ssh_targets.txt" -oA "$PHASE7_DIR/raw_scans/nmap_ssh_crypto" 2>/dev/null || true
-}
-
-vulnerability_scan_database_services() {
-    if [ ! -s "$SERVICE_TARGETS_DIR/database_targets.txt" ]; then
-        return 0
-    fi
-    
-    echo "    Database service vulnerability detection (safe)..." >> "$REPORT_FILE"
-    
-    # Only check for empty passwords, no brute forcing
-    nmap -n -p3306 --script mysql-empty-password -T4 \
-        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE7_DIR/raw_scans/nmap_mysql_emptypass" 2>/dev/null || true
-    
-    nmap -n -p1433 --script ms-sql-empty-password -T4 \
-        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE7_DIR/raw_scans/nmap_mssql_emptypass" 2>/dev/null || true
-}
-
-process_vulnerability_results() {
-    echo "  Processing vulnerability assessment results..." >> "$REPORT_FILE"
-    
-    # Extract vulnerability information from scan results
-    : > "$PHASE7_DIR/vulnerabilities_found.txt"
-    
-    # Check for critical vulnerabilities in all scan results
-    for vuln_file in "$SESSION_DIR"/nmap_*_vulns.nmap "$SESSION_DIR"/nmap_*_emptypass.nmap; do
-        if [ -f "$vuln_file" ]; then
-            # Look for VULNERABLE entries
-            grep -i "VULNERABLE\|STATE.*vulnerable" "$vuln_file" 2>/dev/null >> "$PHASE7_DIR/vulnerabilities_found.txt" || true
-        fi
-    done
-    
-    vuln_count=$(wc -l < "$PHASE7_DIR/vulnerabilities_found.txt")
-    echo "    Potential vulnerabilities detected: $vuln_count" >> "$REPORT_FILE"
-    
-    if [ "$vuln_count" -gt 0 ]; then
-        echo "    Vulnerability findings:" >> "$REPORT_FILE"
-        head -10 "$PHASE7_DIR/vulnerabilities_found.txt" | sed 's/^/      /' >> "$REPORT_FILE"
-    fi
-}
+# Phase 7 vulnerability scanning functions removed - moved to separate workflow
+# These functions are no longer part of auto discovery to improve efficiency
+# Use the dedicated vulnerability scanning workflow instead
 
 # Phase 1: Enhanced Network Discovery
 echo "--- PHASE 1: ENHANCED NETWORK DISCOVERY ---" >> "$REPORT_FILE"
@@ -2090,10 +2016,10 @@ if command -v nmap >/dev/null 2>&1; then
     tr '\n' ' ' < "$PHASE2_DIR/all_hosts.txt" > "$PHASE5_DIR/nmap_targets.txt"
     
     # Stage 1: Fast common port scan
-    echo "  Stage 1: Fast common port scan..." >> "$REPORT_FILE"
-    COMMON_PORTS="1,3-4,6-7,9,13,17,19-26,30,32-33,37,42-43,49,53,70,79-85,88-90,99-100,106,109-111,113,119,125,135,139,143-144,146,161,163,179,199,211-212,222,254-256,259,264,280,301,306,311,340,366,389,406-407,416,417,425,427,443-445,458,464-465,481,497,500,512-515,524,541,543-545,548,554-555,563,587,593,616-617,625,631,636,646,648,666-668,683,687,691,700,705,711,714,720,722,726,749,765,777,783,787,800-801,808,843,873,880,888,898,900-903,911-912,981,987,990,992-993,995,999-1002,1007,1009-1011,1021-1100,1102,1104-1108,1110-1114,1117,1119,1121-1124,1126,1130-1132,1137-1138,1141,1145,1147-1149,1151-1152,1154,1163-1166,1169,1174-1175,1183,1185-1187,1192,1198-1199,1201,1213,1216-1218,1233-1234,1236,1244,1247-1248,1259,1271-1272,1277,1287,1296,1300-1301,1309-1311,1322,1328,1334,1352,1417,1433-1434,1443,1455,1461,1494,1500-1501,1503,1521,1524,1533,1556,1580,1583,1594,1600,1641,1658,1666,1687-1688,1700,1717-1721,1723,1755,1761,1782-1783,1801,1805,1812,1839-1840,1862-1864,1875,1900,1914,1935,1947,1971-1972,1974,1984,1998-2010,2013,2020-2022,2030,2033-2035,2038,2040-2043,2045-2049,2065,2068,2099-2100,2103,2105-2107,2111,2119,2121,2126,2135,2144,2160-2161,2170,2179,2190-2191,2196,2200,2222,2251,2260,2288,2301,2323,2366,2381-2383,2393-2394,2399,2401,2492,2500,2522,2525,2557,2601-2602,2604-2605,2607-2608,2638,2701-2702,2710,2717-2718,2725,2800,2809,2811,2869,2875,2909-2910,2920,2967-2968,2998,3000-3001,3003,3005-3007,3011,3013,3017,3030-3031,3052,3071,3077,3128,3168,3211,3221,3260-3261,3268-3269,3283,3300-3301,3306,3322-3325,3333,3351,3367,3369-3372,3389-3390,3404,3476,3493,3517,3527,3546,3551,3580,3659,3689-3690,3703,3737,3766,3784,3800-3801,3809,3814,3826-3828,3851,3869,3871,3878,3880,3889,3905,3914,3918,3920,3945,3971,3986,3995,3998,4000-4006,4045,4111,4125-4126,4129,4224,4242,4279,4321,4343,4443-4446,4449,4550,4567,4662,4848,4899-4900,4998,5000-5004,5009,5030,5033,5050-5051,5054,5060-5061,5080,5087,5100-5102,5120,5190,5200,5214,5221-5222,5225-5226,5269,5280,5298,5357,5405,5414,5431-5432,5440,5500,5510,5544,5550,5555,5560,5566,5631,5633,5666,5678-5679,5718,5730,5800-5802,5810-5811,5815,5822,5825,5850,5859,5862,5877,5900-5904,5906-5907,5910-5911,5915,5922,5925,5950,5952,5959-5963,5987-5989,5998-6007,6009,6025,6059,6100-6101,6106,6112,6123,6129,6156,6346,6389,6502,6510,6543,6547,6565-6567,6580,6646,6666-6669,6689,6692,6699,6779,6788-6789,6792,6839,6881,6901,6969,7000-7002,7004,7007,7019,7025,7070,7100,7103,7106,7200-7201,7402,7435,7443,7496,7512,7625,7627,7676,7741,7777-7778,7800,7911,7920-7921,7937-7938,7999-8002,8007-8011,8021-8022,8031,8042,8045,8080-8090,8093,8099-8100,8180-8181,8192-8194,8200,8222,8254,8290-8292,8300,8333,8383,8400,8402,8443,8500,8600,8649,8651-8652,8654,8701,8800,8873,8888,8899,8994,9000-9003,9009-9011,9040,9050,9071,9080-9081,9090-9091,9099-9103,9110-9111,9200,9207,9220,9290,9415,9418,9485,9500,9502-9503,9535,9575,9593-9595,9618,9666,9876-9878,9898,9900,9917,9929,9943-9944,9968,9998-10004,10009-10010,10012,10024-10025,10082,10180,10215,10243,10566,10616-10617,10621,10626,10628-10629,10778,11110-11111,11967,12000,12174,12265,12345,13456,13722,13782-13783,14000,14238,14441-14442,15000,15002-15004,15660,15742,16000-16001,16012,16016,16018,16080,16113,16992-16993,17877,17988,18040,18101,18988,19101,19283,19315,19350,19780,19801,19842,20000,20005,20031,20221-20222,20828,21571,22939,23502,24444,24800,25734-25735,26214,27000,27352-27353,27355-27356,27715,28201,30000,30718,30951,31038,31337,32768-32785,33354,33899,34571-34573,35500,38292,40193,40911,41511,42510,44176,44442-44443,44501,45100,48080,49152-49161,49163,49165,49167,49175-49176,49400,49999-50003,50006,50300,50389,50500,50636,50800,51103,51493,52673,52822,52848,52869,54045,54328,55055-55056,55555,55600,56737-56738,57294,57797,58080,60020,60443,61532,61900,62078,63331,64623,64680,65000,65129,65389"
-    
-    nmap -n -sS -p "$COMMON_PORTS" -T4 --open --reason -oN "$SESSION_DIR/nmap_fast_scan.txt" \
+    # Using top 1000 ports for comprehensive coverage while maintaining reasonable speed
+    echo "  Stage 1: Fast common port scan (top 1000 ports)..." >> "$REPORT_FILE"
+
+    nmap -n -sS --top-ports 1000 -T4 --min-rate 2000 --open --reason -oN "$SESSION_DIR/nmap_fast_scan.txt" \
         -iL "$PHASE2_DIR/all_hosts.txt" 2>/dev/null | \
         grep -E "Nmap scan report|open" >> "$REPORT_FILE"
     
@@ -2104,17 +2030,12 @@ if command -v nmap >/dev/null 2>&1; then
     
     hv_count=$(wc -l < "$PHASE5_DIR/high_value_targets.txt")
     echo "    High-value targets identified: $hv_count" >> "$REPORT_FILE"
-    
-    # Stage 2: Comprehensive scan on high-value targets
-    if [ "$hv_count" -gt 0 ]; then
-        echo "  Stage 2: Comprehensive scan on high-value targets..." >> "$REPORT_FILE"
-        nmap -n -sS -p- --min-rate 5000 -T4 --open \
-            -iL "$PHASE5_DIR/high_value_targets.txt" -oN "$PHASE5_DIR/raw_scans/nmap_comprehensive_scan.txt" 2>/dev/null || true
-    fi
-    
-    # Stage 3: UDP scan on common ports
-    echo "  Stage 3: UDP scan on common ports..." >> "$REPORT_FILE"
-    nmap -n -sU --top-ports 100 -T4 --open \
+
+    # Stage 2: UDP scan on critical ports
+    # Reduced from 100 to top 20 UDP ports for efficiency
+    # Covers DNS, SNMP, NTP, DHCP, and other critical UDP services
+    echo "  Stage 2: UDP scan on critical ports (top 20)..." >> "$REPORT_FILE"
+    nmap -n -sU --top-ports 20 -T4 --open \
         -iL "$PHASE2_DIR/all_hosts.txt" -oN "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" 2>/dev/null || true
     
     # Service categorization
@@ -2160,48 +2081,15 @@ fi
 
 echo >> "$REPORT_FILE"
 
-# Phase 7: Vulnerability Assessment (Defensive)
-echo "--- PHASE 7: VULNERABILITY ASSESSMENT ---" >> "$REPORT_FILE"
+# Phase 7: Host Categorization
+echo "--- PHASE 7: HOST CATEGORIZATION ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 7: Vulnerability Assessment - Security analysis (defensive only)..."
-if command -v nmap >/dev/null 2>&1; then
-    echo "Performing defensive vulnerability assessment..." >> "$REPORT_FILE"
-    
-    # Configuration security assessment
-    echo "  Stage 1: Configuration security assessment..." >> "$REPORT_FILE"
-    nmap -n --script auth -T4 \
-        -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE7_DIR/raw_scans/nmap_default_creds" 2>/dev/null || true
-    
-    # Weak cryptography detection
-    echo "  Stage 2: Cryptographic security assessment..." >> "$REPORT_FILE"
-    nmap -n --script ssl-enum-ciphers,ssh2-enum-algos -T4 \
-        -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE7_DIR/raw_scans/nmap_crypto_analysis" 2>/dev/null || true
-    
-    # Service-specific vulnerability scans (safe)
-    vulnerability_scan_web_services
-    vulnerability_scan_smb_services
-    vulnerability_scan_ssh_services
-    vulnerability_scan_database_services
-    
-    # Process vulnerability results
-    process_vulnerability_results
-    
-else
-    echo "nmap not available, skipping vulnerability assessment" >> "$REPORT_FILE"
-fi
-
-echo >> "$REPORT_FILE"
-
-# Phase 8: Host Categorization
-echo "--- PHASE 8: HOST CATEGORIZATION ---" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
-echo "Phase 8: Host Categorization - Analyzing discovered hosts..."
+echo "Phase 7: Host Categorization - Analyzing discovered hosts..."
 
 # Create categorized host lists
 mkdir -p "$SESSION_DIR/categorized"
-mkdir -p "$PHASE8_DIR"
+mkdir -p "$PHASE7_DIR"
 
 # Initialize detailed category files
 : > "$SESSION_DIR/categorized/windows_hosts.txt"
@@ -2212,9 +2100,9 @@ mkdir -p "$PHASE8_DIR"
 : > "$SESSION_DIR/categorized/unknown_hosts.txt"
 
 # Initialize simplified team assignment files 
-: > "$PHASE8_DIR/team_windows.txt"
-: > "$PHASE8_DIR/team_linux.txt" 
-: > "$PHASE8_DIR/team_network.txt"
+: > "$PHASE7_DIR/team_windows.txt"
+: > "$PHASE7_DIR/team_linux.txt" 
+: > "$PHASE7_DIR/team_network.txt"
 
 # Categorize based on available information
 while read -r host; do
@@ -2228,62 +2116,62 @@ while read -r host; do
         if grep -q "^$host$" "$PHASE4_DIR/smb_hosts.txt" 2>/dev/null; then
             category="windows"
             echo "$host" >> "$SESSION_DIR/categorized/windows_hosts.txt"
-            echo "$host" >> "$PHASE8_DIR/team_windows.txt"
+            echo "$host" >> "$PHASE7_DIR/team_windows.txt"
         # Priority 2: Check for common services (if nmap results exist)
         elif [ -f "$SESSION_DIR/nmap_services.txt" ]; then
             # Check for Windows-specific services
             if grep -A 50 "$host" "$SESSION_DIR/nmap_services.txt" | grep -qE "(microsoft|smb|netbios|rdp|3389|445|139)"; then
                 category="windows"
                 echo "$host" >> "$SESSION_DIR/categorized/windows_hosts.txt"
-                echo "$host" >> "$PHASE8_DIR/team_windows.txt"
+                echo "$host" >> "$PHASE7_DIR/team_windows.txt"
             # Check for web servers
             elif grep -A 50 "$host" "$SESSION_DIR/nmap_services.txt" | grep -qE "(http|80|443|8080|8443)"; then
                 category="web_server"
                 echo "$host" >> "$SESSION_DIR/categorized/web_servers.txt"
-                echo "$host" >> "$PHASE8_DIR/team_linux.txt"  # Web servers typically Linux
+                echo "$host" >> "$PHASE7_DIR/team_linux.txt"  # Web servers typically Linux
             # Check for database servers
             elif grep -A 50 "$host" "$SESSION_DIR/nmap_services.txt" | grep -qE "(mysql|postgresql|mssql|oracle|1433|3306|5432)"; then
                 category="database"
                 echo "$host" >> "$SESSION_DIR/categorized/database_servers.txt"
                 # Database assignment: MSSQL->Windows, others->Linux
                 if grep -A 50 "$host" "$SESSION_DIR/nmap_services.txt" | grep -qE "(mssql|1433)"; then
-                    echo "$host" >> "$PHASE8_DIR/team_windows.txt"
+                    echo "$host" >> "$PHASE7_DIR/team_windows.txt"
                 else
-                    echo "$host" >> "$PHASE8_DIR/team_linux.txt"
+                    echo "$host" >> "$PHASE7_DIR/team_linux.txt"
                 fi
             # Check for network devices
             elif grep -A 50 "$host" "$SESSION_DIR/nmap_services.txt" | grep -qE "(snmp|ssh|telnet|161|22|23)"; then
                 category="network_device"
                 echo "$host" >> "$SESSION_DIR/categorized/network_devices.txt"
-                echo "$host" >> "$PHASE8_DIR/team_network.txt"
+                echo "$host" >> "$PHASE7_DIR/team_network.txt"
             # TTL-based categorization
             elif [ -n "$ttl" ] && [ "$ttl" -ge 120 ]; then
                 category="windows"
                 echo "$host" >> "$SESSION_DIR/categorized/windows_hosts.txt"
-                echo "$host" >> "$PHASE8_DIR/team_windows.txt"
+                echo "$host" >> "$PHASE7_DIR/team_windows.txt"
             elif [ -n "$ttl" ] && [ "$ttl" -ge 60 ] && [ "$ttl" -lt 120 ]; then
                 category="linux"
                 echo "$host" >> "$SESSION_DIR/categorized/linux_hosts.txt"
-                echo "$host" >> "$PHASE8_DIR/team_linux.txt"
+                echo "$host" >> "$PHASE7_DIR/team_linux.txt"
             else
                 category="unknown"
                 echo "$host" >> "$SESSION_DIR/categorized/unknown_hosts.txt"
-                echo "$host" >> "$PHASE8_DIR/team_network.txt"  # Unknown hosts go to network team
+                echo "$host" >> "$PHASE7_DIR/team_network.txt"  # Unknown hosts go to network team
             fi
         else
             # Fallback to TTL-based categorization only
             if [ -n "$ttl" ] && [ "$ttl" -ge 120 ]; then
                 category="windows"
                 echo "$host" >> "$SESSION_DIR/categorized/windows_hosts.txt"
-                echo "$host" >> "$PHASE8_DIR/team_windows.txt"
+                echo "$host" >> "$PHASE7_DIR/team_windows.txt"
             elif [ -n "$ttl" ] && [ "$ttl" -ge 60 ] && [ "$ttl" -lt 120 ]; then
                 category="linux"
                 echo "$host" >> "$SESSION_DIR/categorized/linux_hosts.txt"
-                echo "$host" >> "$PHASE8_DIR/team_linux.txt"
+                echo "$host" >> "$PHASE7_DIR/team_linux.txt"
             else
                 category="unknown"
                 echo "$host" >> "$SESSION_DIR/categorized/unknown_hosts.txt"
-                echo "$host" >> "$PHASE8_DIR/team_network.txt"  # Unknown hosts go to network team
+                echo "$host" >> "$PHASE7_DIR/team_network.txt"  # Unknown hosts go to network team
             fi
         fi
         
@@ -2309,11 +2197,11 @@ echo "  Enriched categorized host files created" >> "$REPORT_FILE"
 
 echo >> "$REPORT_FILE"
 
-# Phase 9: Evidence Processing and Manifest Creation
-echo "--- PHASE 9: EVIDENCE PROCESSING ---" >> "$REPORT_FILE"
+# Phase 8: Evidence Processing and Manifest Creation
+echo "--- PHASE 8: EVIDENCE PROCESSING ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 9: Evidence Processing - Consolidating scan data and generating comprehensive service inventory..."
+echo "Phase 8: Evidence Processing - Consolidating scan data and generating comprehensive service inventory..."
 
 # Create evidence manifest
 echo "  Creating evidence manifest..." >> "$REPORT_FILE"
@@ -2340,7 +2228,7 @@ echo "  Creating evidence manifest..." >> "$REPORT_FILE"
     echo "├── phase7_vulnerability_assessment/"
     echo "│   ├── vulnerabilities_found.txt"
     echo "│   └── raw_scans/ (Vulnerability scans)"
-    echo "└── phase8_host_categorization/"
+    echo "└── phase7_host_categorization/"
     echo "    ├── categorized/ (Detailed host type classifications)"
     echo "    ├── team_windows.txt (Windows hosts for Windows team)"
     echo "    ├── team_linux.txt (Linux/Unix hosts for Linux team)"  
@@ -2427,9 +2315,9 @@ database_count=$(wc -l < "$SESSION_DIR/categorized/database_servers.txt")
 unknown_count=$(wc -l < "$SESSION_DIR/categorized/unknown_hosts.txt")
 
 # Team assignment counts
-team_windows_count=$(wc -l < "$PHASE8_DIR/team_windows.txt")
-team_linux_count=$(wc -l < "$PHASE8_DIR/team_linux.txt")
-team_network_count=$(wc -l < "$PHASE8_DIR/team_network.txt")
+team_windows_count=$(wc -l < "$PHASE7_DIR/team_windows.txt")
+team_linux_count=$(wc -l < "$PHASE7_DIR/team_linux.txt")
+team_network_count=$(wc -l < "$PHASE7_DIR/team_network.txt")
 
 echo "Discovery Statistics:" >> "$REPORT_FILE"
 echo "  Total hosts discovered: $all_hosts_count" >> "$REPORT_FILE"
@@ -2458,9 +2346,8 @@ echo "  ✓ Phase 3: DNS Lookup (completed)" >> "$REPORT_FILE"
 echo "  ✓ Phase 4: Windows-Specific Discovery ($smb_count SMB hosts)" >> "$REPORT_FILE"
 echo "  ✓ Phase 5: Progressive Port Scan (multi-stage)" >> "$REPORT_FILE"
 echo "  ✓ Phase 6: Service Enumeration (defensive)" >> "$REPORT_FILE"
-echo "  ✓ Phase 7: Vulnerability Assessment (safe detection)" >> "$REPORT_FILE"
-echo "  ✓ Phase 8: Host Categorization (completed)" >> "$REPORT_FILE"
-echo "  ✓ Phase 9: Evidence Processing (inventory generated)" >> "$REPORT_FILE"
+echo "  ✓ Phase 7: Host Categorization (completed)" >> "$REPORT_FILE"
+echo "  ✓ Phase 8: Evidence Processing (inventory generated)" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 echo "Discovery completed at $(date)" >> "$REPORT_FILE"
@@ -2529,9 +2416,9 @@ echo "     - evidence/ directory (organized by reconnaissance phase)"
 echo "     - service_targets/ directory (service-specific target lists)"
 echo
 echo "  👥 Team Assignment Files:"
-echo "     - evidence/phase8_host_categorization/team_windows.txt"
-echo "     - evidence/phase8_host_categorization/team_linux.txt" 
-echo "     - evidence/phase8_host_categorization/team_network.txt"
+echo "     - evidence/phase7_host_categorization/team_windows.txt"
+echo "     - evidence/phase7_host_categorization/team_linux.txt" 
+echo "     - evidence/phase7_host_categorization/team_network.txt"
 
 if [ -f "$SESSION_DIR/smb_hosts.txt" ]; then
     echo "  🪟 smb_hosts.txt (SMB/Windows hosts)"
