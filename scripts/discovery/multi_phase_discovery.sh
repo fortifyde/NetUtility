@@ -91,7 +91,7 @@ else
         fi
     else
         # Network detected - prompt user for confirmation
-        echo "Detected network: $network_range"
+        echo "Detected network: $network_range" >&2
         echo "Scan this network? (Y/n/custom): " >&2
         read -r confirm
         case "$confirm" in
@@ -108,7 +108,7 @@ else
                 fi
                 ;;
             *)
-                echo "Using detected network: $network_range"
+                echo "Using detected network: $network_range" >&2
                 ;;
         esac
     fi
@@ -336,6 +336,590 @@ get_host_services() {
     echo "$services"
 }
 
+# Extract data for a specific host from nmap output
+# Properly isolates one host's data to prevent cross-host bleeding
+extract_host_data() {
+    ip="$1"
+    scan_file="$2"
+
+    if [ ! -f "$scan_file" ]; then
+        return 1
+    fi
+
+    # Use awk to extract from "Nmap scan report for $ip" until next host
+    # This prevents capturing data from other hosts
+    awk -v ip="$ip" '
+        /Nmap scan report for/ {
+            if ($0 ~ ip) {
+                found=1
+            } else if (found) {
+                exit
+            }
+        }
+        found { print }
+    ' "$scan_file"
+}
+
+# Get MAC address vendor using ouihelper
+get_mac_vendor() {
+    ip="$1"
+    mac=""
+
+    # Try to get MAC from ARP cache first
+    mac=$(ip neigh show "$ip" 2>/dev/null | awk '{print $5}' | head -1)
+
+    # If ARP cache is empty, try to extract MAC from nmap output
+    if [ -z "$mac" ] || [ "$mac" = "FAILED" ]; then
+        # Search nmap output files for MAC address
+        for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans" "$PHASE2_DIR"; do
+            for scan_file in "$scan_dir"/nmap_*.txt "$scan_dir"/nmap_*.nmap; do
+                if [ -f "$scan_file" ]; then
+                    # Extract host data block for this IP
+                    host_data=$(extract_host_data "$ip" "$scan_file")
+
+                    # Look for MAC Address line in the host data
+                    # Format: "MAC Address: XX:XX:XX:XX:XX:XX (Vendor Name)"
+                    mac=$(echo "$host_data" | grep -i "MAC Address:" | head -1 | awk '{print $3}')
+
+                    if [ -n "$mac" ] && [ "$mac" != "FAILED" ]; then
+                        break 2
+                    fi
+                fi
+            done
+        done
+    fi
+
+    # If still no MAC found, return Unknown
+    if [ -z "$mac" ] || [ "$mac" = "FAILED" ]; then
+        echo "Unknown"
+        return
+    fi
+
+    # Try ouihelper in various locations
+    vendor=""
+    if command -v ouihelper >/dev/null 2>&1; then
+        vendor=$(ouihelper "$mac" 2>/dev/null | head -1)
+    elif [ -x "cmd/ouihelper/ouihelper" ]; then
+        vendor=$(cmd/ouihelper/ouihelper "$mac" 2>/dev/null | head -1)
+    elif [ -x "../../ouihelper" ]; then
+        vendor=$(../../ouihelper "$mac" 2>/dev/null | head -1)
+    fi
+
+    if [ -n "$vendor" ]; then
+        echo "$vendor"
+    else
+        echo "Unknown"
+    fi
+}
+
+# Extract SSH banner from nmap results
+get_ssh_banner() {
+    ip="$1"
+
+    # Prioritize Phase 6 version detection file (no REASON column)
+    if [ -f "$PHASE6_DIR/raw_scans/nmap_version_detection.nmap" ]; then
+        host_data=$(extract_host_data "$ip" "$PHASE6_DIR/raw_scans/nmap_version_detection.nmap")
+        # Format: "22/tcp open  ssh     OpenSSH 8.9p1 Ubuntu 3ubuntu0.13"
+        banner=$(echo "$host_data" | grep -E "^22/tcp\s+open\s+ssh" | sed 's/.*ssh[[:space:]]*//; s/[[:space:]]*$//' | head -1)
+
+        if [ -n "$banner" ] && [ "$banner" != "open" ]; then
+            echo "$banner"
+            return
+        fi
+    fi
+
+    # Fallback: search other nmap results
+    for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans"; do
+        for scan_file in "$scan_dir"/nmap_*.txt "$scan_dir"/nmap_*.nmap; do
+            if [ -f "$scan_file" ]; then
+                host_data=$(extract_host_data "$ip" "$scan_file")
+                banner=$(echo "$host_data" | grep -E "^22/tcp\s+open\s+ssh" | sed 's/.*ssh[[:space:]]*//; s/[[:space:]]*$//' | head -1)
+
+                if [ -n "$banner" ] && [ "$banner" != "open" ]; then
+                    echo "$banner"
+                    return
+                fi
+            fi
+        done
+    done
+
+    echo "Unknown"
+}
+
+# Extract HTTP/HTTPS server header
+get_http_server() {
+    ip="$1"
+
+    # Prioritize Phase 6 version detection file (no REASON column)
+    if [ -f "$PHASE6_DIR/raw_scans/nmap_version_detection.nmap" ]; then
+        host_data=$(extract_host_data "$ip" "$PHASE6_DIR/raw_scans/nmap_version_detection.nmap")
+
+        # Look for http-server-header NSE script output first
+        server=$(echo "$host_data" | grep -i "http-server-header:" | head -1 | sed 's/.*http-server-header:[[:space:]]*//' | sed 's/[[:space:]]*$//')
+
+        # If not found, extract from service version line
+        if [ -z "$server" ]; then
+            # Format: "80/tcp open  http    lighttpd 1.4.82"
+            server=$(echo "$host_data" | grep -E "^(80|443|8080|8443)/tcp\s+open\s+https?" | sed 's/.*https\?[[:space:]]*//; s/[[:space:]]*$//' | head -1)
+        fi
+
+        if [ -n "$server" ] && [ "$server" != "open" ]; then
+            echo "$server"
+            return
+        fi
+    fi
+
+    # Fallback: search other nmap results
+    for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans"; do
+        for scan_file in "$scan_dir"/nmap_*.txt "$scan_dir"/nmap_*.nmap; do
+            if [ -f "$scan_file" ]; then
+                host_data=$(extract_host_data "$ip" "$scan_file")
+
+                # Look for http-server-header NSE script output
+                server=$(echo "$host_data" | grep -i "http-server-header:" | head -1 | sed 's/.*http-server-header:[[:space:]]*//' | sed 's/[[:space:]]*$//')
+
+                if [ -z "$server" ]; then
+                    server=$(echo "$host_data" | grep -E "^(80|443|8080|8443)/tcp\s+open\s+https?" | sed 's/.*https\?[[:space:]]*//; s/[[:space:]]*$//' | head -1)
+                fi
+
+                if [ -n "$server" ] && [ "$server" != "open" ]; then
+                    echo "$server"
+                    return
+                fi
+            fi
+        done
+    done
+
+    echo "Unknown"
+}
+
+# Extract SNMP system description
+get_snmp_sysdescr() {
+    ip="$1"
+
+    # Search for SNMP sysDescr in nmap NSE results
+    for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans"; do
+        for scan_file in "$scan_dir"/nmap_*.txt "$scan_dir"/nmap_*.nmap; do
+            if [ -f "$scan_file" ]; then
+                # Extract only this host's data to prevent cross-host bleeding
+                host_data=$(extract_host_data "$ip" "$scan_file")
+
+                # Look for snmp-sysdescr NSE script output
+                # Format: "|   System description: <description text>"
+                sysdescr=$(echo "$host_data" | grep -i "snmp-sysdescr\|system description" | grep -v "^|_" | sed 's/.*:[[:space:]]*//' | sed 's/^|[[:space:]]*//' | head -1)
+
+                if [ -n "$sysdescr" ]; then
+                    echo "$sysdescr"
+                    return
+                fi
+            fi
+        done
+    done
+
+    echo "Unknown"
+}
+
+# Detect specific vendor/device type from all available data
+detect_device_vendor() {
+    ip="$1"
+    mac_vendor="$2"
+    ssh_banner="$3"
+    http_server="$4"
+    snmp_sysdescr="$5"
+
+    # Combine all indicators into single searchable string
+    all_data="$mac_vendor $ssh_banner $http_server $snmp_sysdescr"
+
+    # Cisco detection
+    if echo "$all_data" | grep -qiE "cisco|ios|catalyst|nexus"; then
+        echo "cisco"
+        return
+    fi
+
+    # HP/Aruba detection
+    if echo "$all_data" | grep -qiE "hewlett|hp|procurve|aruba|j9[0-9]|j8[0-9]"; then
+        echo "hp_aruba"
+        return
+    fi
+
+    # Checkpoint firewall
+    if echo "$all_data" | grep -qiE "checkpoint|firewall-1|fw1|secureplat"; then
+        echo "checkpoint"
+        return
+    fi
+
+    # Cisco ASA
+    if echo "$all_data" | grep -qiE "cisco.*asa|adaptive security appliance"; then
+        echo "cisco_asa"
+        return
+    fi
+
+    # Juniper
+    if echo "$all_data" | grep -qiE "juniper|junos|netscreen"; then
+        echo "juniper"
+        return
+    fi
+
+    # GenuScreen/GenuGate
+    if echo "$all_data" | grep -qiE "genuscreen|genugate|genubox"; then
+        echo "genua"
+        return
+    fi
+
+    # Printer detection
+    if echo "$all_data" | grep -qiE "laserjet|printer|canon|epson|brother|lexmark"; then
+        echo "printer"
+        return
+    fi
+
+    # VMware virtual machine
+    if echo "$all_data" | grep -qiE "vmware|esx"; then
+        echo "vmware"
+        return
+    fi
+
+    echo "unknown"
+}
+
+# Check if host has printer-specific ports open
+has_printer_ports() {
+    ip="$1"
+
+    # Check for common printer ports: 515 (LPD), 631 (IPP), 9100 (JetDirect)
+    for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans"; do
+        for scan_file in "$scan_dir"/nmap_*.txt; do
+            if [ -f "$scan_file" ]; then
+                if grep "$ip" "$scan_file" 2>/dev/null | grep -qE "(515|631|9100)/(tcp|udp).*open"; then
+                    return 0
+                fi
+            fi
+        done
+    done
+
+    return 1
+}
+
+# Categorize host using weighted scoring system
+categorize_host_advanced() {
+    ip="$1"
+
+    # Initialize debug log file
+    debug_file="$PHASE7_DIR/categorization_debug/${ip}_debug.txt"
+    mkdir -p "$PHASE7_DIR/categorization_debug"
+    echo "=== Categorization Debug for $ip ===" > "$debug_file"
+    echo "Timestamp: $(date)" >> "$debug_file"
+    echo >> "$debug_file"
+
+    # Initialize category scores
+    score_windows=0
+    score_linux=0
+    score_network_device=0
+    score_printer=0
+
+    # Gather all available data
+    mac_vendor=$(get_mac_vendor "$ip")
+    ssh_banner=$(get_ssh_banner "$ip")
+    http_server=$(get_http_server "$ip")
+    snmp_sysdescr=$(get_snmp_sysdescr "$ip")
+    vendor=$(detect_device_vendor "$ip" "$mac_vendor" "$ssh_banner" "$http_server" "$snmp_sysdescr")
+
+    # Get TTL - first try from Phase 2 ICMP results, then from nmap output
+    ttl=$(grep "$ip" "$PHASE2_DIR/icmp_responsive.txt" 2>/dev/null | awk '{print $2}')
+    if [ -z "$ttl" ] && [ -f "$SESSION_DIR/nmap_fast_scan.txt" ]; then
+        # Extract TTL from nmap scan results (appears as "ttl 64" in output)
+        ttl=$(grep -A 10 "Nmap scan report for $ip" "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null | grep -oP 'ttl \K[0-9]+' | head -1)
+    fi
+
+    # Get nmap OS detection from Phase 2
+    nmap_os=$(grep "^$ip" "$PHASE2_DIR/early_os_detection.txt" 2>/dev/null | sed 's/.*\t//')
+
+    # Log gathered data
+    {
+        echo "--- GATHERED DATA ---"
+        echo "MAC Vendor: $mac_vendor"
+        echo "SSH Banner: $ssh_banner"
+        echo "HTTP Server: $http_server"
+        echo "SNMP SysDescr: $snmp_sysdescr"
+        echo "Detected Vendor: $vendor"
+        echo "TTL: $ttl"
+        echo "Nmap OS Detection: $nmap_os"
+        echo
+        echo "--- SCORING DECISIONS ---"
+    } >> "$debug_file"
+
+    # Check for SMB/Windows discovery from Phase 4
+    if [ -f "$PHASE4_DIR/smb_hosts.txt" ] && grep -q "^$ip$" "$PHASE4_DIR/smb_hosts.txt"; then
+        score_windows=$((score_windows + 100))
+    fi
+
+    # MAC vendor scoring (high weight)
+    case "$mac_vendor" in
+        *[Cc]isco*|*[Aa]ruba*|*[Jj]uniper*|*[Hh][Pp]*|*[Hh]ewlett*)
+            score_network_device=$((score_network_device + 60))
+            ;;
+        *[Vv][Mm]ware*|*[Dd]ell*|*[Ll]enovo*)
+            score_linux=$((score_linux + 30))
+            ;;
+        *[Mm]icrosoft*)
+            score_windows=$((score_windows + 50))
+            ;;
+    esac
+
+    # Vendor-specific scoring (very high weight)
+    case "$vendor" in
+        cisco|cisco_asa|hp_aruba|juniper|genua)
+            score_network_device=$((score_network_device + 80))
+            ;;
+        checkpoint)
+            score_network_device=$((score_network_device + 80))
+            ;;
+        printer)
+            score_printer=$((score_printer + 100))
+            ;;
+        vmware)
+            score_linux=$((score_linux + 40))
+            ;;
+    esac
+
+    # Check for printer ports
+    if has_printer_ports "$ip"; then
+        score_printer=$((score_printer + 70))
+        echo "  [PRINTER] +70 points: Has printer ports (515, 631, or 9100)" >> "$debug_file"
+    fi
+
+    # Service-based scoring - gather data from all available nmap scans
+    # Use extract_host_data to prevent cross-host bleeding
+    service_data=""
+
+    # Check nmap_fast_scan.txt (Phase 5 TCP scan)
+    if [ -f "$SESSION_DIR/nmap_fast_scan.txt" ]; then
+        host_block=$(extract_host_data "$ip" "$SESSION_DIR/nmap_fast_scan.txt")
+        service_data="$service_data $host_block"
+    fi
+
+    # Check Phase 6 service enumeration results
+    for scan_file in "$PHASE6_DIR"/raw_scans/nmap_*.txt "$PHASE6_DIR"/raw_scans/nmap_*.nmap; do
+        if [ -f "$scan_file" ]; then
+            host_block=$(extract_host_data "$ip" "$scan_file")
+            service_data="$service_data $host_block"
+        fi
+    done
+
+    # Log whether service data was found
+    if [ -n "$service_data" ]; then
+        echo "  Service data found from nmap scans" >> "$debug_file"
+    else
+        echo "  No service data found (will rely on TTL/MAC/nmap OS)" >> "$debug_file"
+    fi
+    echo >> "$debug_file"
+
+    # Only proceed with service scoring if we have data
+    if [ -n "$service_data" ]; then
+
+        # Windows indicators (high weight)
+        # Only match if Windows ports are actually open (not closed/filtered)
+        if echo "$service_data" | grep -E "^(135|139|445|3389)/tcp\s+open\s+" | grep -qiE "microsoft|smb|netbios|rdp|ms-wbt-server"; then
+            score_windows=$((score_windows + 70))
+            matched_service=$(echo "$service_data" | grep -E "^(135|139|445|3389)/tcp\s+open\s+" | grep -ioE "microsoft|smb|netbios|rdp|ms-wbt-server" | head -1)
+            echo "  [WINDOWS] +70 points: Windows service detected ($matched_service)" >> "$debug_file"
+        fi
+
+        # Database servers (typically Linux unless MSSQL)
+        if echo "$service_data" | grep -qiE "mysql|postgresql|oracle|mongo"; then
+            score_linux=$((score_linux + 50))
+            matched_db=$(echo "$service_data" | grep -ioE "mysql|postgresql|oracle|mongo" | head -1)
+            echo "  [LINUX] +50 points: Linux database detected ($matched_db)" >> "$debug_file"
+        fi
+        if echo "$service_data" | grep -qiE "mssql|1433"; then
+            score_windows=$((score_windows + 60))
+            echo "  [WINDOWS] +60 points: MSSQL database detected" >> "$debug_file"
+        fi
+
+        # Check for SNMP - can indicate network device but also common on servers
+        # SNMP is UDP 161, so also check UDP scan results
+        has_snmp=false
+        if echo "$service_data" | grep -qE "161/(udp|tcp)\s+open\s"; then
+            has_snmp=true
+            echo "  [INFO] SNMP detected in service data" >> "$debug_file"
+        elif [ -f "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" ]; then
+            if grep -A 10 "Nmap scan report for $ip" "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" 2>/dev/null | grep -qE "161/udp\s+open\s"; then
+                has_snmp=true
+                echo "  [INFO] SNMP detected in UDP scan" >> "$debug_file"
+            fi
+        fi
+
+        # Check for Telnet - more common on network devices
+        has_telnet=false
+        if echo "$service_data" | grep -qE "23/tcp\s+open\s"; then
+            has_telnet=true
+            score_network_device=$((score_network_device + 20))
+            echo "  [NETWORK_DEVICE] +20 points: Telnet port open" >> "$debug_file"
+        fi
+
+        # SSH alone is ambiguous, but combined with other factors...
+        has_ssh=false
+        if echo "$service_data" | grep -qE "22/tcp\s+open\s"; then
+            has_ssh=true
+            echo "  [INFO] SSH detected" >> "$debug_file"
+        fi
+
+        # SNMP + Telnet + SSH = likely network device
+        if [ "$has_snmp" = true ] && [ "$has_telnet" = true ] && [ "$has_ssh" = true ]; then
+            score_network_device=$((score_network_device + 40))
+            echo "  [NETWORK_DEVICE] +40 points: SNMP + Telnet + SSH combo" >> "$debug_file"
+        fi
+
+        # SNMP + HTTP (no SMB/RDP) = likely network device web interface
+        if [ "$has_snmp" = true ] && echo "$service_data" | grep -qE "(80|443)/(tcp|udp)\s+open\s"; then
+            if ! echo "$service_data" | grep -qiE "(445|3389)/(tcp|udp)\s+open\s"; then
+                score_network_device=$((score_network_device + 30))
+                echo "  [NETWORK_DEVICE] +30 points: SNMP + HTTP (no SMB/RDP)" >> "$debug_file"
+            fi
+        fi
+
+        # SSH + MySQL/PostgreSQL (no SNMP) = likely Linux server
+        if [ "$has_ssh" = true ] && [ "$has_snmp" = false ]; then
+            if echo "$service_data" | grep -qiE "(mysql|postgresql|3306|5432).*open\s"; then
+                score_linux=$((score_linux + 40))
+                matched_db=$(echo "$service_data" | grep -ioE "mysql|postgresql|3306|5432" | head -1)
+                echo "  [LINUX] +40 points: SSH + database (no SNMP) - $matched_db" >> "$debug_file"
+            fi
+        fi
+
+        # SSH + HTTP (no SNMP, no SMB) = likely Linux web server
+        if [ "$has_ssh" = true ] && [ "$has_snmp" = false ]; then
+            if echo "$service_data" | grep -qE "(80|443)/tcp\s+open\s"; then
+                if ! echo "$service_data" | grep -qiE "(445|3389|139)/tcp\s+open\s"; then
+                    score_linux=$((score_linux + 30))
+                    http_port=$(echo "$service_data" | grep -oE "(80|443)/tcp\s+open" | head -1 | cut -d/ -f1)
+                    echo "  [LINUX] +30 points: SSH + HTTP (no SNMP, no SMB) - port $http_port" >> "$debug_file"
+                fi
+            fi
+        fi
+    fi
+
+    # TTL-based scoring (adaptive weight based on available data)
+    # If we have no service data, TTL becomes primary indicator (high weight)
+    # If we have service data, TTL is supporting evidence (low weight)
+    has_service_data=false
+    if [ -n "$service_data" ]; then
+        has_service_data=true
+    fi
+
+    echo >> "$debug_file"
+    if [ -n "$ttl" ]; then
+        # Determine TTL weight based on data availability
+        if [ "$has_service_data" = false ]; then
+            # No service data - TTL is primary indicator (high weight)
+            ttl_weight=60
+            echo "  [TTL] Using high weight ($ttl_weight) - no service data available" >> "$debug_file"
+        else
+            # Have service data - TTL is supporting evidence (low weight)
+            ttl_weight=10
+            echo "  [TTL] Using low weight ($ttl_weight) - service data available" >> "$debug_file"
+        fi
+
+        if [ "$ttl" -ge 250 ]; then
+            # TTL ~255 typical of network devices
+            score_network_device=$((score_network_device + ttl_weight + 5))
+            echo "  [NETWORK_DEVICE] +$((ttl_weight + 5)) points: TTL=$ttl (network device range)" >> "$debug_file"
+        elif [ "$ttl" -ge 120 ] && [ "$ttl" -lt 140 ]; then
+            # TTL ~128 typical of Windows
+            score_windows=$((score_windows + ttl_weight))
+            echo "  [WINDOWS] +$ttl_weight points: TTL=$ttl (Windows range 120-139)" >> "$debug_file"
+        elif [ "$ttl" -ge 60 ] && [ "$ttl" -lt 70 ]; then
+            # TTL ~64 typical of Linux
+            score_linux=$((score_linux + ttl_weight))
+            echo "  [LINUX] +$ttl_weight points: TTL=$ttl (Linux range 60-69)" >> "$debug_file"
+        else
+            echo "  [INFO] TTL=$ttl (outside typical ranges)" >> "$debug_file"
+        fi
+    else
+        echo "  [INFO] No TTL data available" >> "$debug_file"
+    fi
+
+    # Nmap OS detection scoring (Phase 2 results)
+    echo >> "$debug_file"
+    if [ -n "$nmap_os" ]; then
+        echo "  [NMAP_OS] OS detection result: $nmap_os" >> "$debug_file"
+
+        # Add significant weight for nmap OS detection matches
+        if echo "$nmap_os" | grep -qiE "windows|microsoft"; then
+            score_windows=$((score_windows + 50))
+            echo "  [WINDOWS] +50 points: Nmap detected Windows OS" >> "$debug_file"
+        elif echo "$nmap_os" | grep -qiE "linux|ubuntu|debian|centos|redhat|fedora"; then
+            score_linux=$((score_linux + 50))
+            echo "  [LINUX] +50 points: Nmap detected Linux OS" >> "$debug_file"
+        elif echo "$nmap_os" | grep -qiE "cisco|juniper|hp|aruba|fortinet|palo alto|checkpoint"; then
+            score_network_device=$((score_network_device + 50))
+            echo "  [NETWORK_DEVICE] +50 points: Nmap detected network device OS" >> "$debug_file"
+        fi
+    else
+        echo "  [INFO] No nmap OS detection data available" >> "$debug_file"
+    fi
+
+    # Determine category based on highest score
+    echo >> "$debug_file"
+    echo "--- FINAL SCORES ---" >> "$debug_file"
+    echo "  Windows: $score_windows" >> "$debug_file"
+    echo "  Linux: $score_linux" >> "$debug_file"
+    echo "  Network Device: $score_network_device" >> "$debug_file"
+    echo "  Printer: $score_printer" >> "$debug_file"
+    echo >> "$debug_file"
+    max_score=0
+    category="unknown"
+    confidence="low"
+
+    if [ $score_windows -gt $max_score ]; then
+        max_score=$score_windows
+        category="windows"
+    fi
+
+    if [ $score_linux -gt $max_score ]; then
+        max_score=$score_linux
+        category="linux"
+    fi
+
+    if [ $score_network_device -gt $max_score ]; then
+        max_score=$score_network_device
+        category="network_device"
+        # Further categorize network devices
+        case "$vendor" in
+            cisco|hp_aruba)
+                category="switch_router"
+                ;;
+            cisco_asa|checkpoint|juniper|genua)
+                category="firewall"
+                ;;
+        esac
+    fi
+
+    if [ $score_printer -gt $max_score ]; then
+        max_score=$score_printer
+        category="printer"
+    fi
+
+    # Determine confidence level
+    if [ $max_score -ge 80 ]; then
+        confidence="high"
+    elif [ $max_score -ge 40 ]; then
+        confidence="medium"
+    else
+        confidence="low"
+        category="unknown"  # Low confidence = mark as unknown
+    fi
+
+    # Log final decision
+    echo "--- FINAL DECISION ---" >> "$debug_file"
+    echo "  Category: $category" >> "$debug_file"
+    echo "  Vendor: $vendor" >> "$debug_file"
+    echo "  Confidence: $confidence" >> "$debug_file"
+    echo "  Score: $max_score" >> "$debug_file"
+
+    # Return: category|vendor|confidence|score
+    echo "${category}|${vendor}|${confidence}|${max_score}"
+}
+
 create_enriched_service_target() {
     service_name="$1"
     base_file="$2"
@@ -355,10 +939,13 @@ create_enriched_service_target() {
             fi
 
             # Get hostname from dns_results.txt (Phase 3 directory)
+            # File contains literal \t not tab character
             hostname="-"
             if [ -f "$PHASE3_DIR/dns_results.txt" ]; then
-                hostname=$(grep "^${ip}[[:space:]]" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | awk '{print $2}' | head -1)
-                [ -z "$hostname" ] && hostname="-"
+                hostname=$(grep "^${ip}" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | sed 's/.*\\t//' | head -1)
+                if [ -z "$hostname" ] || [ "$hostname" = "<no hostname>" ]; then
+                    hostname="-"
+                fi
             fi
 
             # Get version and OS info
@@ -2169,84 +2756,98 @@ mkdir -p "$PHASE7_DIR"
 : > "$PHASE7_DIR/team_linux.txt" 
 : > "$PHASE7_DIR/team_network.txt"
 
-# Categorize based on available information
+# Create network device subdirectory
+mkdir -p "$SESSION_DIR/categorized/network_devices"
+
+# Create categorization details file header
+echo "IP\tHostname\tCategory\tVendor\tConfidence\tScore" > "$PHASE7_DIR/categorization_details.txt"
+
+# Categorize based on advanced scoring system
 while read -r host; do
     if [ -n "$host" ]; then
-        category="unknown"
-        
-        # Check TTL-based OS detection
-        ttl=$(ping -c 1 -W 1 "$host" 2>/dev/null | grep "ttl=" | head -1 | sed 's/.*ttl=\([0-9]*\).*/\1/')
-        
-        # Priority 1: Check Windows-specific discovery results
-        if grep -q "^$host$" "$PHASE4_DIR/smb_hosts.txt" 2>/dev/null; then
-            category="windows"
-            echo "$host" >> "$SESSION_DIR/categorized/windows_hosts.txt"
-            echo "$host" >> "$PHASE7_DIR/team_windows.txt"
-        # Priority 2: Check for common services (if nmap results exist)
-        elif [ -f "$SESSION_DIR/nmap_services.txt" ]; then
-            # Check for Windows-specific services
-            if grep -A 50 "$host" "$SESSION_DIR/nmap_services.txt" | grep -qE "(microsoft|smb|netbios|rdp|3389|445|139)"; then
-                category="windows"
+        # Use advanced categorization
+        result=$(categorize_host_advanced "$host")
+        category=$(echo "$result" | cut -d'|' -f1)
+        vendor=$(echo "$result" | cut -d'|' -f2)
+        confidence=$(echo "$result" | cut -d'|' -f3)
+        score=$(echo "$result" | cut -d'|' -f4)
+
+        # Get hostname for display (file contains literal \t not tab character)
+        hostname=$(grep "^$host" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | sed 's/.*\\t//')
+        if [ -z "$hostname" ] || [ "$hostname" = "<no hostname>" ]; then
+            hostname="-"
+        fi
+
+        # Write to categorization details
+        echo "$host\t$hostname\t$category\t$vendor\t$confidence\t$score" >> "$PHASE7_DIR/categorization_details.txt"
+
+        # Add to appropriate category files (files created on first write)
+        case "$category" in
+            windows)
                 echo "$host" >> "$SESSION_DIR/categorized/windows_hosts.txt"
                 echo "$host" >> "$PHASE7_DIR/team_windows.txt"
-            # Check for web servers
-            elif grep -A 50 "$host" "$SESSION_DIR/nmap_services.txt" | grep -qE "(http|80|443|8080|8443)"; then
-                category="web_server"
-                echo "$host" >> "$SESSION_DIR/categorized/web_servers.txt"
-                echo "$host" >> "$PHASE7_DIR/team_linux.txt"  # Web servers typically Linux
-            # Check for database servers
-            elif grep -A 50 "$host" "$SESSION_DIR/nmap_services.txt" | grep -qE "(mysql|postgresql|mssql|oracle|1433|3306|5432)"; then
-                category="database"
-                echo "$host" >> "$SESSION_DIR/categorized/database_servers.txt"
-                # Database assignment: MSSQL->Windows, others->Linux
-                if grep -A 50 "$host" "$SESSION_DIR/nmap_services.txt" | grep -qE "(mssql|1433)"; then
-                    echo "$host" >> "$PHASE7_DIR/team_windows.txt"
-                else
-                    echo "$host" >> "$PHASE7_DIR/team_linux.txt"
-                fi
-            # Check for network devices
-            elif grep -A 50 "$host" "$SESSION_DIR/nmap_services.txt" | grep -qE "(snmp|ssh|telnet|161|22|23)"; then
-                category="network_device"
+                ;;
+            linux)
+                echo "$host" >> "$SESSION_DIR/categorized/linux_hosts.txt"
+                echo "$host" >> "$PHASE7_DIR/team_linux.txt"
+                ;;
+            network_device|switch_router|firewall)
                 echo "$host" >> "$SESSION_DIR/categorized/network_devices.txt"
                 echo "$host" >> "$PHASE7_DIR/team_network.txt"
-            # TTL-based categorization
-            elif [ -n "$ttl" ] && [ "$ttl" -ge 120 ]; then
-                category="windows"
-                echo "$host" >> "$SESSION_DIR/categorized/windows_hosts.txt"
-                echo "$host" >> "$PHASE7_DIR/team_windows.txt"
-            elif [ -n "$ttl" ] && [ "$ttl" -ge 60 ] && [ "$ttl" -lt 120 ]; then
-                category="linux"
-                echo "$host" >> "$SESSION_DIR/categorized/linux_hosts.txt"
-                echo "$host" >> "$PHASE7_DIR/team_linux.txt"
-            else
-                category="unknown"
+
+                # Add to vendor-specific file if vendor detected (file created on first write)
+                case "$vendor" in
+                    cisco)
+                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/cisco.txt"
+                        ;;
+                    cisco_asa)
+                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/cisco_asa.txt"
+                        ;;
+                    hp_aruba)
+                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/hp_aruba.txt"
+                        ;;
+                    checkpoint)
+                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/checkpoint.txt"
+                        ;;
+                    juniper)
+                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/juniper.txt"
+                        ;;
+                    genua)
+                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/genua.txt"
+                        ;;
+                esac
+
+                # Add to subcategory files (file created on first write)
+                if [ "$category" = "switch_router" ]; then
+                    echo "$host" >> "$SESSION_DIR/categorized/network_devices/switches_routers.txt"
+                elif [ "$category" = "firewall" ]; then
+                    echo "$host" >> "$SESSION_DIR/categorized/network_devices/firewalls.txt"
+                fi
+                ;;
+            printer)
+                echo "$host" >> "$SESSION_DIR/categorized/network_devices.txt"
+                echo "$host" >> "$SESSION_DIR/categorized/network_devices/printers.txt"
+                echo "$host" >> "$PHASE7_DIR/team_network.txt"
+                ;;
+            *)
+                # Unknown or low confidence
                 echo "$host" >> "$SESSION_DIR/categorized/unknown_hosts.txt"
-                echo "$host" >> "$PHASE7_DIR/team_network.txt"  # Unknown hosts go to network team
+                echo "$host" >> "$PHASE7_DIR/team_network.txt"
+                ;;
+        esac
+
+        # Keep web_servers and database_servers for compatibility (file created on first write)
+        if [ -f "$SESSION_DIR/nmap_fast_scan.txt" ]; then
+            if grep -A 30 "Nmap scan report for $host" "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null | grep -qE "(http|80|443|8080|8443).*open"; then
+                echo "$host" >> "$SESSION_DIR/categorized/web_servers.txt"
             fi
-        else
-            # Fallback to TTL-based categorization only
-            if [ -n "$ttl" ] && [ "$ttl" -ge 120 ]; then
-                category="windows"
-                echo "$host" >> "$SESSION_DIR/categorized/windows_hosts.txt"
-                echo "$host" >> "$PHASE7_DIR/team_windows.txt"
-            elif [ -n "$ttl" ] && [ "$ttl" -ge 60 ] && [ "$ttl" -lt 120 ]; then
-                category="linux"
-                echo "$host" >> "$SESSION_DIR/categorized/linux_hosts.txt"
-                echo "$host" >> "$PHASE7_DIR/team_linux.txt"
-            else
-                category="unknown"
-                echo "$host" >> "$SESSION_DIR/categorized/unknown_hosts.txt"
-                echo "$host" >> "$PHASE7_DIR/team_network.txt"  # Unknown hosts go to network team
+            if grep -A 30 "Nmap scan report for $host" "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null | grep -qE "(mysql|postgresql|mssql|oracle|1433|3306|5432).*open"; then
+                echo "$host" >> "$SESSION_DIR/categorized/database_servers.txt"
             fi
         fi
-        
-        # Get hostname for display
-        hostname=$(grep "^$host" "$PHASE3_DIR/dns_results.txt" | cut -f2)
-        if [ -z "$hostname" ]; then
-            hostname="<no hostname>"
-        fi
-        
-        echo "$host\t$hostname\t$category" >> "$REPORT_FILE"
+
+        # Report output
+        echo "$host\t$hostname\t$category ($vendor, $confidence confidence)" >> "$REPORT_FILE"
     fi
 done < "$PHASE2_DIR/all_hosts.txt"
 
