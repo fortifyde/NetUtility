@@ -115,8 +115,9 @@ if [ -s "$VLAN_FILE" ]; then
                                 echo "  Analyzing IP ranges for VLAN $vlan_id..."
                                 
                                 # Extract IP addresses from this VLAN's traffic
+                                # Filter out multicast, broadcast, and other special-purpose addresses
                                 vlan_ips=$(tshark -r "$capture_file" -Y "vlan.id == $vlan_id" -T fields -e ip.src -e ip.dst 2>/dev/null | \
-                                          tr '\t' '\n' | grep -v "^$" | sort -u | head -10)
+                                          tr '\t' '\n' | grep -v "^$" | filter_valid_unicast_ips | sort -u | head -10)
                                 
                                 if [ -n "$vlan_ips" ]; then
                                     echo "  Detected IP addresses in VLAN $vlan_id:"
@@ -141,7 +142,25 @@ if [ -s "$VLAN_FILE" ]; then
                                         fi
                                     fi
                                 else
-                                    echo "  No IP addresses found in VLAN $vlan_id traffic"
+                                    # No valid unicast IPs found - prompt for manual entry
+                                    echo "  No valid unicast IP addresses found in VLAN $vlan_id traffic"
+                                    echo "  (Only multicast/broadcast addresses detected)"
+                                    echo
+                                    echo "  Enter IP address for $vlan_interface (with CIDR, e.g., 192.168.1.100/24): " >&2
+                                    read -r custom_ip
+
+                                    if [ -n "$custom_ip" ] && echo "$custom_ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+                                        echo "  Assigning IP: $custom_ip"
+                                        if ip addr add "$custom_ip" dev "$vlan_interface" 2>/dev/null; then
+                                            success_message "  IP address $custom_ip assigned to $vlan_interface"
+                                            log_config_change "IP assigned to VLAN interface" "$vlan_interface: $custom_ip"
+                                        else
+                                            warning_message "  Failed to assign IP $custom_ip to $vlan_interface"
+                                            log_error "Failed to assign IP $custom_ip to $vlan_interface"
+                                        fi
+                                    else
+                                        echo "  Skipping IP assignment for $vlan_interface (invalid or no IP provided)"
+                                    fi
                                 fi
                             fi
                         else
