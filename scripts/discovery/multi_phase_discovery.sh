@@ -237,35 +237,52 @@ extract_version_from_nmap() {
     ip="$1"
     service="$2"
 
-    # Search nmap XML/gnmap files for version info
+    # Search nmap scan files for version info across all phase directories
     version="Unknown"
-    for scan_file in "$EVIDENCE_DIR"/raw_scans/nmap_*.gnmap "$EVIDENCE_DIR"/raw_scans/nmap_*.txt; do
-        if [ -f "$scan_file" ]; then
-            # Extract version from nmap output for this IP and service
-            version_line=$(grep "$ip" "$scan_file" 2>/dev/null | grep -i "$service" | grep -oP 'Version: \K[^,)]+' | head -1)
-            if [ -n "$version_line" ]; then
-                version="$version_line"
-                break
+
+    # Check multiple directories where nmap results might be
+    for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans"; do
+        for scan_file in "$scan_dir"/nmap_*.gnmap "$scan_dir"/nmap_*.txt; do
+            if [ -f "$scan_file" ]; then
+                # Try to extract version from standard nmap text output format
+                # Format: "PORT/PROTO open SERVICE VERSION-INFO"
+                # Example: "22/tcp open ssh OpenSSH 7.4 (protocol 2.0)"
+                version_line=$(grep "$ip" "$scan_file" 2>/dev/null | \
+                              grep -i "$service" | \
+                              grep "open" | \
+                              sed -n 's/.*open[[:space:]]\+[^[:space:]]\+[[:space:]]\+\(.*\)/\1/p' | \
+                              head -1)
+
+                if [ -n "$version_line" ]; then
+                    version="$version_line"
+                    break 2
+                fi
             fi
-        fi
+        done
     done
+
     echo "$version"
 }
 
 extract_os_from_nmap() {
     ip="$1"
 
-    # Try to extract OS from nmap scan results
+    # Try to extract OS from nmap scan results across all phase directories
     os="Unknown"
-    for scan_file in "$EVIDENCE_DIR"/raw_scans/nmap_*.gnmap "$EVIDENCE_DIR"/raw_scans/nmap_*.txt; do
-        if [ -f "$scan_file" ]; then
-            os_line=$(grep -A5 "$ip" "$scan_file" 2>/dev/null | grep -i "OS:" | head -1 | sed 's/.*OS: //' | cut -d',' -f1)
-            if [ -n "$os_line" ]; then
-                os="$os_line"
-                break
+
+    # Check multiple directories where nmap results might be
+    for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans"; do
+        for scan_file in "$scan_dir"/nmap_*.gnmap "$scan_dir"/nmap_*.txt; do
+            if [ -f "$scan_file" ]; then
+                os_line=$(grep -A5 "$ip" "$scan_file" 2>/dev/null | grep -i "OS:" | head -1 | sed 's/.*OS: //' | cut -d',' -f1)
+                if [ -n "$os_line" ]; then
+                    os="$os_line"
+                    break 2
+                fi
             fi
-        fi
+        done
     done
+
     echo "$os"
 }
 
@@ -337,10 +354,10 @@ create_enriched_service_target() {
                 continue
             fi
 
-            # Get hostname from dns_results.txt
+            # Get hostname from dns_results.txt (Phase 3 directory)
             hostname="-"
-            if [ -f "$SESSION_DIR/dns_results.txt" ]; then
-                hostname=$(grep "^${ip}[[:space:]]" "$SESSION_DIR/dns_results.txt" 2>/dev/null | awk '{print $2}' | head -1)
+            if [ -f "$PHASE3_DIR/dns_results.txt" ]; then
+                hostname=$(grep "^${ip}[[:space:]]" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | awk '{print $2}' | head -1)
                 [ -z "$hostname" ] && hostname="-"
             fi
 
@@ -1085,7 +1102,30 @@ categorize_services_enhanced() {
         fi
     done
 
-    # Generate enriched service target files
+    # Generate service distribution summary (basic counts)
+    {
+        echo "=== Service Distribution Summary ==="
+        echo "FTP Services: $(wc -l < "$SERVICE_TARGETS_DIR/ftp_targets.txt")"
+        echo "SSH Services: $(wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt")"
+        echo "Telnet Services: $(wc -l < "$SERVICE_TARGETS_DIR/telnet_targets.txt")"
+        echo "SMTP Services: $(wc -l < "$SERVICE_TARGETS_DIR/smtp_targets.txt")"
+        echo "DNS Services: $(wc -l < "$SERVICE_TARGETS_DIR/dns_targets.txt")"
+        echo "Web Services: $(wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt")"
+        echo "POP3 Services: $(wc -l < "$SERVICE_TARGETS_DIR/pop3_targets.txt")"
+        echo "IMAP Services: $(wc -l < "$SERVICE_TARGETS_DIR/imap_targets.txt")"
+        echo "SMB Services: $(wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt")"
+        echo "Database Services: $(wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt")"
+        echo "RDP Services: $(wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt")"
+        echo "VNC Services: $(wc -l < "$SERVICE_TARGETS_DIR/vnc_targets.txt")"
+        echo "SNMP Services: $(wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt")"
+    } > service_summary.txt
+
+    echo "Service categorization completed" >> "$REPORT_FILE"
+    cat service_summary.txt >> "$REPORT_FILE"
+}
+
+# Function to create enriched service target files (called after service enumeration)
+create_enriched_service_targets() {
     echo "Creating enriched service target files..." >> "$REPORT_FILE"
     create_enriched_service_target "ftp" "$SERVICE_TARGETS_DIR/ftp_targets.txt"
     create_enriched_service_target "ssh" "$SERVICE_TARGETS_DIR/ssh_targets.txt"
@@ -1101,27 +1141,6 @@ categorize_services_enhanced() {
     create_enriched_service_target "vnc" "$SERVICE_TARGETS_DIR/vnc_targets.txt"
     create_enriched_service_target "snmp" "$SERVICE_TARGETS_DIR/snmp_targets.txt"
     echo "Enriched service target files created" >> "$REPORT_FILE"
-
-    # Generate service distribution summary
-    {
-        echo "=== Enhanced Service Distribution Summary ==="
-        echo "FTP Services: $(wc -l < "$SERVICE_TARGETS_DIR/ftp_targets.txt")"
-        echo "SSH Services: $(wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt")"
-        echo "Telnet Services: $(wc -l < "$SERVICE_TARGETS_DIR/telnet_targets.txt")"
-        echo "SMTP Services: $(wc -l < "$SERVICE_TARGETS_DIR/smtp_targets.txt")"
-        echo "DNS Services: $(wc -l < "$SERVICE_TARGETS_DIR/dns_targets.txt")"
-        echo "Web Services: $(wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt")"
-        echo "POP3 Services: $(wc -l < "$SERVICE_TARGETS_DIR/pop3_targets.txt")"
-        echo "IMAP Services: $(wc -l < "$SERVICE_TARGETS_DIR/imap_targets.txt")"
-        echo "SMB Services: $(wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt")"
-        echo "Database Services: $(wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt")"
-        echo "RDP Services: $(wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt")"
-        echo "VNC Services: $(wc -l < "$SERVICE_TARGETS_DIR/vnc_targets.txt")"
-        echo "SNMP Services: $(wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt")"
-    } > service_summary_enhanced.txt
-    
-    echo "Enhanced service categorization completed" >> "$REPORT_FILE"
-    cat service_summary_enhanced.txt >> "$REPORT_FILE"
 }
 
 # Safe service enumeration functions (defensive-only, no brute forcing)
@@ -2240,6 +2259,10 @@ create_enriched_categorized_hosts "web_servers" "$SESSION_DIR/categorized/web_se
 create_enriched_categorized_hosts "database_servers" "$SESSION_DIR/categorized/database_servers.txt"
 create_enriched_categorized_hosts "unknown" "$SESSION_DIR/categorized/unknown_hosts.txt"
 echo "  Enriched categorized host files created" >> "$REPORT_FILE"
+
+# Generate enriched service target files (now that Phase 6 enumeration is complete)
+echo "  Creating enriched service target files..." >> "$REPORT_FILE"
+create_enriched_service_targets
 
 echo >> "$REPORT_FILE"
 
