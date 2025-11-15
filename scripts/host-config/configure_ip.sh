@@ -260,7 +260,7 @@ flush_ip_addresses() {
     # Simple confirmation
     echo
     echo "Are you sure you want to flush all IP addresses from $interface? (y/N): " >&2
-    read response
+    read -r response
     echo
     case "$response" in
         [Yy]|[Yy][Ee][Ss])
@@ -299,8 +299,8 @@ get_ip_with_cidr() {
 
     while [ $attempts -lt $max_attempts ]; do
         echo "$prompt: " >&2
-        read ip_input
-        
+        read -r ip_input
+
         if [ -n "$ip_input" ] && validate_ip_range "$ip_input"; then
             echo "$ip_input"
             return 0
@@ -352,8 +352,8 @@ run_interactive_mode() {
     # Get user choice with immediate prompt visibility
     while true; do
         echo "Select option (1-3): " >&2
-        read choice
-        
+        read -r choice
+
         case "$choice" in
             1)
                 if ip_addr=$(get_ip_with_cidr "Enter IP address with CIDR (e.g., 192.168.1.100/24)"); then
