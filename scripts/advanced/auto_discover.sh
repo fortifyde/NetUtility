@@ -126,10 +126,10 @@ echo "This VLAN-aware workflow follows logical sequence for comprehensive networ
 echo "1. Interface state verification"
 echo "2. Promiscuous packet capture"
 echo "3. VLAN analysis (identify VLANs and network ranges)"
-echo "4. VLAN configuration"
-echo "5. Smart IP configuration"
-echo "6. VLAN-specific discovery (separate results per VLAN)"
-echo "7. Analysis (security and protocol analysis)"
+echo "4. VLAN Host configuration"
+echo "5. IP configuration"
+echo "6. VLAN-specific discovery"
+echo "7. Analysis"
 echo
 
 log_info "Starting VLAN-aware auto-discovery workflow"
@@ -208,7 +208,7 @@ echo >> "$WORKFLOW_REPORT"
 
 # Phase 1: Promiscuous Packet Capture
 echo
-echo "=== Phase 1: Promiscuous Packet Capture ==="
+echo "=== Phase 1: Packet Capture ==="
 echo "--- PHASE 1: PROMISCUOUS CAPTURE ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
@@ -345,7 +345,7 @@ if [ "$vlan_count" -gt 0 ]; then
     # Display discovered VLANs to user for selection
     echo
     echo "=== VLAN Discovery Results ==="
-    echo "The following VLANs were discovered in the captured traffic:"
+    echo "The following VLANs and sample IPs were discovered in the captured traffic:"
     echo
     
     vlan_info=""
@@ -408,7 +408,7 @@ if [ "$vlan_count" -gt 0 ]; then
         if [ "$selected_vlan_count" -gt 1 ]; then
             echo >&2
             echo "=== VLAN Scan Priority Configuration ===" >&2
-            echo "Network discovery can take hours for multiple VLANs." >&2
+            echo "Network discovery may take a long time for multiple VLANs." >&2
             echo "You can prioritize specific VLANs to scan first." >&2
             echo >&2
             echo "Selected VLANs:" >&2
@@ -596,7 +596,7 @@ if [ "$selected_vlan_count" -gt 0 ]; then
                         
                         echo "  Discovered IPs: $(echo "$vlan_ips" | head -3 | tr '\n' ' ')"
                         echo "  Estimated network: $network_base.0$suggested_cidr"
-                        echo "  Suggested IP: $suggested_ip (avoiding common gateway/firewall IPs)"
+                        echo "  Suggested IP: $suggested_ip"
                         echo
                         
                         # Prompt user for IP choice
@@ -619,8 +619,7 @@ if [ "$selected_vlan_count" -gt 0 ]; then
                         fi
                     else
                         # No valid unicast IPs found (only multicast/broadcast traffic)
-                        echo "  No valid unicast IP addresses found for VLAN $vlan_id" >&2
-                        echo "  (Only multicast/broadcast addresses detected in traffic)" >&2
+                        echo "  No valid unicast IP addresses found for VLAN $vlan_id during capture" >&2
                         echo "  Manual IP configuration required for $vlan_interface" >&2
                         echo >&2
 
@@ -900,15 +899,7 @@ create_session_consolidation_reports() {
             fi
         done
         echo ""
-        
-        # Session-level recommendations
-        echo "SESSION-LEVEL RECOMMENDATIONS:"
-        echo "1. Review individual VLAN results for network-specific findings"
-        echo "2. Coordinate team assignments across VLANs to avoid duplication"
-        echo "3. Prioritize cross-VLAN services (databases, domain controllers)"
-        echo "4. Consider VLAN segmentation analysis for security assessment"
-        echo ""
-        
+
         echo "DIRECTORY STRUCTURE:"
         echo "  Session Directory: $SESSION_DISCOVERY_DIR"
         for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
