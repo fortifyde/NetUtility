@@ -2055,16 +2055,62 @@ echo >> "$REPORT_FILE"
 echo "Phase 6: Service Enumeration - Detailed service analysis..."
 if command -v nmap >/dev/null 2>&1; then
     echo "Performing comprehensive service enumeration..." >> "$REPORT_FILE"
-    
-    # Version detection on all discovered services
-    echo "  Stage 1: Version detection and banner grabbing..." >> "$REPORT_FILE"
-    nmap -n -sV --version-intensity 5 -T4 \
+
+    # Extract open ports from Phase 5 TCP scan for targeted enumeration
+    echo "  Extracting open ports from Phase 5 results..." >> "$REPORT_FILE"
+    if [ -f "$SESSION_DIR/nmap_fast_scan.txt" ]; then
+        # Extract unique open TCP ports across all hosts (excluding open|filtered)
+        grep -oP '\d+/tcp\s+open\s' "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null | \
+            cut -d'/' -f1 | sort -nu | tr '\n' ',' | sed 's/,$//' > "$PHASE6_DIR/open_ports.txt" || true
+
+        # Also extract UDP ports if available (excluding open|filtered)
+        if [ -f "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" ]; then
+            grep -oP '\d+/udp\s+open\s' "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" 2>/dev/null | \
+                cut -d'/' -f1 | sort -nu | tr '\n' ',' | sed 's/,$//' > "$PHASE6_DIR/open_udp_ports.txt" || true
+        fi
+
+        OPEN_TCP_PORTS=$(cat "$PHASE6_DIR/open_ports.txt" 2>/dev/null)
+        OPEN_UDP_PORTS=$(cat "$PHASE6_DIR/open_udp_ports.txt" 2>/dev/null)
+
+        if [ -n "$OPEN_TCP_PORTS" ]; then
+            echo "    Open TCP ports found: $OPEN_TCP_PORTS" >> "$REPORT_FILE"
+            PORT_ARGS="-p $OPEN_TCP_PORTS"
+        else
+            echo "    No open TCP ports found, using top 1000 ports" >> "$REPORT_FILE"
+            PORT_ARGS="--top-ports 1000"
+        fi
+
+        if [ -n "$OPEN_UDP_PORTS" ]; then
+            echo "    Open UDP ports found: $OPEN_UDP_PORTS" >> "$REPORT_FILE"
+        fi
+    else
+        echo "    Phase 5 results not found, using top 1000 ports" >> "$REPORT_FILE"
+        PORT_ARGS="--top-ports 1000"
+        OPEN_UDP_PORTS=""
+    fi
+
+    # Version detection on discovered open ports only
+    # Using -Pn since hosts are already confirmed up from Phase 2
+    echo "  Stage 1: Version detection and banner grabbing (TCP)..." >> "$REPORT_FILE"
+    nmap -Pn -n -sV --version-intensity 5 -T4 $PORT_ARGS \
         -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_version_detection" 2>/dev/null || true
-    
-    # Default script scan for additional service information
-    echo "  Stage 2: Default NSE scripts..." >> "$REPORT_FILE"
-    nmap -n -sC -T4 \
+
+    # Default script scan on discovered open ports only
+    # Using -Pn since hosts are already confirmed up from Phase 2
+    echo "  Stage 2: Default NSE scripts (TCP)..." >> "$REPORT_FILE"
+    nmap -Pn -n -sC -T4 $PORT_ARGS \
         -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_default_scripts" 2>/dev/null || true
+
+    # UDP service enumeration on discovered open UDP ports
+    if [ -n "$OPEN_UDP_PORTS" ]; then
+        echo "  Stage 3: UDP service version detection..." >> "$REPORT_FILE"
+        nmap -Pn -n -sU -sV --version-intensity 5 -T4 -p "$OPEN_UDP_PORTS" \
+            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_services" 2>/dev/null || true
+
+        echo "  Stage 4: UDP default NSE scripts..." >> "$REPORT_FILE"
+        nmap -Pn -n -sU -sC -T4 -p "$OPEN_UDP_PORTS" \
+            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_scripts" 2>/dev/null || true
+    fi
     
     # Service-specific enumeration
     enumerate_ftp_services
@@ -2345,7 +2391,7 @@ echo "      - Classifications: $os_classified_count OS detected, $device_classif
 echo "  ✓ Phase 3: DNS Lookup (completed)" >> "$REPORT_FILE"
 echo "  ✓ Phase 4: Windows-Specific Discovery ($smb_count SMB hosts)" >> "$REPORT_FILE"
 echo "  ✓ Phase 5: Progressive Port Scan (multi-stage)" >> "$REPORT_FILE"
-echo "  ✓ Phase 6: Service Enumeration (defensive)" >> "$REPORT_FILE"
+echo "  ✓ Phase 6: Service Enumeration (TCP/UDP version detection + NSE scripts)" >> "$REPORT_FILE"
 echo "  ✓ Phase 7: Host Categorization (completed)" >> "$REPORT_FILE"
 echo "  ✓ Phase 8: Evidence Processing (inventory generated)" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
