@@ -49,7 +49,7 @@ func (e *Executor) ExecuteScript(scriptPath string, outputWriter io.Writer) (*Sc
 
 	// Create command
 	cmd := exec.Command("bash", scriptPath)
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "NETUTIL_FORCE_COLOR=1")
 	e.cmd = cmd
 
 	// Set up direct I/O

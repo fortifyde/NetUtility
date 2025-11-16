@@ -23,12 +23,12 @@ mkdir -p "$LOG_DIR"
 # Function to get log level name
 get_log_level_name() {
     case "$1" in
-        $LOG_LEVEL_DEBUG) echo "DEBUG" ;;
-        $LOG_LEVEL_INFO)  echo "INFO" ;;
-        $LOG_LEVEL_WARN)  echo "WARN" ;;
-        $LOG_LEVEL_ERROR) echo "ERROR" ;;
-        $LOG_LEVEL_FATAL) echo "FATAL" ;;
-        *)                echo "UNKNOWN" ;;
+        "$LOG_LEVEL_DEBUG") echo "DEBUG" ;;
+        "$LOG_LEVEL_INFO")  echo "INFO" ;;
+        "$LOG_LEVEL_WARN")  echo "WARN" ;;
+        "$LOG_LEVEL_ERROR") echo "ERROR" ;;
+        "$LOG_LEVEL_FATAL") echo "FATAL" ;;
+        *)                  echo "UNKNOWN" ;;
     esac
 }
 
@@ -147,9 +147,10 @@ rotate_logs() {
             timestamp=$(date '+%Y%m%d_%H%M%S')
             mv "$LOG_FILE" "${LOG_FILE}.${timestamp}"
             log_info "Log file rotated: ${LOG_FILE}.${timestamp}"
-            
+
             # Keep only last 5 log files
-            ls -t "${LOG_FILE}."* 2>/dev/null | tail -n +6 | while read -r old_log; do
+            find "$(dirname "$LOG_FILE")" -name "$(basename "$LOG_FILE").*" -type f 2>/dev/null |
+                sort -r | tail -n +6 | while read -r old_log; do
                 rm -f "$old_log"
                 log_info "Removed old log file: $old_log"
             done
@@ -198,7 +199,7 @@ search_logs() {
 clear_logs() {
     if [ -f "$LOG_FILE" ]; then
         log_info "Log file cleared by user request"
-        > "$LOG_FILE"
+        true > "$LOG_FILE"
         echo "Log file cleared: $LOG_FILE"
     else
         echo "No log file to clear"
@@ -221,8 +222,8 @@ init_logging() {
     log_info "Log directory: $LOG_DIR" "logging.sh"
 }
 
-# Set loaded marker
-NETUTIL_LOGGING_LOADED=1
+# Set loaded marker (exported for external use)
+export NETUTIL_LOGGING_LOADED=1
 
 # Auto-initialize if sourced
 if [ "${0##*/}" != "logging.sh" ]; then

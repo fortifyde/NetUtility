@@ -8,15 +8,20 @@
 . "$(dirname "$0")/../common/utils.sh"
 # shellcheck source=../common/logging.sh
 . "$(dirname "$0")/../common/logging.sh"
+# shellcheck source=../common/colors.sh
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
 # Disable SC3059: Case modification (${var^^}) is a bashism but works in sh on modern systems
+# Disable SC2126: grep|wc is clearer than grep -c in context
 # Disable SC2129: Individual redirects are clearer than grouped redirects in this context
 # Disable SC2034: Some variables are used in sourced scripts or future features
 # Disable SC2086: Word splitting is intentional in some cases
 # Disable SC2012: Using ls with parsing is acceptable for this use case
+# Disable SC2188: Lone redirects used to initialize files
 # Disable SC2235: Subshell syntax is clearer for complex conditions
 # Disable SC3037: echo -n is more reliable than printf for prompts to avoid buffering issues
-# shellcheck disable=SC3059,SC2162,SC2129,SC2034,SC2086,SC2012,SC2235,SC3037
+# Disable SC1091: Source files are checked separately
+# shellcheck disable=SC3059,SC2162,SC2129,SC2034,SC2086,SC2012,SC2188,SC2235,SC3037,SC2126,SC1091
 
 echo "=== Auto-Discovery Workflow ==="
 echo
@@ -1019,21 +1024,32 @@ if [ -x "$discovery_script" ]; then
         
         # Phase 4a: Network Collection
         # Collect all VLAN networks upfront before starting discoveries
-        echo >&2
-        echo "=== Phase 4a: Network Collection ===" >&2
-        echo "Collecting discovery networks for all VLANs..." >&2
-        echo >&2
+        if command -v print_phase_header >/dev/null 2>&1; then
+            print_phase_header "PHASE 4a: NETWORK COLLECTION" >&2
+            color_info "Collecting discovery networks for all VLANs..." >&2
+        else
+            echo >&2
+            echo "=== Phase 4a: Network Collection ===" >&2
+            echo "Collecting discovery networks for all VLANs..." >&2
+            echo >&2
+        fi
 
         # Create temp file for network storage
         VLAN_NETWORKS_FILE="$TEMP_DIR/vlan_networks.txt"
         > "$VLAN_NETWORKS_FILE"  # Initialize empty file
 
         # Loop through each VLAN and collect network choices
+        _vlan_current=0
         while read -r vlan_id <&3; do
             if [ -n "$vlan_id" ]; then
+                _vlan_current=$((_vlan_current + 1))
                 vlan_interface="${target_interface}.${vlan_id}"
 
-                echo "=== VLAN $vlan_id Network Configuration ===" >&2
+                if command -v print_progress >/dev/null 2>&1; then
+                    print_progress "$_vlan_current" "$selected_vlan_count" "Processing VLAN $vlan_id: Collecting network configuration" >&2
+                else
+                    echo "=== VLAN $vlan_id Network Configuration ===" >&2
+                fi
 
                 # Check if interface exists and has IP
                 if ip addr show "$vlan_interface" >/dev/null 2>&1; then
@@ -1088,14 +1104,23 @@ if [ -x "$discovery_script" ]; then
         done 3< "$TEMP_DIR/selected_vlans.txt"
 
         # Show summary of collected networks
-        echo >&2
-        echo "==========================================" >&2
-        echo "   Network Collection Complete" >&2
-        echo "==========================================" >&2
+        if command -v color_success >/dev/null 2>&1; then
+            echo >&2
+            color_success "Network collection complete" >&2
+        else
+            echo >&2
+            echo "==========================================" >&2
+            echo "   Network Collection Complete" >&2
+            echo "==========================================" >&2
+        fi
         echo >&2
 
         if [ -s "$VLAN_NETWORKS_FILE" ]; then
-            echo "The following networks will be scanned:" >&2
+            if command -v color_info >/dev/null 2>&1; then
+                color_info "The following networks will be scanned:" >&2
+            else
+                echo "The following networks will be scanned:" >&2
+            fi
             echo >&2
             while read -r vlan_id network <&3; do
                 printf "  VLAN %-3s: %s\n" "$vlan_id" "$network" >&2
@@ -1115,18 +1140,29 @@ if [ -x "$discovery_script" ]; then
 
         # Phase 4b: Network Discovery Execution
         # Execute discoveries using pre-collected network ranges
-        echo >&2
-        echo "=== Phase 4b: Network Discovery Execution ===" >&2
-        echo "Running network discovery on configured VLANs..." >&2
-        echo >&2
+        if command -v print_phase_header >/dev/null 2>&1; then
+            print_phase_header "PHASE 4b: NETWORK DISCOVERY EXECUTION" >&2
+            color_info "Running network discovery on configured VLANs..." >&2
+        else
+            echo >&2
+            echo "=== Phase 4b: Network Discovery Execution ===" >&2
+            echo "Running network discovery on configured VLANs..." >&2
+            echo >&2
+        fi
 
         # Discover networks on each configured VLAN interface
+        _vlan_current=0
         while read -r vlan_id vlan_discovery_network <&3; do
             if [ -n "$vlan_id" ] && [ -n "$vlan_discovery_network" ]; then
+                _vlan_current=$((_vlan_current + 1))
                 vlan_interface="${target_interface}.${vlan_id}"
                 vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
 
-                echo "=== Discovering VLAN $vlan_id on $vlan_discovery_network ===" >&2
+                if command -v print_progress >/dev/null 2>&1; then
+                    print_progress "$_vlan_current" "$vlan_network_count" "Discovering VLAN $vlan_id on $vlan_discovery_network" >&2
+                else
+                    echo "=== Discovering VLAN $vlan_id on $vlan_discovery_network ===" >&2
+                fi
                 echo "  VLAN $vlan_id discovery:" >> "$WORKFLOW_REPORT"
                 echo "    Discovery network: $vlan_discovery_network" >> "$WORKFLOW_REPORT"
 
@@ -1136,7 +1172,12 @@ if [ -x "$discovery_script" ]; then
                 mkdir -p "$vlan_discovery_dir"
 
                 # Run discovery for this specific VLAN network
-                echo "  Starting multi-phase discovery on $vlan_discovery_network..." >&2
+                if command -v color_info >/dev/null 2>&1; then
+                    echo "  " >&2
+                    color_info "  Running multi-phase discovery on $vlan_discovery_network..." >&2
+                else
+                    echo "  Starting multi-phase discovery on $vlan_discovery_network..." >&2
+                fi
                         
                         # Set environment variables for multiphase script context
                         export MANUAL_NETWORK_RANGE="$vlan_discovery_network"

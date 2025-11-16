@@ -982,6 +982,76 @@ show_latest_results() {
             echo "  $category: (none)"
         fi
     done
-    
+
     echo
+}
+
+# =============================================================================
+# NMAP OUTPUT FILTERING
+# =============================================================================
+
+# Filter nmap output to show only important information
+# Usage: nmap ... | filter_nmap_output
+# Or: filter_nmap_output < nmap_output.txt
+filter_nmap_output() {
+    awk '
+    /^Starting Nmap/ { print; next }
+    /^Nmap scan report for/ { print; next }
+    /^Host is up/ { print; next }
+    /^PORT[[:space:]]+STATE[[:space:]]+SERVICE/ { print; header_printed=1; next }
+    header_printed && /^[0-9]+\/(tcp|udp)[[:space:]]+open/ { print; next }
+    /^Discovered open port/ { print; next }
+    /^Service Info:/ { print; next }
+    /^OS details:/ { print; next }
+    /^Device type:/ { print; next }
+    /^Running:/ { print; next }
+    /^OS CPE:/ { print; next }
+    /^\|/ { print; next }
+    /^Nmap done:/ { print; next }
+    /hosts up/ { print; next }
+    /WARNING/ { print; next }
+    /ERROR/ { print; next }
+    /^Failed/ { print; next }
+    '
+}
+
+# Run nmap with filtered output and progress indicator
+# Usage: run_nmap_filtered "target" "description" [extra args...]
+run_nmap_filtered() {
+    _rnf_target="$1"
+    _rnf_description="$2"
+    shift 2
+
+    # Source colors if available
+    if [ -f "$(dirname "$0")/../common/colors.sh" ]; then
+        # shellcheck source=scripts/common/colors.sh
+        . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+    fi
+
+    if command -v color_info >/dev/null 2>&1; then
+        color_info "$_rnf_description"
+    else
+        echo "$_rnf_description"
+    fi
+
+    # Run nmap and filter output
+    nmap "$@" "$_rnf_target" 2>&1 | filter_nmap_output
+
+    _rnf_status=$?
+
+    if [ $_rnf_status -eq 0 ]; then
+        if command -v color_success >/dev/null 2>&1; then
+            color_success "Scan complete"
+        else
+            echo "✓ Scan complete"
+        fi
+    else
+        if command -v color_error >/dev/null 2>&1; then
+            color_error "Scan failed with exit code $_rnf_status"
+        else
+            echo "✗ Error: Scan failed with exit code $_rnf_status" >&2
+        fi
+    fi
+
+    return $_rnf_status
 }

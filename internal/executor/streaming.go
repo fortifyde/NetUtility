@@ -107,7 +107,7 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 
 	// Create command
 	cmd := exec.CommandContext(e.ctx, "bash", scriptPath)
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "NETUTIL_FORCE_COLOR=1")
 	e.cmd = cmd
 
 	// Set up pipes
