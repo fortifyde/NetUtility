@@ -921,7 +921,7 @@ create_session_consolidation_reports() {
     SESSION_TEAM_HANDOFF_DIR="$SESSION_DISCOVERY_DIR/session_team_handoff"
     mkdir -p "$SESSION_TEAM_HANDOFF_DIR"
     
-    # Consolidate team targets across all VLANs
+    # Consolidate team targets across all VLANs from categorized directories
     {
         echo "=== SESSION-LEVEL TEAM COORDINATION ==="
         echo "Generated: $(date)"
@@ -931,34 +931,41 @@ create_session_consolidation_reports() {
         echo "in this auto-discovery session for coordinated assessment planning."
         echo ""
         
-        # For each team, consolidate targets
+        # For each team, consolidate targets from categorized directories
         for team in windows linux network; do
             echo "== ${team^^} TEAM SESSION SUMMARY =="
             total_targets=0
             
             for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
-                if [ -d "$net_dir/team_handoff/$team" ] && [ -f "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" ]; then
+                if [ -d "$net_dir/categorized" ]; then
                     net_name=$(basename "$net_dir")
                     echo "$net_name targets:"
                     
-                    # Extract target counts from individual handoff files
+                    # Extract target counts from categorized files
                     case "$team" in
                         "windows")
-                            smb_count=$(grep -c "SMB Service Hosts" "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" 2>/dev/null || echo 0)
-                            rdp_count=$(grep -c "RDP Service Hosts" "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" 2>/dev/null || echo 0)
-                            echo "  SMB: $smb_count, RDP: $rdp_count"
-                            total_targets=$((total_targets + smb_count + rdp_count))
+                            windows_count=0
+                            if [ -f "$net_dir/categorized/windows_hosts.txt" ]; then
+                                windows_count=$(wc -l < "$net_dir/categorized/windows_hosts.txt" 2>/dev/null || echo 0)
+                                echo "  Windows hosts: $windows_count"
+                                total_targets=$((total_targets + windows_count))
+                            fi
                             ;;
                         "linux")
-                            ssh_count=$(grep -c "SSH Service Hosts" "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" 2>/dev/null || echo 0)
-                            echo "  SSH: $ssh_count"
-                            total_targets=$((total_targets + ssh_count))
+                            linux_count=0
+                            if [ -f "$net_dir/categorized/linux_hosts.txt" ]; then
+                                linux_count=$(wc -l < "$net_dir/categorized/linux_hosts.txt" 2>/dev/null || echo 0)
+                                echo "  Linux/Unix hosts: $linux_count"
+                                total_targets=$((total_targets + linux_count))
+                            fi
                             ;;
                         "network")
-                            dns_count=$(grep -c "DNS Service Hosts" "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" 2>/dev/null || echo 0)
-                            snmp_count=$(grep -c "SNMP Service Hosts" "$net_dir/team_handoff/$team/${team^^}_TEAM_HANDOFF.txt" 2>/dev/null || echo 0)
-                            echo "  DNS: $dns_count, SNMP: $snmp_count"
-                            total_targets=$((total_targets + dns_count + snmp_count))
+                            network_count=0
+                            if [ -f "$net_dir/categorized/network_devices.txt" ]; then
+                                network_count=$(wc -l < "$net_dir/categorized/network_devices.txt" 2>/dev/null || echo 0)
+                                echo "  Network devices: $network_count"
+                                total_targets=$((total_targets + network_count))
+                            fi
                             ;;
                     esac
                 fi
@@ -971,10 +978,18 @@ create_session_consolidation_reports() {
         echo "== MANUAL ASSIGNMENT COORDINATION =="
         echo "Web and database services requiring manual assignment:"
         for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
-            if [ -f "$net_dir/team_handoff/manual_assignment/MANUAL_ASSIGNMENT_HANDOFF.txt" ]; then
+            if [ -d "$net_dir/categorized" ]; then
                 net_name=$(basename "$net_dir")
-                web_count=$(grep -c "Web Service Hosts" "$net_dir/team_handoff/manual_assignment/MANUAL_ASSIGNMENT_HANDOFF.txt" 2>/dev/null || echo 0)
-                db_count=$(grep -c "Database Service Hosts" "$net_dir/team_handoff/manual_assignment/MANUAL_ASSIGNMENT_HANDOFF.txt" 2>/dev/null || echo 0)
+                web_count=0
+                db_count=0
+                
+                if [ -f "$net_dir/categorized/web_servers.txt" ]; then
+                    web_count=$(wc -l < "$net_dir/categorized/web_servers.txt" 2>/dev/null || echo 0)
+                fi
+                if [ -f "$net_dir/categorized/database_servers.txt" ]; then
+                    db_count=$(wc -l < "$net_dir/categorized/database_servers.txt" 2>/dev/null || echo 0)
+                fi
+                
                 if [ $web_count -gt 0 ] || [ $db_count -gt 0 ]; then
                     echo "$net_name: Web: $web_count, Database: $db_count"
                 fi
