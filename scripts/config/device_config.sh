@@ -9,11 +9,11 @@ mkdir -p "$RESULTS_DIR"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 echo "Device connection information:"
-echo -n "Enter device IP address: "
+printf "Enter device IP address: " >&2
 read device_ip
-echo -n "Enter username: "
+printf "Enter username: " >&2
 read username
-echo -n "Enter password: "
+printf "Enter password: " >&2
 read password
 echo
 
@@ -25,8 +25,8 @@ fi
 echo "Testing connectivity to $device_ip..."
 if ! ping -c 1 "$device_ip" >/dev/null 2>&1; then
     echo "Warning: Device $device_ip is not responding to ping"
-    echo -n "Continue anyway? (y/N): "
-    read continue_anyway
+printf "Continue anyway? (y/N): " >&2
+read continue_anyway
     if ! echo "$continue_anyway" | grep -E '^[Yy]$' >/dev/null; then
         echo "Aborting..."
         exit 1

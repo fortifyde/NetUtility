@@ -388,7 +388,7 @@ select_file() {
     done < /tmp/netutil_files.$$
     
     while true; do
-        printf "%s (1-%d): " "$prompt_text" "$max_num" >&2
+        echo "$prompt_text (1-$max_num): " >&2
         read file_num
         
         if validate_file_number "$file_num"; then
@@ -575,7 +575,7 @@ select_target() {
     echo >&2
 
     while true; do
-        printf "Select target type (1-5): " >&2
+        echo "Select target type (1-5): " >&2
         read -r target_type
         
         case $target_type in
@@ -734,10 +734,10 @@ show_loading() {
     message=$1
     delay=${2:-0.5}
     
-    echo -n "$message"
+    printf "%s" "$message"
     i=1
     while [ $i -le 3 ]; do
-        echo -n "."
+        printf "."
         sleep "$delay"
         i=$((i + 1))
     done

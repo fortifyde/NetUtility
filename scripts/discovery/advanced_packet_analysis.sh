@@ -5,8 +5,8 @@
 
 . "$(dirname "$0")/../common/utils.sh"
 
-echo "=== Advanced Packet Analysis ==="
-echo
+echo "=== Advanced Packet Analysis ===" >&2
+echo >&2
 
 CAPTURE_DIR="${NETUTIL_WORKDIR:-$HOME}/captures"
 ANALYSIS_DIR="${NETUTIL_WORKDIR:-$HOME}/analysis"
@@ -14,40 +14,16 @@ ANALYSIS_DIR="${NETUTIL_WORKDIR:-$HOME}/analysis"
 # Create analysis directory if it doesn't exist
 mkdir -p "$ANALYSIS_DIR"
 
-# Parse command line arguments or read from stdin
-provided_file="$1"
-
-if [ -n "$provided_file" ]; then
-    # Use provided file path
-    capture_file="$provided_file"
-    echo "Using provided capture file: $capture_file"
-elif [ ! -t 0 ]; then
-    # Read from stdin (piped input)
-    read -r capture_file
-    echo "Using piped capture file: $capture_file"
-else
-    # Interactive mode - show available files and prompt for selection
-    if [ ! -d "$CAPTURE_DIR" ]; then
-        echo "Capture directory $CAPTURE_DIR not found"
-        exit 1
-    fi
-
-    echo "Available capture files:"
-    ls -la "$CAPTURE_DIR"/*.pcap 2>/dev/null || {
-        echo "No capture files found in $CAPTURE_DIR"
-        exit 1
-    }
-
-    echo
-    capture_file=$(select_file "$CAPTURE_DIR" "*.pcap" "Select capture file for analysis:")
-fi
-
-if [ ! -f "$capture_file" ]; then
-    echo "Error: Capture file not found"
+# Select capture file using standardized function
+capture_file=$(select_capture_file)
+if [ -z "$capture_file" ]; then
+    echo "Error: No capture file selected" >&2
     exit 1
 fi
 
-echo "Performing advanced analysis on: $capture_file"
+echo "Using selected capture file: $capture_file" >&2
+
+echo "Performing advanced analysis on: $capture_file" >&2
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BASENAME=$(basename "$capture_file" .pcap)
@@ -62,7 +38,7 @@ echo "Capture file: $capture_file" >> "$REPORT_FILE"
 echo "Analysis time: $(date)" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Extracting network information..."
+echo "Extracting network information..." >&2
 
 # VLAN Analysis
 echo "--- VLAN ANALYSIS ---" >> "$REPORT_FILE"
@@ -271,13 +247,13 @@ fi
 echo >> "$REPORT_FILE"
 echo "Analysis completed at $(date)" >> "$REPORT_FILE"
 
-echo "Analysis complete!"
-echo "Report saved to: $REPORT_FILE"
+echo "Analysis complete!" >&2
+echo "Report saved to: $REPORT_FILE" >&2
 
 # Update latest symlinks
 update_latest_links "analysis" "$REPORT_FILE"
 
 echo
-echo "Opening report..."
+echo "Opening report..." >&2
 echo
 cat "$REPORT_FILE"
