@@ -23,8 +23,8 @@
 # Disable SC1091: Source files are checked separately
 # shellcheck disable=SC3059,SC2162,SC2129,SC2034,SC2086,SC2012,SC2188,SC2235,SC3037,SC2126,SC1091
 
-echo "=== Auto-Discovery Workflow ==="
-echo
+echo "=== Auto-Discovery Workflow ===" >&2
+echo >&2
 
 # Log script start
 log_script_start "auto_discover.sh" "$@"
@@ -140,49 +140,48 @@ echo
 log_info "Starting VLAN-aware auto-discovery workflow"
 
 # Get target interface
-echo "Available network interfaces:"
 target_interface=$(select_interface "Select parent interface for VLAN discovery" "auto_discover" "true")
 
 if [ -z "$target_interface" ]; then
-    echo "No interface selected"
+    echo "No interface selected" >&2
     log_error "No interface selected for auto-discovery workflow"
     exit 1
 fi
 
-echo "Selected interface: $target_interface"
+echo "Selected interface: $target_interface" >&2
 log_info "Selected interface for auto-discovery workflow: $target_interface"
 
 # Verify interface is UP and bring it up if needed
 interface_state=$(ip link show "$target_interface" 2>/dev/null | grep -o "state [A-Z]*" | cut -d' ' -f2)
 if [ "$interface_state" != "UP" ]; then
-    echo "Interface $target_interface is not UP (current state: ${interface_state:-UNKNOWN})"
-    echo "Bringing interface up..."
+    echo "Interface $target_interface is not UP (current state: ${interface_state:-UNKNOWN})" >&2
+    echo "Bringing interface up..." >&2
     if ip link set "$target_interface" up 2>/dev/null; then
-        echo "✓ Interface $target_interface brought up successfully"
+        echo "✓ Interface $target_interface brought up successfully" >&2
         log_info "Interface $target_interface brought up from state: $interface_state"
         # Wait a moment for interface to stabilize
         sleep 2
     else
-        echo "✗ Failed to bring interface $target_interface up (may require root privileges)"
+        echo "✗ Failed to bring interface $target_interface up (may require root privileges)" >&2
         log_error "Failed to bring interface $target_interface up"
         exit 1
     fi
 else
-    echo "✓ Interface $target_interface is already UP"
+    echo "✓ Interface $target_interface is already UP" >&2
     log_info "Interface $target_interface is already UP"
 fi
 
 # Workflow configuration
 echo
-echo "Workflow configuration:"
-echo "The auto-discovery workflow will capture network traffic in promiscuous mode"
-echo "to discover VLANs and network topology before performing discovery."
-echo
-echo "Capture duration options:"
-echo "  • 2 minutes  - Quick scan for basic VLAN discovery"
-echo "  • 5 minutes  - Standard capture"
-echo "  • 10 minutes - Extended capture (recommended)"
-echo "  • 15+ minutes - Comprehensive capture for complex environments"
+echo "Workflow configuration:" >&2
+echo "The auto-discovery workflow will capture network traffic in promiscuous mode" >&2
+echo "to discover VLANs and network topology before performing discovery." >&2
+echo >&2
+echo "Capture duration options:" >&2
+echo "  • 2 minutes  - Quick scan for basic VLAN discovery" >&2
+echo "  • 5 minutes  - Standard capture" >&2
+echo "  • 10 minutes - Extended capture (recommended)" >&2
+echo "  • 15+ minutes - Comprehensive capture for complex environments" >&2
 echo
 echo "Enter capture duration in minutes (default 10): " >&2
 read capture_duration
@@ -191,19 +190,19 @@ capture_duration=${capture_duration:-10}
 # Validate capture duration
 case "$capture_duration" in
     ''|*[!0-9]*)
-        echo "Invalid duration. Using default 10 minutes."
+        echo "Invalid duration. Using default 10 minutes." >&2
         capture_duration=10
         ;;
     *)
         if [ "$capture_duration" -lt 1 ] || [ "$capture_duration" -gt 60 ]; then
-            echo "Duration must be between 1 and 60 minutes. Using default 10 minutes."
+            echo "Duration must be between 1 and 60 minutes. Using default 10 minutes." >&2
             capture_duration=10
         fi
         ;;
 esac
 
-echo "Capture duration: $capture_duration minutes"
-log_info "Auto-discovery capture duration: $capture_duration minutes"
+echo "Capture duration: $capture_duration minutes" >&2
+    log_info "Auto-discovery capture duration: $capture_duration minutes"
 
 # Add workflow details to report
 echo "--- WORKFLOW CONFIGURATION ---" >> "$WORKFLOW_REPORT"
@@ -213,20 +212,20 @@ echo >> "$WORKFLOW_REPORT"
 
 # Phase 1: Promiscuous Packet Capture
 echo
-echo "=== Phase 1: Packet Capture ==="
+echo "=== Phase 1: Packet Capture ===" >&2
 echo "--- PHASE 1: PROMISCUOUS CAPTURE ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
 log_info "Starting Phase 1: Promiscuous packet capture"
 
 # Enable promiscuous mode
-echo "Enabling promiscuous mode on $target_interface..."
+echo "Enabling promiscuous mode on $target_interface..." >&2
 if ip link set "$target_interface" promisc on 2>/dev/null; then
-    echo "✓ Promiscuous mode enabled"
+    echo "✓ Promiscuous mode enabled" >&2
     log_info "Promiscuous mode enabled on $target_interface"
     promisc_enabled=true
 else
-    echo "⚠ Warning: Could not enable promiscuous mode (may require root privileges)"
+    echo "⚠ Warning: Could not enable promiscuous mode (may require root privileges)" >&2
     log_warn "Could not enable promiscuous mode on $target_interface"
     promisc_enabled=false
 fi
@@ -239,13 +238,13 @@ capture_file="$CAPTURE_DIR/auto_discover_capture_${TIMESTAMP}.pcap"
 # Test if directory is writable before attempting capture
 test_file="$CAPTURE_DIR/.write_test_$$"
 if ! touch "$test_file" 2>/dev/null; then
-    echo "⚠ Capture directory not writable, will use fallback location if needed"
+    echo "⚠ Capture directory not writable, will use fallback location if needed" >&2
 else
     rm -f "$test_file"
 fi
 
-echo "Starting promiscuous capture for $capture_duration minutes..."
-echo "Capture file: $capture_file"
+echo "Starting promiscuous capture for $capture_duration minutes..." >&2
+echo "Capture file: $capture_file" >&2
 
 if command -v tshark >/dev/null 2>&1; then
     # Use tshark for capture - first attempt
@@ -254,34 +253,34 @@ if command -v tshark >/dev/null 2>&1; then
     
     # If tshark failed with permission issue and we're root, try fallback location
     if [ $capture_exit_code -ne 0 ] && [ $capture_exit_code -ne 124 ] && [ "$(id -u)" -eq 0 ]; then
-        echo "Capture failed in workflow directory, trying fallback location..."
+        echo "Capture failed in workflow directory, trying fallback location..." >&2
         FALLBACK_DIR="/tmp/netutil-captures"
         mkdir -p "$FALLBACK_DIR"
         chmod 755 "$FALLBACK_DIR"
         FALLBACK_FILE="$FALLBACK_DIR/promiscuous_capture_$(date +%Y%m%d_%H%M%S).pcap"
         
-        echo "Fallback capture file: $FALLBACK_FILE"
+        echo "Fallback capture file: $FALLBACK_FILE" >&2
         timeout $((capture_duration * 60)) tshark -i "$target_interface" -w "$FALLBACK_FILE" -q 2>/dev/null
         capture_exit_code=$?
         
         # If successful in fallback location, copy to workflow directory
         if ([ $capture_exit_code -eq 0 ] || [ $capture_exit_code -eq 124 ]) && [ -f "$FALLBACK_FILE" ]; then
-            echo "Capture successful in fallback location, copying to workflow directory..."
+            echo "Capture successful in fallback location, copying to workflow directory..." >&2
             if cp "$FALLBACK_FILE" "$capture_file" 2>/dev/null; then
-                echo "✓ Capture copied to workflow directory"
+                echo "✓ Capture copied to workflow directory" >&2
                 # Update file permissions for original user if running as root
                 if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
                     chown "$SUDO_UID:$SUDO_GID" "$capture_file" 2>/dev/null || true
                 fi
             else
-                echo "⚠ Failed to copy to workflow directory, using fallback location"
+                echo "⚠ Failed to copy to workflow directory, using fallback location" >&2
                 capture_file="$FALLBACK_FILE"
             fi
         fi
     fi
     
     if [ $capture_exit_code -eq 0 ] || [ $capture_exit_code -eq 124 ]; then  # 124 = timeout
-        echo "✓ Promiscuous capture completed successfully"
+        echo "✓ Promiscuous capture completed successfully" >&2
         echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
         log_network_operation "Promiscuous capture" "$target_interface" "Completed - $(du -h "$capture_file" | cut -f1)"
 
@@ -298,18 +297,18 @@ if command -v tshark >/dev/null 2>&1; then
             # Fallback to tshark method
             packet_count=$(tshark -r "$capture_file" -q -z io,stat,0 2>/dev/null | grep -o "frames:[0-9]*" | cut -d: -f2 | head -1)
         fi
-        echo "Packets captured: ${packet_count:-unknown}"
-        echo "Capture size: $(du -h "$capture_file" | cut -f1)"
+echo "Packets captured: ${packet_count:-unknown}" >&2
+echo "Capture size: $(du -h "$capture_file" | cut -f1)" >&2
         echo "Packets captured: ${packet_count:-unknown}" >> "$WORKFLOW_REPORT"
         echo "Capture size: $(du -h "$capture_file" | cut -f1)" >> "$WORKFLOW_REPORT"
     else
-        echo "✗ Promiscuous capture failed"
+        echo "✗ Promiscuous capture failed" >&2
         echo "Status: FAILED" >> "$WORKFLOW_REPORT"
         log_error "Promiscuous capture failed on $target_interface"
         exit 1
     fi
 else
-    echo "✗ tshark not available - cannot perform capture"
+    echo "✗ tshark not available - cannot perform capture" >&2
     echo "Status: FAILED (tshark not available)" >> "$WORKFLOW_REPORT"
     log_error "tshark not available for promiscuous capture"
     exit 1
@@ -317,7 +316,7 @@ fi
 
 # Disable promiscuous mode
 if [ "$promisc_enabled" = true ]; then
-    echo "Disabling promiscuous mode..."
+    echo "Disabling promiscuous mode..." >&2
     ip link set "$target_interface" promisc off 2>/dev/null
     log_info "Promiscuous mode disabled on $target_interface"
 fi
@@ -327,21 +326,21 @@ echo >> "$WORKFLOW_REPORT"
 
 # Phase 2: Traffic Analysis
 echo
-echo "=== Phase 2: Traffic Analysis ==="
+echo "=== Phase 2: Traffic Analysis ===" >&2
 echo "--- PHASE 2: TRAFFIC ANALYSIS ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
 log_info "Starting Phase 2: Traffic analysis"
 
-echo "Analyzing captured traffic for VLANs and network information..."
+echo "Analyzing captured traffic for VLANs and network information..." >&2
 
 # Extract VLAN information
 echo "Extracting VLAN information..." >> "$WORKFLOW_REPORT"
 tshark -r "$capture_file" -T fields -e vlan.id 2>/dev/null | sort -nu | grep -v "^$" > "$TEMP_DIR/discovered_vlans.txt"
 
 vlan_count=$(wc -l < "$TEMP_DIR/discovered_vlans.txt")
-echo "VLANs discovered: $vlan_count"
-echo "VLANs discovered: $vlan_count" >> "$WORKFLOW_REPORT"
+echo "VLANs discovered: $vlan_count" >&2
+    echo "VLANs discovered: $vlan_count" >> "$WORKFLOW_REPORT"
 
 if [ "$vlan_count" -gt 0 ]; then
     echo "VLAN IDs found:" >> "$WORKFLOW_REPORT"
@@ -349,8 +348,8 @@ if [ "$vlan_count" -gt 0 ]; then
     
     # Display discovered VLANs to user for selection
     echo
-    echo "=== VLAN Discovery Results ==="
-    echo "The following VLANs and sample IPs were discovered in the captured traffic:"
+    echo "=== VLAN Discovery Results ===" >&2
+    echo "The following VLANs and sample IPs were discovered in the captured traffic:" >&2
     echo
     
     vlan_info=""
@@ -360,7 +359,7 @@ if [ "$vlan_count" -gt 0 ]; then
             sample_ips=$(tshark -r "$capture_file" -Y "vlan.id == $vlan_id" -T fields -e ip.src -e ip.dst 2>/dev/null | \
                 tr '\t' '\n' | grep -v "^$" | filter_valid_unicast_ips | sort -u | head -3 | tr '\n' ' ')
             
-            echo "  VLAN $vlan_id: ${sample_ips:-No IPs found}"
+            echo "  VLAN $vlan_id: ${sample_ips:-No IPs found}" >&2
             vlan_info="$vlan_info$vlan_id:$sample_ips\n"
             
             # Add to report
@@ -379,11 +378,11 @@ if [ "$vlan_count" -gt 0 ]; then
     case "$vlan_selection" in
         "all"|"ALL"|"")
             selected_vlans=$(cat "$TEMP_DIR/discovered_vlans.txt" | tr '\n' ' ')
-            echo "Selected all VLANs: $selected_vlans"
+            echo "Selected all VLANs: $selected_vlans" >&2
             ;;
         "none"|"NONE"|"skip"|"SKIP")
             selected_vlans=""
-            echo "Skipping VLAN configuration"
+            echo "Skipping VLAN configuration" >&2
             ;;
         *)
             # Validate selected VLANs exist in discovered list
@@ -396,9 +395,9 @@ if [ "$vlan_count" -gt 0 ]; then
                 fi
             done
             if [ -n "$selected_vlans" ]; then
-                echo "Selected VLANs:$selected_vlans"
+                echo "Selected VLANs:$selected_vlans" >&2
             else
-                echo "No valid VLANs selected, skipping VLAN configuration"
+                echo "No valid VLANs selected, skipping VLAN configuration" >&2
             fi
             ;;
     esac
@@ -407,7 +406,7 @@ if [ "$vlan_count" -gt 0 ]; then
     if [ -n "$selected_vlans" ]; then
         echo "$selected_vlans" | tr ' ' '\n' | grep -v "^$" > "$TEMP_DIR/selected_vlans.txt"
         selected_vlan_count=$(wc -l < "$TEMP_DIR/selected_vlans.txt")
-        echo "Will configure $selected_vlan_count VLAN interfaces"
+        echo "Will configure $selected_vlan_count VLAN interfaces" >&2
 
         # VLAN Priority Configuration (if multiple VLANs selected)
         if [ "$selected_vlan_count" -gt 1 ]; then
@@ -506,28 +505,28 @@ if [ "$vlan_count" -gt 0 ]; then
         echo "No VLANs will be configured"
     fi
 else
-    echo "No VLANs detected in capture" >> "$WORKFLOW_REPORT"
+    echo "No VLANs detected in capture" >&2 >> "$WORKFLOW_REPORT"
     touch "$TEMP_DIR/selected_vlans.txt"  # Create empty file
     selected_vlan_count=0
 fi
 
 # Extract general network information
-echo "Extracting network ranges..." >> "$WORKFLOW_REPORT"
+echo "Extracting network ranges..." >&2 >> "$WORKFLOW_REPORT"
 tshark -r "$capture_file" -T fields -e ip.src -e ip.dst 2>/dev/null | \
     tr '\t' '\n' | grep -v "^$" | sort -u | head -20 > "$TEMP_DIR/discovered_ips.txt"
 
 ip_count=$(wc -l < "$TEMP_DIR/discovered_ips.txt")
-echo "Unique IP addresses found: $ip_count"
-echo "Unique IP addresses found: $ip_count" >> "$WORKFLOW_REPORT"
+echo "Unique IP addresses found: $ip_count" >&2
+    echo "Unique IP addresses found: $ip_count" >> "$WORKFLOW_REPORT"
 
-echo "✓ Traffic analysis completed successfully"
+echo "✓ Traffic analysis completed successfully" >&2
 echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
 echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
 # Phase 3: Interface Configuration
-echo
-echo "=== Phase 3: Interface Configuration ==="
+echo >&2
+echo "=== Phase3: Interface Configuration ===" >&2
 echo "--- PHASE 3: INTERFACE CONFIGURATION ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
@@ -536,8 +535,8 @@ log_info "Starting Phase 3: Interface configuration"
 interfaces_configured=0
 
 if [ "$selected_vlan_count" -gt 0 ]; then
-    echo "Creating VLAN interfaces for selected VLANs..."
-    echo "Creating VLAN interfaces..." >> "$WORKFLOW_REPORT"
+echo "Creating VLAN interfaces for selected VLANs..." >&2
+echo "Creating VLAN interfaces..." >> "$WORKFLOW_REPORT"
 
     while read -r vlan_id <&3; do
         if [ -n "$vlan_id" ]; then
@@ -545,13 +544,13 @@ if [ "$selected_vlan_count" -gt 0 ]; then
             
             # Create VLAN interface if it doesn't exist
             if ! ip link show "$vlan_interface" >/dev/null 2>&1; then
-                echo "Creating VLAN interface: $vlan_interface"
+                echo "Creating VLAN interface: $vlan_interface" >&2
                 
                 if ip link add link "$target_interface" name "$vlan_interface" type vlan id "$vlan_id" 2>/dev/null; then
                     ip link set "$vlan_interface" up
                     ip -6 addr flush dev "$vlan_interface" scope link 2>/dev/null || true
-                    echo "✓ VLAN interface $vlan_interface created and brought up"
-                    echo "  Created: $vlan_interface" >> "$WORKFLOW_REPORT"
+echo "✓ VLAN interface $vlan_interface created and brought up" >&2
+echo "  Created: $vlan_interface" >> "$WORKFLOW_REPORT"
                     log_config_change "VLAN interface created" "$vlan_interface (VLAN ID: $vlan_id)"
                     interfaces_configured=$((interfaces_configured + 1))
                     
@@ -675,31 +674,31 @@ if [ "$selected_vlan_count" -gt 0 ]; then
                         fi
                     fi
                 else
-                    echo "✗ Failed to create VLAN interface $vlan_interface"
+                    echo "✗ Failed to create VLAN interface $vlan_interface" >&2
                     log_error "Failed to create VLAN interface $vlan_interface"
                 fi
             else
-                echo "VLAN interface $vlan_interface already exists"
-                echo "  Exists: $vlan_interface" >> "$WORKFLOW_REPORT"
+echo "VLAN interface $vlan_interface already exists" >&2
+echo "  Exists: $vlan_interface" >> "$WORKFLOW_REPORT"
                 interfaces_configured=$((interfaces_configured + 1))
             fi
         fi
     done 3< "$TEMP_DIR/selected_vlans.txt"
 else
     # No VLANs scenario - handle main interface configuration
-    echo "No VLANs detected or selected for configuration"
-    echo "No VLANs selected for configuration" >> "$WORKFLOW_REPORT"
+echo "No VLANs detected or selected for configuration" >&2
+echo "No VLANs selected for configuration" >> "$WORKFLOW_REPORT"
     
-    echo "Checking main interface configuration: $target_interface"
-    echo "Main interface configuration check:" >> "$WORKFLOW_REPORT"
+echo "Checking main interface configuration: $target_interface" >&2
+echo "Main interface configuration check:" >> "$WORKFLOW_REPORT"
     
     # Check if target_interface already has an IP address configured
     current_ip_info=$(ip addr show "$target_interface" 2>/dev/null | grep "inet " | head -1 | awk '{print $2}')
     
     if [ -n "$current_ip_info" ] && [ "$current_ip_info" != "127.0.0.1/8" ]; then
         # Interface already has IP configured
-        echo "✓ Interface $target_interface already has IP configured: $current_ip_info"
-        echo "    Current IP: $current_ip_info" >> "$WORKFLOW_REPORT"
+echo "✓ Interface $target_interface already has IP configured: $current_ip_info" >&2
+echo "    Current IP: $current_ip_info" >> "$WORKFLOW_REPORT"
         log_info "Interface $target_interface already configured with IP: $current_ip_info"
         
         # Interface is already configured
@@ -707,8 +706,8 @@ else
         
     else
         # No IP configured - need to assign one
-        echo "Interface $target_interface has no IP configured - assignment required"
-        echo "    No IP configured - assignment required" >> "$WORKFLOW_REPORT"
+echo "Interface $target_interface has no IP configured - assignment required" >&2
+echo "    No IP configured - assignment required" >> "$WORKFLOW_REPORT"
         log_info "Interface $target_interface requires IP configuration"
         
         # Extract non-VLAN IP addresses from captured traffic for suggestions
@@ -750,13 +749,13 @@ else
                 fi
             fi
             
-            echo "  Traffic analysis results:"
-            echo "    Discovered IPs: $(echo "$main_ips" | head -3 | tr '\n' ' ')"
-            echo "    Suggested IP: $suggested_ip"
+echo "  Traffic analysis results:" >&2
+echo "    Discovered IPs: $(echo "$main_ips" | head -3 | tr '\n' ' ')" >&2
+echo "    Suggested IP: $suggested_ip" >&2
             echo
             
         else
-            echo "  No valid IPs found in captured traffic for IP suggestion"
+            echo "  No valid IPs found in captured traffic for IP suggestion" >&2
             suggested_ip=""
         fi
         
@@ -823,8 +822,8 @@ else
     fi
 fi
 
-echo "✓ Interface configuration completed"
-echo "VLAN interfaces configured: $interfaces_configured"
+echo "✓ Interface configuration completed" >&2
+echo "VLAN interfaces configured: $interfaces_configured" >&2
 echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
 echo "Interfaces configured: $interfaces_configured" >> "$WORKFLOW_REPORT"
 echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
@@ -837,7 +836,7 @@ create_session_consolidation_reports() {
         return 1
     fi
     
-    echo "Creating session-level consolidated reports..."
+    echo "Creating session-level consolidated reports..." >&2
     
     # Create consolidated session report
     CONSOLIDATED_REPORT="$SESSION_DISCOVERY_DIR/consolidated_report.txt"
@@ -998,9 +997,9 @@ create_session_consolidation_reports() {
         
     } > "$SESSION_TEAM_HANDOFF_DIR/SESSION_TEAM_COORDINATION.txt"
     
-    echo "Session consolidation complete"
-    echo "  Consolidated report: $CONSOLIDATED_REPORT"
-    echo "  Team coordination: $SESSION_TEAM_HANDOFF_DIR/SESSION_TEAM_COORDINATION.txt"
+    echo "Session consolidation complete" >&2
+echo "  Consolidated report: $CONSOLIDATED_REPORT" >&2
+echo "  Team coordination: $SESSION_TEAM_HANDOFF_DIR/SESSION_TEAM_COORDINATION.txt" >&2
 }
 
 # Phase 4: Network Discovery
@@ -1011,13 +1010,13 @@ echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
 log_info "Starting Phase 4: Network discovery"
 
-echo "Running network discovery on configured interfaces..."
+echo "Running network discovery on configured interfaces..." >&2
 discovery_script="$(dirname "$0")/../discovery/multi_phase_discovery.sh"
 
 if [ -x "$discovery_script" ]; then
     if [ "$selected_vlan_count" -gt 0 ]; then
         echo "Running VLAN-aware discovery with separate results per VLAN..."
-        echo "VLAN-aware discovery initiated" >> "$WORKFLOW_REPORT"
+        echo "VLAN-aware discovery initiated" >&2 >> "$WORKFLOW_REPORT"
         
         # Create session-based discovery structure with VLAN organization
         DISCOVERY_DIR="$WORKDIR/discovery"

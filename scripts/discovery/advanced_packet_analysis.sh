@@ -14,14 +14,28 @@ ANALYSIS_DIR="${NETUTIL_WORKDIR:-$HOME}/analysis"
 # Create analysis directory if it doesn't exist
 mkdir -p "$ANALYSIS_DIR"
 
-# Select capture file using standardized function
-capture_file=$(select_capture_file)
-if [ -z "$capture_file" ]; then
-    echo "Error: No capture file selected" >&2
-    exit 1
+# Handle capture file selection - use argument if provided, otherwise prompt user
+if [ -n "$1" ]; then
+    capture_file="$1"
+    # Validate that the provided file exists and is readable
+    if [ ! -f "$capture_file" ]; then
+        echo "Error: Capture file '$capture_file' does not exist" >&2
+        exit 1
+    fi
+    if [ ! -r "$capture_file" ]; then
+        echo "Error: Capture file '$capture_file' is not readable" >&2
+        exit 1
+    fi
+    echo "Using provided capture file: $capture_file" >&2
+else
+    # Interactive mode - select capture file using standardized function
+    capture_file=$(select_capture_file)
+    if [ -z "$capture_file" ]; then
+        echo "Error: No capture file selected" >&2
+        exit 1
+    fi
+    echo "Using selected capture file: $capture_file" >&2
 fi
-
-echo "Using selected capture file: $capture_file" >&2
 
 echo "Performing advanced analysis on: $capture_file" >&2
 

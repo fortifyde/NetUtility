@@ -195,7 +195,7 @@ func (c *Config) CreateWorkspace() error {
 	subdirs := []string{
 		"captures",
 		"discovery",
-		"security_scans",
+		"port_and_security_scans",
 		"analysis",
 		"reports",
 		"configs",
@@ -552,7 +552,7 @@ func (c *Config) FixWorkspacePermissions() error {
 	subdirs := []string{
 		"captures",
 		"discovery",
-		"security_scans",
+		"port_and_security_scans",
 		"analysis",
 		"reports",
 		"configs",
