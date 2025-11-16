@@ -18,7 +18,7 @@ import (
 
 const (
 	AppName    = "NetUtility"
-	AppVersion = "v1.0.0"
+	AppVersion = "v0.1"
 )
 
 type TUI struct {
@@ -187,7 +187,7 @@ func NewTUI(scriptsDir string) *TUI {
 	tui := &TUI{
 		app:          app,
 		pages:        tview.NewPages(),
-		headerPane:   tview.NewTextView(),
+		headerPane:   tview.NewTextView().SetDynamicColors(true),
 		categoryPane: tview.NewList(),
 		taskPane:     tview.NewList(),
 		infoPane:     tview.NewTextView(),
@@ -204,10 +204,10 @@ func NewTUI(scriptsDir string) *TUI {
 func (t *TUI) setupUI() {
 	// Setup header pane (program info)
 	t.headerPane.SetBorder(true).SetTitle("Program Info")
-	headerText := fmt.Sprintf(`[::b]%s %s[::-]
-Network Security Toolkit
+	headerText := fmt.Sprintf(`[cyan::b]%s[white::-] [green]%s[white]
+[gray]Network Assessment Toolkit[-]
 
-[yellow]Keys:[::-] Tab=Switch [yellow]hjkl[::-]=Navigate [yellow]/[::-]=Search [yellow]J[::-]=Jobs [yellow]C[::-]=Correlate [yellow]Ctrl+Home[::-]=Home [yellow]?[::-]=Help [yellow]q[::-]=Quit`, AppName, AppVersion)
+[yellow]Keys:[white] [cyan]Tab[white]=Switch [cyan]hjkl[white]=Navigate [cyan]/[white]=Search [cyan]J[white]=Jobs [cyan]C[white]=Correlate [cyan]Ctrl+Home[white]=Home [cyan]q[white]=Quit`, AppName, AppVersion)
 	t.headerPane.SetText(headerText)
 	t.headerPane.SetTextAlign(tview.AlignCenter)
 
