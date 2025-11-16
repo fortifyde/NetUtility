@@ -1,6 +1,6 @@
 script:
   name: "Configure IP Addresses"
-  description: "Enhanced IP address configuration with CLI support, validation, and logging"
+  description: "IP address configuration with validation"
   category: "host-config"
   subcategory: "networking"
   
