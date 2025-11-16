@@ -19,7 +19,7 @@ echo "    - During authorized penetration testing"
 echo "    - In isolated test environments"
 echo
 
-RESULTS_DIR="${NETUTIL_WORKDIR:-$HOME}/security_scans"
+RESULTS_DIR="${NETUTIL_WORKDIR:-$HOME}/port_and_security_scans"
 mkdir -p "$RESULTS_DIR"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)

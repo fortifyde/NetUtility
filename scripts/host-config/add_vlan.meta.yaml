@@ -3,11 +3,11 @@ script:
   description: "Create and configure VLAN subinterfaces on network adapters"
   category: "host-config"
   subcategory: "networking"
-  
+
   file: "add_vlan.sh"
   requires_root: true
   estimated_duration: "1-2 minutes"
-  
+
   cli_shortcuts:
     - "vlan"
     - "add-vlan"
@@ -17,7 +17,7 @@ script:
     - "subinterface"
     - "tagging"
     - "802.1q"
-  
+
   parameters:
     - name: "parent_interface"
       type: "interface"
@@ -50,17 +50,17 @@ script:
       required: false
       validation:
         pattern: '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'
-  
+
   dependencies:
     tools:
       - name: "ip"
         package: "iproute2"
         check_command: "which ip"
-  
+
   output:
     creates_files: false
     workspace_subdirs: []
-  
+
   tags:
     - "vlan"
     - "networking"
@@ -69,13 +69,13 @@ script:
   risk_level: "medium"
   network_access: false
   modifies_system: true
-  
+
   examples:
     - description: "Create VLAN interface"
       command: "netutil vlan"
     - description: "Add VLAN using full command"
       command: "netutil add-vlan"
-  
+
   version: "1.0"
   author: "fortifyde"
   last_updated: "2025-01-18"

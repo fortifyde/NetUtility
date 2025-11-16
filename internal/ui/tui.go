@@ -108,9 +108,9 @@ func (t *TUI) formatCategoryName(category string) string {
 	case "discovery":
 		return "Network Discovery"
 	case "scanning":
-		return "Security Scanning"
+		return "Port and Security Scans"
 	case "advanced":
-		return "Advanced Workflows"
+		return "Automation"
 	case "config":
 		return "Configuration Gathering"
 	default:
