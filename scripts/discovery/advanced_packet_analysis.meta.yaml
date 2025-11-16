@@ -1,6 +1,6 @@
 script:
-  name: "Advanced Packet Analysis"
-  description: "Deep protocol analysis with statistical reports and security assessment"
+  name: "Capture Analysis"
+  description: "Packet analysis with statistical reports and security assessment"
   category: "discovery"
   subcategory: "analysis"
   

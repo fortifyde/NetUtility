@@ -1,6 +1,6 @@
 script:
   name: "Manage VLAN Interfaces"
-  description: "Create and configure VLAN subinterfaces on network adapters"
+  description: "Create, configure, and remove VLAN subinterfaces on network adapters"
   category: "host-config"
   subcategory: "networking"
 

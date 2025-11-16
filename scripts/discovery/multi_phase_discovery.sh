@@ -693,9 +693,9 @@ categorize_host_advanced() {
     } >> "$debug_file"
 
     # Check for SMB/Windows discovery from Phase 4
-    if [ -f "$PHASE4_DIR/smb_hosts.txt" ] && grep -q "^$ip$" "$PHASE4_DIR/smb_hosts.txt"; then
-        score_windows=$((score_windows + 100))
-    fi
+    #if [ -f "$PHASE4_DIR/smb_hosts.txt" ] && grep -q "^$ip$" "$PHASE4_DIR/smb_hosts.txt"; then
+    #    score_windows=$((score_windows + 60))
+    #fi
 
     # MAC vendor scoring (high weight)
     case "$mac_vendor" in
@@ -763,9 +763,9 @@ categorize_host_advanced() {
 
         # Windows indicators (high weight)
         # Only match if Windows ports are actually open (not closed/filtered)
-        if echo "$service_data" | grep -E "^(135|139|445|3389)/tcp\s+open\s+" | grep -qiE "microsoft|smb|netbios|rdp|ms-wbt-server"; then
+        if echo "$service_data" | grep -E "^(135|139|445|3389|5985)/tcp\s+open\s+" | grep -qiE "microsoft|smb|netbios|rdp|ms-wbt-server"; then
             score_windows=$((score_windows + 70))
-            matched_service=$(echo "$service_data" | grep -E "^(135|139|445|3389)/tcp\s+open\s+" | grep -ioE "microsoft|smb|netbios|rdp|ms-wbt-server" | head -1)
+            matched_service=$(echo "$service_data" | grep -E "^(135|139|445|3389|5985)/tcp\s+open\s+" | grep -ioE "microsoft|smb|netbios|rdp|ms-wbt-server" | head -1)
             echo "  [WINDOWS] +70 points: Windows service detected ($matched_service)" >> "$debug_file"
         fi
 
@@ -2407,10 +2407,10 @@ echo >> "$REPORT_FILE"
 
 if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 1: ENHANCED NETWORK DISCOVERY"
-    color_info "Layer 2 discovery, topology analysis, and infrastructure identification..."
+    color_info "Layer 2 discovery..."
 else
     echo
-    echo "Phase 1: Enhanced Network Discovery - Layer 2 discovery, topology analysis, and infrastructure identification..."
+    echo "Phase 1: Enhanced Network Discovery - Layer 2 discovery"
 fi
 
 # Initialize host discovery files
@@ -2419,19 +2419,19 @@ fi
 : > "$PHASE1_DIR/infrastructure_hosts.txt"
 
 # Sub-phase 1.1: Network Topology Discovery
-echo "  Sub-phase 1.1: Network topology and boundary analysis..." >> "$REPORT_FILE"
+echo "  Sub-phase 1.1: Network topology discovery" >> "$REPORT_FILE"
 discover_network_topology "$target_networks" "$PHASE1_DIR/topology_hosts.txt"
 
 # Sub-phase 1.2: Infrastructure Device Identification  
-echo "  Sub-phase 1.2: Network infrastructure identification..." >> "$REPORT_FILE"
+echo "  Sub-phase 1.2: Network infrastructure identification" >> "$REPORT_FILE"
 identify_network_devices "$target_networks" "$PHASE1_DIR/infrastructure_hosts.txt"
 
 # Sub-phase 1.3: Reverse DNS Pattern Analysis
-echo "  Sub-phase 1.3: Reverse DNS enumeration..." >> "$REPORT_FILE"
+echo "  Sub-phase 1.3: Reverse DNS enumeration" >> "$REPORT_FILE"
 perform_reverse_dns_enumeration "$network_range" "$PHASE1_DIR/topology_hosts.txt"
 
 # Sub-phase 1.4: Network Segmentation Analysis
-echo "  Sub-phase 1.4: Network segmentation analysis..." >> "$REPORT_FILE"
+echo "  Sub-phase 1.4: Network segmentation analysis" >> "$REPORT_FILE"
 : > "$PHASE1_DIR/segmentation_analysis.txt"
 analyze_network_segmentation "$target_networks" "$PHASE1_DIR/segmentation_analysis.txt"
 segmentation_findings=$(wc -l < "$PHASE1_DIR/segmentation_analysis.txt")
@@ -2487,10 +2487,10 @@ echo >> "$REPORT_FILE"
 
 if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 2: COMPREHENSIVE HOST DISCOVERY"
-    color_info "Multi-protocol discovery with firewall bypass techniques..."
+    color_info "Multi-protocol discovery..."
 else
     echo
-    echo "Phase 2: Comprehensive Host Discovery - Multi-protocol discovery with firewall bypass techniques..."
+    echo "Phase 2: Comprehensive Host Discovery - Multi-protocol discovery..."
 fi
 
 # Initialize discovery files
@@ -2542,7 +2542,7 @@ echo "  Sub-phase 2.1 complete: Found $ping_count ICMP-responsive hosts." >> "$R
 echo >> "$REPORT_FILE"
 
 # Sub-phase 2.2: TCP Discovery with Firewall Bypass
-echo "  Sub-phase 2.2: TCP discovery with firewall bypass..." >> "$REPORT_FILE"
+echo "  Sub-phase 2.2: TCP discovery..." >> "$REPORT_FILE"
 perform_tcp_discovery "$target_networks" "$PHASE2_DIR/tcp_hosts.txt"
 tcp_count=$(wc -l < "$PHASE2_DIR/tcp_hosts.txt")
 echo "  Sub-phase 2.2 complete: Found $tcp_count TCP-responsive hosts." >> "$REPORT_FILE"

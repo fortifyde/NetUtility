@@ -1,6 +1,6 @@
 script:
   name: "Network Capture"
-  description: "Capture and analyze network traffic using tcpdump with advanced filtering options"
+  description: "Capture and analyze network traffic with advanced filtering options"
   category: "discovery"
   subcategory: "capture"
   

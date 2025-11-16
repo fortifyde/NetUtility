@@ -211,8 +211,12 @@ echo "Capture duration: $capture_duration minutes" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
 # Phase 1: Promiscuous Packet Capture
-echo
-echo "=== Phase 1: Packet Capture ===" >&2
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 1: PACKET CAPTURE"
+else
+    echo
+    echo "=== Phase 1: Packet Capture ===" >&2
+fi
 echo "--- PHASE 1: PROMISCUOUS CAPTURE ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
@@ -325,8 +329,12 @@ echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
 # Phase 2: Traffic Analysis
-echo
-echo "=== Phase 2: Traffic Analysis ===" >&2
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 2: TRAFFIC ANALYSIS"
+else
+    echo
+    echo "=== Phase 2: Traffic Analysis ===" >&2
+fi
 echo "--- PHASE 2: TRAFFIC ANALYSIS ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
@@ -525,8 +533,12 @@ echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
 # Phase 3: Interface Configuration
-echo >&2
-echo "=== Phase3: Interface Configuration ===" >&2
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 3: INTERFACE CONFIGURATION"
+else
+    echo >&2
+    echo "=== Phase 3: Interface Configuration ===" >&2
+fi
 echo "--- PHASE 3: INTERFACE CONFIGURATION ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
@@ -1003,8 +1015,12 @@ echo "  Team coordination: $SESSION_TEAM_HANDOFF_DIR/SESSION_TEAM_COORDINATION.t
 }
 
 # Phase 4: Network Discovery
-echo
-echo "=== Phase 4: Network Discovery ==="
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 4: NETWORK DISCOVERY"
+else
+    echo
+    echo "=== Phase 4: Network Discovery ==="
+fi
 echo "--- PHASE 4: NETWORK DISCOVERY ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
@@ -1448,8 +1464,12 @@ echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
 # Phase 5: Advanced Analysis
-echo
-echo "=== Phase 5: Advanced Analysis ==="
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 5: ADVANCED ANALYSIS"
+else
+    echo
+    echo "=== Phase 5: Advanced Analysis ==="
+fi
 echo "--- PHASE 5: ADVANCED ANALYSIS ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 

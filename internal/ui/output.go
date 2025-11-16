@@ -556,8 +556,8 @@ func convertANSIToTview(text string) string {
 	// ANSI color code mappings to tview color names
 	ansiToTview := map[string]string{
 		"\033[0m":  "[white]",   // Reset
-		"\033[1m":  "[-]",       // Bold (tview doesn't have bold, use default)
-		"\033[2m":  "[gray]",    // Dim
+		"\033[1m":  "",          // Bold - tview doesn't support, remove it
+		"\033[2m":  "",          // Dim - tview doesn't support, remove it
 		"\033[30m": "[black]",   // Black
 		"\033[31m": "[red]",     // Red
 		"\033[32m": "[green]",   // Green
@@ -582,6 +582,9 @@ func convertANSIToTview(text string) string {
 		result = strings.ReplaceAll(result, ansi, tviewColor)
 	}
 
+	// Handle \x1b[m (reset without digit) before the cleanup regex removes it
+	result = strings.ReplaceAll(result, "\x1b[m", "[white]")
+
 	// Handle tput-generated codes: ESC[Xm where X is a number
 	// These are more complex ANSI codes
 	re := regexp.MustCompile(`\x1b\[(\d+)m`)
@@ -597,9 +600,9 @@ func convertANSIToTview(text string) string {
 		case "0":
 			return "[white]" // Reset
 		case "1":
-			return "[-]" // Bold
+			return "" // Bold - tview doesn't support, remove it
 		case "2":
-			return "[gray]" // Dim
+			return "" // Dim - tview doesn't support, remove it
 		case "30":
 			return "[black]"
 		case "31":
