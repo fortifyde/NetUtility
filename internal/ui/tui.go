@@ -169,15 +169,10 @@ func (t *TUI) getHardcodedCategories() []Category {
 	}
 }
 
-func NewTUI() *TUI {
+func NewTUI(scriptsDir string) *TUI {
 	app := tview.NewApplication()
 
-	// Initialize script registry with absolute path
-	scriptsDir, err := filepath.Abs("scripts")
-	if err != nil {
-		scriptsDir = "scripts" // fallback to relative
-	}
-
+	// Initialize script registry with provided scripts directory
 	registry := metadata.NewScriptRegistry(scriptsDir)
 	if err := registry.LoadMetadata(); err != nil {
 		// Log the error instead of silently falling back

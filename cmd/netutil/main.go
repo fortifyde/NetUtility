@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -13,7 +14,33 @@ import (
 	"netutil/internal/ui"
 )
 
+// getDefaultScriptsDir returns the path to the scripts directory
+// located next to the executable (same pattern as config file)
+func getDefaultScriptsDir() string {
+	// Get executable directory
+	execPath, err := os.Executable()
+	if err != nil {
+		// Fallback to relative path if we can't determine executable location
+		return "scripts"
+	}
+
+	execDir := filepath.Dir(execPath)
+
+	// Scripts directory is located next to the executable
+	return filepath.Join(execDir, "scripts")
+}
+
 func main() {
+	// Define command-line flags
+	scriptsDirFlag := flag.String("scripts-dir", "", "Path to scripts directory (default: next to executable)")
+	flag.Parse()
+
+	// Determine scripts directory
+	scriptsDir := getDefaultScriptsDir()
+	if *scriptsDirFlag != "" {
+		scriptsDir = *scriptsDirFlag
+	}
+
 	// Load configuration
 	cfg, err := config.LoadConfig()
 	if err != nil {
@@ -54,8 +81,8 @@ func main() {
 		fmt.Println()
 	}
 
-	// Initialize script registry
-	registry := metadata.NewScriptRegistry("scripts")
+	// Initialize script registry with resolved scripts directory
+	registry := metadata.NewScriptRegistry(scriptsDir)
 	if err := registry.LoadMetadata(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to load script metadata: %v\n", err)
 		registry = nil // Will fall back to hardcoded commands
@@ -72,14 +99,17 @@ func main() {
 		}
 	}
 
+	// Get remaining arguments after flag parsing
+	args := flag.Args()
+
 	// Check if CLI arguments are provided
-	if len(os.Args) > 1 {
-		command := strings.ToLower(os.Args[1])
+	if len(args) > 0 {
+		command := strings.ToLower(args[0])
 		// Allow informational commands without root access
 		if command == "help" || command == "--help" || command == "-h" ||
 			command == "list" || command == "--list" || command == "-l" ||
 			command == "recent" || command == "--recent" || command == "-r" {
-			handleCLICommand(os.Args[1:], cfg, registry)
+			handleCLICommand(args, cfg, registry)
 			return
 		}
 
@@ -89,7 +119,7 @@ func main() {
 			os.Exit(1)
 		}
 
-		handleCLICommand(os.Args[1:], cfg, registry)
+		handleCLICommand(args, cfg, registry)
 		return
 	}
 
@@ -100,7 +130,7 @@ func main() {
 	}
 
 	// Default TUI mode - now with integrated streaming execution
-	tui := ui.NewTUI()
+	tui := ui.NewTUI(scriptsDir)
 	if err := tui.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
 		os.Exit(1)
@@ -305,9 +335,11 @@ func executeScript(scriptPath, scriptName string, cfg *config.Config) bool {
 func showHelp() {
 	fmt.Printf("NetUtility - Network Security Toolkit\n\n")
 	fmt.Printf("USAGE:\n")
-	fmt.Printf("  netutil                    # Launch TUI (default)\n")
-	fmt.Printf("  netutil <command>          # Run command directly\n")
-	fmt.Printf("  netutil <number>           # Run numbered shortcut\n\n")
+	fmt.Printf("  netutil [flags]            # Launch TUI (default)\n")
+	fmt.Printf("  netutil [flags] <command>  # Run command directly\n")
+	fmt.Printf("  netutil [flags] <number>   # Run numbered shortcut\n\n")
+	fmt.Printf("FLAGS:\n")
+	fmt.Printf("  --scripts-dir <path>       # Override scripts directory location\n\n")
 	fmt.Printf("SHORTCUTS:\n")
 	fmt.Printf("  1-5                        # Most common tasks\n")
 	fmt.Printf("  scan, enum                 # Network enumeration\n")
@@ -324,6 +356,7 @@ func showHelp() {
 	fmt.Printf("  netutil 1                  # Run most common task\n")
 	fmt.Printf("  netutil cap                # Fuzzy match -> capture\n")
 	fmt.Printf("  netutil config-ip          # Configure IP addresses\n")
+	fmt.Printf("  netutil --scripts-dir /custom/path list\n")
 }
 
 // showCommands lists all available commands
