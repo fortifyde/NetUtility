@@ -1,6 +1,6 @@
 script:
-  name: "Multi-Phase Discovery"
-  description: "Advanced multi-stage network discovery with progressive scanning techniques"
+  name: "Discovery Workflow"
+  description: "Multi-stage network discovery with progressive scanning techniques for single networks"
   category: "discovery"
   subcategory: "discovery"
   

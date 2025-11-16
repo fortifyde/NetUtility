@@ -1,6 +1,6 @@
 script:
   name: "Manage Network Interfaces"
-  description: "Manage and configure network interface settings"
+  description: "Manage network interface states"
   category: "host-config"
   subcategory: "networking"
   
