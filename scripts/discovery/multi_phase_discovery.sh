@@ -9,9 +9,14 @@
 
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/logging.sh"
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
-echo "=== Multi-Phase Network Discovery ==="
-echo
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "MULTI-PHASE NETWORK DISCOVERY"
+else
+    echo "=== Multi-Phase Network Discovery ==="
+    echo
+fi
 
 # Log script start
 log_script_start "multi_phase_discovery.sh" "$@"
@@ -1754,19 +1759,19 @@ categorize_services_enhanced() {
     # Generate service distribution summary (basic counts)
     {
         echo "=== Service Distribution Summary ==="
-        echo "FTP Services: $(wc -l < "$SERVICE_TARGETS_DIR/ftp_targets.txt")"
-        echo "SSH Services: $(wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt")"
-        echo "Telnet Services: $(wc -l < "$SERVICE_TARGETS_DIR/telnet_targets.txt")"
-        echo "SMTP Services: $(wc -l < "$SERVICE_TARGETS_DIR/smtp_targets.txt")"
-        echo "DNS Services: $(wc -l < "$SERVICE_TARGETS_DIR/dns_targets.txt")"
-        echo "Web Services: $(wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt")"
-        echo "POP3 Services: $(wc -l < "$SERVICE_TARGETS_DIR/pop3_targets.txt")"
-        echo "IMAP Services: $(wc -l < "$SERVICE_TARGETS_DIR/imap_targets.txt")"
-        echo "SMB Services: $(wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt")"
-        echo "Database Services: $(wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt")"
-        echo "RDP Services: $(wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt")"
-        echo "VNC Services: $(wc -l < "$SERVICE_TARGETS_DIR/vnc_targets.txt")"
-        echo "SNMP Services: $(wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt")"
+        echo "FTP Services: $([ -f "$SERVICE_TARGETS_DIR/ftp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/ftp_targets.txt" || echo 0)"
+        echo "SSH Services: $([ -f "$SERVICE_TARGETS_DIR/ssh_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/ssh_targets.txt" || echo 0)"
+        echo "Telnet Services: $([ -f "$SERVICE_TARGETS_DIR/telnet_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/telnet_targets.txt" || echo 0)"
+        echo "SMTP Services: $([ -f "$SERVICE_TARGETS_DIR/smtp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/smtp_targets.txt" || echo 0)"
+        echo "DNS Services: $([ -f "$SERVICE_TARGETS_DIR/dns_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/dns_targets.txt" || echo 0)"
+        echo "Web Services: $([ -f "$SERVICE_TARGETS_DIR/web_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/web_targets.txt" || echo 0)"
+        echo "POP3 Services: $([ -f "$SERVICE_TARGETS_DIR/pop3_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/pop3_targets.txt" || echo 0)"
+        echo "IMAP Services: $([ -f "$SERVICE_TARGETS_DIR/imap_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/imap_targets.txt" || echo 0)"
+        echo "SMB Services: $([ -f "$SERVICE_TARGETS_DIR/smb_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/smb_targets.txt" || echo 0)"
+        echo "Database Services: $([ -f "$SERVICE_TARGETS_DIR/database_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/database_targets.txt" || echo 0)"
+        echo "RDP Services: $([ -f "$SERVICE_TARGETS_DIR/rdp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt" || echo 0)"
+        echo "VNC Services: $([ -f "$SERVICE_TARGETS_DIR/vnc_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/vnc_targets.txt" || echo 0)"
+        echo "SNMP Services: $([ -f "$SERVICE_TARGETS_DIR/snmp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt" || echo 0)"
     } > service_summary.txt
 
     echo "Service categorization completed" >> "$REPORT_FILE"
@@ -2400,7 +2405,13 @@ enumerate_snmp_services() {
 echo "--- PHASE 1: ENHANCED NETWORK DISCOVERY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 1: Enhanced Network Discovery - Layer 2 discovery, topology analysis, and infrastructure identification..."
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 1: ENHANCED NETWORK DISCOVERY"
+    color_info "Layer 2 discovery, topology analysis, and infrastructure identification..."
+else
+    echo
+    echo "Phase 1: Enhanced Network Discovery - Layer 2 discovery, topology analysis, and infrastructure identification..."
+fi
 
 # Initialize host discovery files
 : > "$PHASE1_DIR/arp_hosts.txt"
@@ -2474,7 +2485,13 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 2: COMPREHENSIVE HOST DISCOVERY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 2: Comprehensive Host Discovery - Multi-protocol discovery with firewall bypass techniques..."
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 2: COMPREHENSIVE HOST DISCOVERY"
+    color_info "Multi-protocol discovery with firewall bypass techniques..."
+else
+    echo
+    echo "Phase 2: Comprehensive Host Discovery - Multi-protocol discovery with firewall bypass techniques..."
+fi
 
 # Initialize discovery files
 : > "$PHASE2_DIR/ping_hosts.txt"
@@ -2593,7 +2610,13 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 3: DNS REVERSE LOOKUP ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 3: DNS Reverse Lookup - Resolving hostnames..."
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 3: DNS REVERSE LOOKUP"
+    color_info "Resolving hostnames..."
+else
+    echo
+    echo "Phase 3: DNS Reverse Lookup - Resolving hostnames..."
+fi
 echo "IP Address\tHostname" >> "$REPORT_FILE"
 echo "----------------------------" >> "$REPORT_FILE"
 
@@ -2618,7 +2641,13 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 4: WINDOWS-SPECIFIC DISCOVERY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 4: Windows-Specific Discovery - SMB and NetBIOS enumeration..."
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 4: WINDOWS-SPECIFIC DISCOVERY"
+    color_info "SMB and NetBIOS enumeration..."
+else
+    echo
+    echo "Phase 4: Windows-Specific Discovery - SMB and NetBIOS enumeration..."
+fi
 
 # SMB/NetBIOS discovery
 echo "SMB/NetBIOS enumeration:" >> "$REPORT_FILE"
@@ -2676,7 +2705,13 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 5: PROGRESSIVE PORT SCAN ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 5: Progressive Port Scan - Multi-layered port discovery..."
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 5: PROGRESSIVE PORT SCAN"
+    color_info "Multi-layered port discovery..."
+else
+    echo
+    echo "Phase 5: Progressive Port Scan - Multi-layered port discovery..."
+fi
 if command -v nmap >/dev/null 2>&1; then
     echo "Using progressive scanning methodology..." >> "$REPORT_FILE"
 
@@ -2686,10 +2721,11 @@ if command -v nmap >/dev/null 2>&1; then
     # Stage 1: Fast common port scan
     # Using top 1000 ports for comprehensive coverage while maintaining reasonable speed
     echo "  Stage 1: Fast common port scan (top 1000 ports)..." >> "$REPORT_FILE"
+    echo "  Running TCP scan on top 1000 ports..."
 
     nmap -n -sS --top-ports 1000 -T4 --min-rate 2000 --open --reason -oN "$SESSION_DIR/nmap_fast_scan.txt" \
-        -iL "$PHASE2_DIR/all_hosts.txt" 2>/dev/null | \
-        grep -E "Nmap scan report|open" >> "$REPORT_FILE"
+        -iL "$PHASE2_DIR/all_hosts.txt" 2>&1 | \
+        filter_nmap_output | tee -a "$REPORT_FILE"
     
     # Extract high-value targets for comprehensive scanning
     echo "  Identifying high-value targets..." >> "$REPORT_FILE"
@@ -2703,8 +2739,11 @@ if command -v nmap >/dev/null 2>&1; then
     # Reduced from 100 to top 20 UDP ports for efficiency
     # Covers DNS, SNMP, NTP, DHCP, and other critical UDP services
     echo "  Stage 2: UDP scan on critical ports (top 20)..." >> "$REPORT_FILE"
+    echo "  Running UDP scan on top 20 ports..."
+
     nmap -n -sU --top-ports 20 -T4 --open \
-        -iL "$PHASE2_DIR/all_hosts.txt" -oN "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" 2>/dev/null || true
+        -iL "$PHASE2_DIR/all_hosts.txt" -oN "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" 2>&1 | \
+        filter_nmap_output | tee -a "$REPORT_FILE" || true
     
     # Service categorization
     echo "  Categorizing discovered services..." >> "$REPORT_FILE"
@@ -2720,7 +2759,13 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 6: SERVICE ENUMERATION ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 6: Service Enumeration - Detailed service analysis..."
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 6: SERVICE ENUMERATION"
+    color_info "Detailed service analysis..."
+else
+    echo
+    echo "Phase 6: Service Enumeration - Detailed service analysis..."
+fi
 if command -v nmap >/dev/null 2>&1; then
     echo "Performing comprehensive service enumeration..." >> "$REPORT_FILE"
 
@@ -2799,7 +2844,13 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 7: HOST CATEGORIZATION ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 7: Host Categorization - Analyzing discovered hosts..."
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 7: HOST CATEGORIZATION"
+    color_info "Analyzing discovered hosts..."
+else
+    echo
+    echo "Phase 7: Host Categorization - Analyzing discovered hosts..."
+fi
 
 # Create categorized host lists
 mkdir -p "$SESSION_DIR/categorized"
@@ -2922,7 +2973,13 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 8: EVIDENCE PROCESSING ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-echo "Phase 8: Evidence Processing - Consolidating scan data and generating comprehensive service inventory..."
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "PHASE 8: EVIDENCE PROCESSING"
+    color_info "Consolidating scan data and generating comprehensive service inventory..."
+else
+    echo
+    echo "Phase 8: Evidence Processing - Consolidating scan data and generating comprehensive service inventory..."
+fi
 
 # Create evidence manifest
 echo "  Creating evidence manifest..." >> "$REPORT_FILE"
@@ -3028,17 +3085,17 @@ echo >> "$REPORT_FILE"
 echo "--- DISCOVERY SUMMARY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-windows_count=$(wc -l < "$SESSION_DIR/categorized/windows_hosts.txt")
-linux_count=$(wc -l < "$SESSION_DIR/categorized/linux_hosts.txt")
-network_count=$(wc -l < "$SESSION_DIR/categorized/network_devices.txt")
-web_count=$(wc -l < "$SESSION_DIR/categorized/web_servers.txt")
-database_count=$(wc -l < "$SESSION_DIR/categorized/database_servers.txt")
-unknown_count=$(wc -l < "$SESSION_DIR/categorized/unknown_hosts.txt")
+windows_count=$([ -f "$SESSION_DIR/categorized/windows_hosts.txt" ] && wc -l < "$SESSION_DIR/categorized/windows_hosts.txt" || echo 0)
+linux_count=$([ -f "$SESSION_DIR/categorized/linux_hosts.txt" ] && wc -l < "$SESSION_DIR/categorized/linux_hosts.txt" || echo 0)
+network_count=$([ -f "$SESSION_DIR/categorized/network_devices.txt" ] && wc -l < "$SESSION_DIR/categorized/network_devices.txt" || echo 0)
+web_count=$([ -f "$SESSION_DIR/categorized/web_servers.txt" ] && wc -l < "$SESSION_DIR/categorized/web_servers.txt" || echo 0)
+database_count=$([ -f "$SESSION_DIR/categorized/database_servers.txt" ] && wc -l < "$SESSION_DIR/categorized/database_servers.txt" || echo 0)
+unknown_count=$([ -f "$SESSION_DIR/categorized/unknown_hosts.txt" ] && wc -l < "$SESSION_DIR/categorized/unknown_hosts.txt" || echo 0)
 
 # Team assignment counts
-team_windows_count=$(wc -l < "$PHASE7_DIR/team_windows.txt")
-team_linux_count=$(wc -l < "$PHASE7_DIR/team_linux.txt")
-team_network_count=$(wc -l < "$PHASE7_DIR/team_network.txt")
+team_windows_count=$([ -f "$PHASE7_DIR/team_windows.txt" ] && wc -l < "$PHASE7_DIR/team_windows.txt" || echo 0)
+team_linux_count=$([ -f "$PHASE7_DIR/team_linux.txt" ] && wc -l < "$PHASE7_DIR/team_linux.txt" || echo 0)
+team_network_count=$([ -f "$PHASE7_DIR/team_network.txt" ] && wc -l < "$PHASE7_DIR/team_network.txt" || echo 0)
 
 echo "Discovery Statistics:" >> "$REPORT_FILE"
 echo "  Total hosts discovered: $all_hosts_count" >> "$REPORT_FILE"

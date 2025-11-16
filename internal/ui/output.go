@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -528,14 +529,19 @@ func (ov *OutputViewer) formatLines(lines []executor.OutputLine) string {
 			content.WriteString(fmt.Sprintf("[%s][%s][white] ", color, line.Source))
 		}
 
-		// Add content with color coding for special lines
-		lineContent := line.Content
-		if strings.Contains(strings.ToLower(lineContent), "error") {
-			lineContent = fmt.Sprintf("[red]%s[white]", lineContent)
-		} else if strings.Contains(strings.ToLower(lineContent), "warning") {
-			lineContent = fmt.Sprintf("[yellow]%s[white]", lineContent)
-		} else if strings.Contains(strings.ToLower(lineContent), "success") {
-			lineContent = fmt.Sprintf("[green]%s[white]", lineContent)
+		// Convert ANSI escape codes to tview color tags
+		lineContent := convertANSIToTview(line.Content)
+
+		// Add color coding for special lines only if they don't already have color codes
+		// (to avoid double-coloring from both ANSI and keyword detection)
+		if !strings.Contains(lineContent, "[") {
+			if strings.Contains(strings.ToLower(lineContent), "error") {
+				lineContent = fmt.Sprintf("[red]%s[white]", lineContent)
+			} else if strings.Contains(strings.ToLower(lineContent), "warning") {
+				lineContent = fmt.Sprintf("[yellow]%s[white]", lineContent)
+			} else if strings.Contains(strings.ToLower(lineContent), "success") {
+				lineContent = fmt.Sprintf("[green]%s[white]", lineContent)
+			}
 		}
 
 		content.WriteString(lineContent)
@@ -543,6 +549,103 @@ func (ov *OutputViewer) formatLines(lines []executor.OutputLine) string {
 	}
 
 	return content.String()
+}
+
+// convertANSIToTview converts ANSI escape codes to tview color tags
+func convertANSIToTview(text string) string {
+	// ANSI color code mappings to tview color names
+	ansiToTview := map[string]string{
+		"\033[0m":  "[white]",   // Reset
+		"\033[1m":  "[-]",       // Bold (tview doesn't have bold, use default)
+		"\033[2m":  "[gray]",    // Dim
+		"\033[30m": "[black]",   // Black
+		"\033[31m": "[red]",     // Red
+		"\033[32m": "[green]",   // Green
+		"\033[33m": "[yellow]",  // Yellow
+		"\033[34m": "[blue]",    // Blue
+		"\033[35m": "[magenta]", // Magenta
+		"\033[36m": "[cyan]",    // Cyan
+		"\033[37m": "[white]",   // White
+		"\033[90m": "[gray]",    // Bright Black (Gray)
+		"\033[91m": "[red]",     // Bright Red
+		"\033[92m": "[green]",   // Bright Green
+		"\033[93m": "[yellow]",  // Bright Yellow
+		"\033[94m": "[blue]",    // Bright Blue
+		"\033[95m": "[magenta]", // Bright Magenta
+		"\033[96m": "[cyan]",    // Bright Cyan
+		"\033[97m": "[white]",   // Bright White
+	}
+
+	// Replace known ANSI codes
+	result := text
+	for ansi, tviewColor := range ansiToTview {
+		result = strings.ReplaceAll(result, ansi, tviewColor)
+	}
+
+	// Handle tput-generated codes: ESC[Xm where X is a number
+	// These are more complex ANSI codes
+	re := regexp.MustCompile(`\x1b\[(\d+)m`)
+	result = re.ReplaceAllStringFunc(result, func(match string) string {
+		// Extract the number
+		code := re.FindStringSubmatch(match)
+		if len(code) < 2 {
+			return ""
+		}
+
+		// Map common codes
+		switch code[1] {
+		case "0":
+			return "[white]" // Reset
+		case "1":
+			return "[-]" // Bold
+		case "2":
+			return "[gray]" // Dim
+		case "30":
+			return "[black]"
+		case "31":
+			return "[red]"
+		case "32":
+			return "[green]"
+		case "33":
+			return "[yellow]"
+		case "34":
+			return "[blue]"
+		case "35":
+			return "[magenta]"
+		case "36":
+			return "[cyan]"
+		case "37":
+			return "[white]"
+		case "90":
+			return "[gray]"
+		case "91":
+			return "[red]"
+		case "92":
+			return "[green]"
+		case "93":
+			return "[yellow]"
+		case "94":
+			return "[blue]"
+		case "95":
+			return "[magenta]"
+		case "96":
+			return "[cyan]"
+		case "97":
+			return "[white]"
+		default:
+			return "" // Remove unknown codes
+		}
+	})
+
+	// Remove any remaining ANSI codes we don't handle
+	re = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	result = re.ReplaceAllString(result, "")
+
+	// Handle special tput sequences like (B[m (alternate charset reset)
+	result = strings.ReplaceAll(result, "(B[m", "")
+	result = strings.ReplaceAll(result, "\x1b(B", "")
+
+	return result
 }
 
 // Stop stops the script execution
