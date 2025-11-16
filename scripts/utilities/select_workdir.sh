@@ -9,7 +9,7 @@ echo "Available directories:"
 ls -la /home/
 
 echo
-echo "Enter the full path to your desired working directory (or press Enter for current directory):"
+echo "Enter the full path to your desired working directory (or press Enter for current directory):" >&2
 read -r workdir
 
 # Use current directory as default if no input provided
