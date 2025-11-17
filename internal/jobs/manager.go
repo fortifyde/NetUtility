@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -216,7 +217,28 @@ func (jm *JobManager) GetJob(jobID string) (*Job, bool) {
 	return job, exists
 }
 
-// GetAllJobs returns all jobs
+// jobStatusPriority returns the sort priority for a job status
+// Lower numbers appear first in the job list
+func jobStatusPriority(status JobStatus) int {
+	switch status {
+	case JobStatusRunning:
+		return 0
+	case JobStatusPending:
+		return 1
+	case JobStatusCompleted:
+		return 2
+	case JobStatusFailed:
+		return 3
+	case JobStatusCancelled:
+		return 4
+	default:
+		return 5
+	}
+}
+
+// GetAllJobs returns all jobs sorted by status priority and timestamp
+// Jobs are grouped: Running -> Pending -> Completed -> Failed -> Cancelled
+// Within each group, jobs are sorted by start time (oldest first)
 func (jm *JobManager) GetAllJobs() []*Job {
 	jm.mu.RLock()
 	defer jm.mu.RUnlock()
@@ -225,6 +247,26 @@ func (jm *JobManager) GetAllJobs() []*Job {
 	for _, job := range jm.jobs {
 		jobs = append(jobs, job)
 	}
+
+	// Sort by status priority first, then by start time
+	sort.Slice(jobs, func(i, j int) bool {
+		jobs[i].mu.RLock()
+		jobs[j].mu.RLock()
+		defer jobs[i].mu.RUnlock()
+		defer jobs[j].mu.RUnlock()
+
+		priI := jobStatusPriority(jobs[i].Status)
+		priJ := jobStatusPriority(jobs[j].Status)
+
+		// Different priorities: lower priority number comes first
+		if priI != priJ {
+			return priI < priJ
+		}
+
+		// Same priority: older jobs come first
+		return jobs[i].StartTime.Before(jobs[j].StartTime)
+	})
+
 	return jobs
 }
 
@@ -443,4 +485,20 @@ func (j *Job) IsRunning() bool {
 func (j *Job) IsCompleted() bool {
 	status := j.GetStatus()
 	return status == JobStatusCompleted || status == JobStatusFailed || status == JobStatusCancelled
+}
+
+// GetOutputLines safely returns a copy of the output lines
+// This is thread-safe and protects against concurrent access from readOutput goroutine
+func (j *Job) GetOutputLines() []executor.OutputLine {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+
+	if j.Result == nil || len(j.Result.OutputLines) == 0 {
+		return nil
+	}
+
+	// Return a copy to avoid race conditions
+	lines := make([]executor.OutputLine, len(j.Result.OutputLines))
+	copy(lines, j.Result.OutputLines)
+	return lines
 }

@@ -311,13 +311,45 @@ func (ov *OutputViewer) ConnectToJob(job *jobs.Job) error {
 	ov.outputChan = job.OutputChan
 	ov.errorChan = job.ErrorChan
 	ov.running = true
-	ov.outputLines = make([]executor.OutputLine, 0)
 	ov.scriptPath = job.ScriptPath
+
+	// Copy historical output from job result (last 1000 lines)
+	// This ensures user sees scrollback when reconnecting to backgrounded jobs
+	historicalLines := job.GetOutputLines()
+	if historicalLines != nil && len(historicalLines) > 0 {
+		maxLines := 1000
+		totalLines := len(historicalLines)
+		startIdx := 0
+		if totalLines > maxLines {
+			startIdx = totalLines - maxLines
+		}
+
+		// Copy last N lines from historical output
+		ov.outputLines = make([]executor.OutputLine, totalLines-startIdx)
+		copy(ov.outputLines, historicalLines[startIdx:])
+
+		// Add truncation notice if we couldn't show all lines
+		if startIdx > 0 {
+			truncMsg := executor.OutputLine{
+				Content:   fmt.Sprintf("──── Reconnected - showing last %d of %d total lines ────", maxLines, totalLines),
+				Timestamp: time.Now(),
+				Source:    "system",
+			}
+			// Prepend truncation message
+			ov.outputLines = append([]executor.OutputLine{truncMsg}, ov.outputLines...)
+		}
+
+		// Update display with historical output
+		// Call directly since we're already in UI thread and holding ov.mu lock
+		ov.updateDisplay()
+	} else {
+		ov.outputLines = make([]executor.OutputLine, 0)
+	}
 
 	// Set initial title with job count
 	ov.updateTitle(job.ScriptPath, "Running")
 
-	// Start output processing
+	// Start output processing for new output
 	go ov.processOutput()
 
 	return nil
