@@ -414,14 +414,141 @@ select_capture_file() {
     select_file "$capture_dir" "*.pcap" "Select capture file" true
 }
 
-# Specialized function for host file selection
+# Specialized function for host file selection from categorized discovery outputs
 select_host_file() {
     if [ -n "$NETUTIL_WORKDIR" ]; then
-        host_dir="$NETUTIL_WORKDIR/discovery"
+        base_dir="$NETUTIL_WORKDIR/discovery"
     else
-        host_dir="$HOME/discovery"
+        base_dir="$HOME/discovery"
     fi
-    select_file "$host_dir" "hosts_*.txt" "Select host file" true
+
+    # Check if discovery directory exists
+    if [ ! -d "$base_dir" ]; then
+        echo "Error: Discovery directory $base_dir not found" >&2
+        return 1
+    fi
+
+    # Clear previous file data
+    rm -f /tmp/netutil_files.$$
+    file_count=0
+
+    # Find all discovery session directories (both multi_phase_discovery and auto_discover)
+    find "$base_dir" -maxdepth 1 -type d \( -name "discovery_*" -o -name "auto_discovery_*" \) | sort -r > /tmp/netutil_sessions.$$
+
+    # Check if any sessions found
+    if [ ! -s /tmp/netutil_sessions.$$ ]; then
+        echo "Error: No discovery sessions found in $base_dir" >&2
+        rm -f /tmp/netutil_sessions.$$
+        return 1
+    fi
+
+    # Process each discovery session
+    while read -r session_dir; do
+        session_name=$(basename "$session_dir")
+        # Extract timestamp from session name (discovery_YYYYMMDD_HHMMSS)
+        timestamp=$(echo "$session_name" | sed 's/discovery_//')
+
+        # Find all network directories (main_network or vlan_*)
+        find "$session_dir" -maxdepth 1 -type d \( -name "main_network" -o -name "vlan_*" \) | sort > /tmp/netutil_networks.$$
+
+        while read -r network_dir; do
+            network_name=$(basename "$network_dir")
+            categorized_dir="$network_dir/categorized"
+
+            # Check if categorized directory exists
+            if [ ! -d "$categorized_dir" ]; then
+                continue
+            fi
+
+            # Find top-level categorized files (exclude enriched versions)
+            find "$categorized_dir" -maxdepth 1 -type f -name "*_hosts.txt" ! -name "*_enriched.txt" | sort > /tmp/netutil_catfiles.$$
+
+            while read -r host_file; do
+                category=$(basename "$host_file" .txt)
+                display_name="$timestamp/$network_name/$category"
+                file_count=$((file_count + 1))
+                echo "$file_count:$host_file:$display_name" >> /tmp/netutil_files.$$
+            done < /tmp/netutil_catfiles.$$
+
+            # Find vendor-specific files in network_devices subdirectory
+            if [ -d "$categorized_dir/network_devices" ]; then
+                find "$categorized_dir/network_devices" -maxdepth 1 -type f -name "*.txt" | sort > /tmp/netutil_vendorfiles.$$
+
+                while read -r vendor_file; do
+                    vendor=$(basename "$vendor_file" .txt)
+                    display_name="$timestamp/$network_name/$vendor"
+                    file_count=$((file_count + 1))
+                    echo "$file_count:$vendor_file:$display_name" >> /tmp/netutil_files.$$
+                done < /tmp/netutil_vendorfiles.$$
+
+                rm -f /tmp/netutil_vendorfiles.$$
+            fi
+
+            rm -f /tmp/netutil_catfiles.$$
+        done < /tmp/netutil_networks.$$
+
+        rm -f /tmp/netutil_networks.$$
+    done < /tmp/netutil_sessions.$$
+
+    rm -f /tmp/netutil_sessions.$$
+
+    # Check if any files were found
+    if [ ! -f /tmp/netutil_files.$$ ] || [ ! -s /tmp/netutil_files.$$ ]; then
+        echo "Error: No categorized host files found in discovery sessions" >&2
+        return 1
+    fi
+
+    # Display files with compact format
+    echo "Available categorized host files:" >&2
+    while IFS=':' read -r num filepath display_name; do
+        printf "%d. %s\n" "$num" "$display_name" >&2
+    done < /tmp/netutil_files.$$
+    echo >&2
+
+    # Get max file number for prompt
+    max_num=0
+    while IFS=':' read -r num filepath display_name; do
+        if [ "$num" -gt "$max_num" ]; then
+            max_num=$num
+        fi
+    done < /tmp/netutil_files.$$
+
+    # Prompt user for selection
+    while true; do
+        echo "Select host file (1-$max_num): " >&2
+        read file_num
+
+        # Validate input is a number
+        case "$file_num" in
+            ''|*[!0-9]*)
+                echo "Error: Please enter a number" >&2
+                continue
+                ;;
+        esac
+
+        # Check range
+        if [ "$file_num" -lt 1 ] || [ "$file_num" -gt "$max_num" ]; then
+            echo "Error: Please enter a number between 1 and $max_num" >&2
+            continue
+        fi
+
+        # Get selected file path
+        selected_file=""
+        while IFS=':' read -r num filepath display_name; do
+            if [ "$num" = "$file_num" ]; then
+                selected_file="$filepath"
+                break
+            fi
+        done < /tmp/netutil_files.$$
+
+        if [ -n "$selected_file" ]; then
+            echo "$selected_file"
+            rm -f /tmp/netutil_files.$$
+            return 0
+        else
+            echo "Error: Invalid file selection" >&2
+        fi
+    done
 }
 
 # =============================================================================
