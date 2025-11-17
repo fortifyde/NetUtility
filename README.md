@@ -1,146 +1,76 @@
 # NetUtility
 
-A terminal-based network discovery and analysis toolkit for security professionals and network administrators. NetUtility helps you understand what's on your network through intelligent scanning, traffic analysis, and automated reconnaissance workflows.
+A terminal-based toolkit for network security assessments. NetUtility automates discovery, host categorization, and initial scanning to establish a foundation for deeper analysis. It handles the mechanical work of network enumeration while organizing results for follow-on investigation.
 
-## What it does
+## Purpose
 
-NetUtility makes network discovery easy by automating the tedious parts while giving you control over the important decisions. Point it at a network interface, and it will:
+Security assessments start with understanding what exists on the network. NetUtility addresses the complexity of VLAN discovery, interface configuration, and host classification through automated workflows. From initial packet capture through categorized findings, it provides structured output that feeds into manual analysis and specialized tooling.
 
-- Capture traffic to understand network layout and VLANs
-- Intelligently configure interfaces based on what it finds
-- Discover live hosts using multiple scanning techniques
-- Categorize devices as Windows, Linux, or network appliances
-- Generate organized reports with actionable information
+This is a stepping stone, not a complete solution. It gets you from network connection to organized intelligence quickly, then hands off to your analysis workflow.
 
-The tool is designed around real-world workflows - whether you're assessing a new network, troubleshooting connectivity, or conducting security analysis.
+## Key Features
 
-## Core Features
+**Terminal Interface (TUI)**
+Interactive menu system with background job execution. Run long-duration scans without blocking the interface. Monitor multiple concurrent operations with real-time output streaming. Navigate with keyboard shortcuts and manage jobs through a dedicated panel.
 
-**Intelligent Auto-Discovery**
-- VLAN-aware network discovery that adapts to your environment
-- Smart IP configuration based on captured traffic patterns
-- Multi-phase scanning (ARP → ping → port discovery → categorization)
-- Automatic interface configuration with user confirmation
+**Modular Script System**
+Scripts are loaded dynamically through YAML metadata files. Each script defines its parameters, dependencies, and output patterns. Add new capabilities by dropping script files into the appropriate category directory. The TUI rebuilds its menus automatically.
 
-**Network Analysis**
-- Traffic capture with tshark/tcpdump integration
-- VLAN extraction and analysis from packet captures
-- Host categorization (Windows, Linux, network devices/appliances)
-- Protocol analysis and security assessment
+**VLAN Discovery and Configuration**
+Captures traffic to identify VLANs, then configures virtual interfaces for scanning. Suggests IP addresses based on observed network patterns. Runs discovery independently per VLAN, handling network segmentation without manual intervention.
 
-**System Management**
-- Network interface configuration (IP addresses, VLANs, routing)
-- DNS configuration and network backup/restore
-- Working directory management for organized results
-- Comprehensive logging and audit trails
+**Host Categorization**
+Analyzes open ports, service banners, and OS fingerprints to classify hosts as Windows, Linux, or network devices. Groups findings by category for targeted follow-up. Uses weighted scoring across multiple indicators rather than single-point identification.
 
-**Security Assessment** 
-- Safe vulnerability scanning with Nmap NSE scripts
-- Deep port analysis with service detection
-- Network device configuration backup and analysis
-- Risk assessment with remediation recommendations
+**Session-Based Organization**
+All scan results land in timestamped session directories. Maintains separation between different assessment runs. Generates reports automatically and preserves evidence with audit trails. The `latest/` symlink always points to the most recent session.
+
+**Multi-Phase Discovery**
+Eight-phase workflow progresses from topology mapping through service enumeration. Adapts scanning based on what previous phases found. Balances thoroughness against time by using progressive techniques (ICMP first, then TCP, finally comprehensive port scans for responsive hosts).
+
+## How It Works
+
+The toolkit contains six script categories: discovery, scanning, configuration, advanced workflows, utilities, and host-config. Each script has a companion `.meta.yaml` file describing its parameters and behavior.
+
+The TUI reads these metadata files on startup and builds menus dynamically. When you select a script, the interface validates parameters, checks dependencies, and streams output to a viewer with scrollback. The job manager handles concurrent execution (default limit: 3 jobs) and allows backgrounding long-running operations.
+
+Results go into structured directories under your working directory: `discovery/`, `captures/`, `port_and_security_scans/`, and others. Each session creates a timestamped subdirectory. Categorized host lists (Windows, Linux, network devices) feed into targeted scanning scripts.
+
+## Architecture
+
+- **Go-based TUI**: Built with tview/tcell for terminal rendering. Channel-based concurrency for job management and output streaming.
+- **POSIX Shell Scripts**: Approximately 12,000 lines across 21 scripts. Work with bash, dash, zsh, and fish.
+- **Metadata System**: YAML files define script parameters, validation rules, CLI shortcuts, and output patterns.
+- **Correlation Engine**: Cross-references findings from different scan types and builds relationship maps.
+- **OUI Database**: Vendor identification from MAC addresses for device fingerprinting.
 
 ## Getting Started
 
-You'll need Linux with networking tools (tshark, nmap, fping, ssh). Depending on your Distribution, most of what you need may already be there.
+**Requirements:**
+Linux system with Go 1.24+, nmap, tshark/tcpdump, fping, masscan (optional), and standard networking tools.
 
+**Build:**
 ```bash
 git clone https://github.com/fortifyde/NetUtility.git
 cd NetUtility
 go build -o netutil ./cmd/netutil
-chmod +x scripts/*/*.sh
-sudo ./netutil
+./netutil
 ```
 
-### Enhanced CLI Usage
-
-NetUtility now supports direct command execution without the TUI:
-
+**CLI Usage:**
+Run scripts directly without the TUI using shortcuts defined in metadata files:
 ```bash
-# Run commands directly
-./netutil scan                    # Network enumeration
-./netutil capture                 # Packet capture
-./netutil vuln                    # Vulnerability scan
-
-# Use numeric shortcuts
-./netutil 1                       # Most common task (eg: network enum)
-./netutil 2                       # Second most common (eg: capture)
-
-# Fuzzy matching works too
-./netutil cap                     # Matches "capture"
-./netutil enum                    # Matches "enumeration"
-
-# Get help and info
-./netutil --help                  # Show help
-./netutil --list                  # List all commands
-./netutil --recent                # Show recent commands
+./netutil auto-discover    # Launch automated workflow
+./netutil safe-scan        # Safe NSE enumeration
+./netutil port-scan        # Full port discovery
 ```
 
-### Bash Completion
+Use `./netutil --help` to list all available commands and shortcuts.
 
-Enable bash completion for better productivity:
+## Safety and Legal Notice
 
-```bash
-# Install completion (add to ~/.bashrc)
-source scripts/completion/netutil_completion.bash
-
-# Or install system-wide
-sudo cp scripts/completion/netutil_completion.bash /etc/bash_completion.d/netutil
-```
-
-With completion enabled, you can press Tab to autocomplete commands and options.
-
-The interface is straightforward - use arrow keys to navigate, tab to switch between panels, enter to select tasks, and escape to exit.
-
-## How it works
-
-NetUtility is built around the concept of workflows rather than individual tools. When you run auto-discovery, for example, it:
-
-1. **Captures traffic** to understand the network environment
-2. **Analyzes VLANs** and determines network topology  
-3. **Configures interfaces** intelligently based on findings
-4. **Discovers hosts** using multiple scanning techniques
-5. **Categorizes devices** into meaningful groups
-6. **Generates reports** with actionable insights
-
-Each workflow is implemented as shell scripts in the `scripts/` directory, organized by function (network, system, vulnerability, etc.). The Go-based TUI provides the interface, job management, and real-time output display.
-
-Results are automatically organized in timestamped directories, and the tool handles privilege escalation when needed. If something goes wrong, it won't hang forever thanks to built-in timeouts.
-
-## Safety first
-
-This tool is designed for legitimate security testing and network administration. All the vulnerability scanning uses safe, non-intrusive techniques - no brute force attacks or anything that might cause problems.
-
-Always make sure you have permission before running these tools against any network or system that isn't yours.
-
-## Project Structure
-
-```
-NetUtility/
-├── cmd/netutil/           # Main application entry point
-├── internal/              # Core Go application logic
-│   ├── app/              # Application framework and utilities
-│   ├── config/           # Configuration management
-│   ├── jobs/             # Background job execution
-│   ├── metadata/         # Script metadata and registry
-│   └── ui/               # Terminal user interface
-├── scripts/               # Organized shell scripts by function
-│   ├── advanced/         # Automated workflows (auto-discovery)
-│   ├── network/          # Discovery and analysis tools
-│   ├── system/           # Interface and network configuration
-│   ├── vulnerability/    # Security assessment scripts
-│   └── config/           # Device configuration management
-└── README.md
-```
-
-## Contributing
-
-Found a bug? Want to add a new script? Pull requests are welcome. The code is straightforward Go with a clean structure, and adding new scripts is pretty simple.
+This toolkit generates network traffic and performs active scanning. Use only on networks you own or have explicit authorization to test. Unauthorized network scanning may violate computer fraud and abuse laws. The authors accept no liability for misuse.
 
 ## License
 
-MIT License - use it however you want, just don't blame me if something breaks.
-
----
-
-**Important**: This is a tool for authorized security professionals. Don't use it on networks you don't own or don't have explicit permission to test. Be responsible.
+MIT License - See LICENSE file for details.
