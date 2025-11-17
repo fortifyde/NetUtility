@@ -162,6 +162,9 @@ func (jv *JobsViewer) setupKeyBindings() {
 
 // updateJobsList refreshes the jobs table
 func (jv *JobsViewer) updateJobsList() {
+	// Store currently selected job ID before clearing (for selection preservation)
+	previouslySelectedJob := jv.selectedJob
+
 	// Clear existing rows (except header)
 	jv.jobsList.Clear()
 	// Clear job ID mapping
@@ -178,6 +181,8 @@ func (jv *JobsViewer) updateJobsList() {
 
 	// Add job rows
 	allJobs := jv.jobManager.GetAllJobs()
+	rowToSelect := 1 // Default to first row if previously selected job not found
+
 	for i, job := range allJobs {
 		row := i + 1
 
@@ -211,11 +216,16 @@ func (jv *JobsViewer) updateJobsList() {
 
 		// Store mapping from row to actual full job ID
 		jv.jobIDMapping[row] = job.ID
+
+		// Check if this is the previously selected job
+		if job.ID == previouslySelectedJob {
+			rowToSelect = row
+		}
 	}
 
-	// Set initial selection to enable navigation (skip header row)
+	// Restore selection to previously selected job (or default to row 1)
 	if jv.jobsList.GetRowCount() > 1 {
-		jv.jobsList.Select(1, 0)
+		jv.jobsList.Select(rowToSelect, 0)
 	}
 }
 
