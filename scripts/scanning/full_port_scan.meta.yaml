@@ -1,0 +1,86 @@
+script:
+  name: "Full Port Scan"
+  description: "Comprehensive port scanning with service version detection"
+  category: "scanning"
+  subcategory: "discovery"
+
+  file: "full_port_scan.sh"
+  requires_root: true
+  estimated_duration: "5-60 minutes"
+
+  cli_shortcuts:
+    - "full-scan"
+    - "port-scan"
+    - "full-port"
+  keywords:
+    - "port"
+    - "scan"
+    - "discovery"
+    - "comprehensive"
+    - "nmap"
+    - "services"
+    - "full"
+
+  parameters:
+    - name: "target"
+      type: "target"
+      description: "Target IP, range, or host file"
+      required: true
+    - name: "scan_intensity"
+      type: "choice"
+      description: "Scan intensity level"
+      required: true
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Quick scan (Top 1000 ports)"
+          - value: "2"
+            description: "Full scan (All 65535 ports)"
+          - value: "3"
+            description: "Custom port range"
+    - name: "custom_ports"
+      type: "text"
+      description: "Custom port range (e.g., 1-1000 or 80,443,8080)"
+      required: false
+      validation:
+        pattern: '^([0-9]+(-[0-9]+)?)(,[0-9]+(-[0-9]+)?)*$'
+
+  dependencies:
+    tools:
+      - name: "nmap"
+        package: "nmap"
+        check_command: "which nmap"
+    scripts:
+      - "../common/utils.sh"
+
+  output:
+    creates_files: true
+    file_patterns:
+      - "scan_results.nmap"
+      - "scan_results.xml"
+      - "scan_results.gnmap"
+      - "port_scan_report.txt"
+    workspace_subdirs:
+      - "port_and_security_scans"
+
+  tags:
+    - "port-scanning"
+    - "discovery"
+    - "service-detection"
+    - "comprehensive"
+    - "nmap"
+    - "inventory"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+
+  examples:
+    - description: "Run full port scan"
+      command: "netutil full-scan"
+    - description: "Quick port discovery"
+      command: "netutil port-scan"
+
+  version: "1.0"
+  author: "fortifyde"
+  last_updated: "2025-11-17"
