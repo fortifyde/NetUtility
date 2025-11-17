@@ -30,12 +30,12 @@ case $action in
             exit 1
         fi
         
-        echo "Bringing interface $interface UP..."
+        echo "Bringing interface $interface UP..." >&2
         if ip link set "$interface" up; then
             ip -6 addr flush dev "$interface" scope link 2>/dev/null || true
             success_message "Interface $interface brought UP"
-            echo "Current status:"
-            ip addr show "$interface"
+            echo "Current status:" >&2
+            ip addr show "$interface" >&2
         else
             error_message "Failed to bring interface $interface UP"
             exit 1
@@ -48,19 +48,19 @@ case $action in
             exit 1
         fi
         
-        echo "Bringing interface $interface DOWN..."
+        echo "Bringing interface $interface DOWN..." >&2
         if ip link set "$interface" down; then
             success_message "Interface $interface brought DOWN"
-            echo "Current status:"
-            ip addr show "$interface"
+            echo "Current status:" >&2
+            ip addr show "$interface" >&2
         else
             error_message "Failed to bring interface $interface DOWN"
             exit 1
         fi
         ;;
     3)
-        echo "Bringing all interfaces UP (excluding loopback and parent interfaces)..."
-        echo "Only affecting VLAN interfaces (interfaces with '.' in name)"
+        echo "Bringing all interfaces UP (excluding loopback and parent interfaces)..." >&2
+        echo "Only affecting VLAN interfaces (interfaces with '.' in name)" >&2
 
         ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | while read -r line; do
             interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
@@ -68,9 +68,9 @@ case $action in
             if [ -n "$interface" ] && [ "$interface" != "lo" ] && echo "$interface" | grep -q "\."; then
                 if ip link set "$interface" up 2>/dev/null; then
                     ip -6 addr flush dev "$interface" scope link 2>/dev/null || true
-                    echo "  ✓ $interface UP (VLAN)"
+                    echo "  ✓ $interface UP (VLAN)" >&2
                 else
-                    echo "  ✗ $interface FAILED (VLAN)"
+                    echo "  ✗ $interface FAILED (VLAN)" >&2
                 fi
             fi
         done
@@ -78,17 +78,17 @@ case $action in
         success_message "All VLAN interfaces brought UP"
         ;;
     4)
-        echo "Bringing all interfaces DOWN (excluding loopback and parent interfaces)..."
-        echo "Only affecting VLAN interfaces (interfaces with '.' in name)"
+        echo "Bringing all interfaces DOWN (excluding loopback and parent interfaces)..." >&2
+        echo "Only affecting VLAN interfaces (interfaces with '.' in name)" >&2
 
         ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | while read -r line; do
             interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
             # Only affect VLAN interfaces (contain dot) and exclude loopback
             if [ -n "$interface" ] && [ "$interface" != "lo" ] && echo "$interface" | grep -q "\."; then
                 if ip link set "$interface" down 2>/dev/null; then
-                    echo "  ✓ $interface DOWN (VLAN)"
+                    echo "  ✓ $interface DOWN (VLAN)" >&2
                 else
-                    echo "  ✗ $interface FAILED (VLAN)"
+                    echo "  ✗ $interface FAILED (VLAN)" >&2
                 fi
             fi
         done
@@ -102,16 +102,16 @@ case $action in
             exit 1
         fi
         
-        echo "=== Interface Statistics for $interface ==="
-        echo
-        echo "--- Interface Details ---"
-        ip addr show "$interface"
-        echo
-        echo "--- Statistics ---"
-        cat /proc/net/dev | grep "$interface" || echo "No statistics available"
-        echo
-        echo "--- Link Status ---"
-        ip link show "$interface"
+        echo "=== Interface Statistics for $interface ===" >&2
+        echo >&2
+        echo "--- Interface Details ---" >&2
+        ip addr show "$interface" >&2
+        echo >&2
+        echo "--- Statistics ---" >&2
+        cat /proc/net/dev | grep "$interface" || echo "No statistics available" >&2
+        echo >&2
+        echo "--- Link Status ---" >&2
+        ip link show "$interface" >&2
         ;;
     6)
         echo "Exiting..."

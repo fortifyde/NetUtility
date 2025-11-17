@@ -18,12 +18,12 @@ fi
 
 success_message "Selected parent interface: $parent_interface"
 
-echo "VLAN options:"
-echo "1. Add VLAN interface"
-echo "2. Add Multiple VLAN interfaces"
-echo "3. Remove VLAN interface"
-echo "4. List VLAN interfaces"
-echo "5. Exit"
+echo "VLAN options:" >&2
+echo "1. Add VLAN interface" >&2
+echo "2. Add Multiple VLAN interfaces" >&2
+echo "3. Remove VLAN interface" >&2
+echo "4. List VLAN interfaces" >&2
+echo "5. Exit" >&2
 
 echo "Select option (1-5): " >&2
 read -r option
@@ -74,11 +74,11 @@ case $option in
                 success_message "IP address $ip_addr assigned to $vlan_interface"
         fi
         
-        echo "VLAN interface details:"
+        echo "VLAN interface details:" >&2
         ip addr show "$vlan_interface"
         ;;
     2)
-        echo "Multiple VLAN creation mode"
+        echo "Multiple VLAN creation mode" >&2
         echo "Enter VLAN IDs (comma-separated, space-separated, or range like 100-105): " >&2
         read -r vlan_input
         
@@ -156,9 +156,9 @@ case $option in
         echo
         
         # Ask for IP configuration mode
-        echo "IP configuration options:"
-        echo "1. Configure IP for each VLAN individually"
-        echo "2. Skip IP configuration"
+        echo "IP configuration options:" >&2
+        echo "1. Configure IP for each VLAN individually" >&2
+        echo "2. Skip IP configuration" >&2
         
         echo "Select IP configuration mode (1-2): " >&2
         read -r ip_mode
