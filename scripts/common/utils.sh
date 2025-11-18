@@ -691,6 +691,53 @@ filter_valid_unicast_ips() {
     grep -v '\.255$'
 }
 
+# Function to get all local IP addresses from network interfaces
+# Returns: List of IP addresses (one per line) assigned to local interfaces
+# Output: IP addresses via stdout
+get_local_ips() {
+    # Use ip command if available (preferred), fallback to hostname -I
+    if command -v ip >/dev/null 2>&1; then
+        # Extract IPv4 addresses from all interfaces
+        ip -4 addr show | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '^127\.'
+    elif command -v hostname >/dev/null 2>&1; then
+        # Fallback to hostname -I and filter loopback
+        hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | grep -v '^127\.'
+    else
+        # Last resort: use ifconfig
+        ifconfig 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | grep -v '^127\.'
+    fi
+}
+
+# Function to filter out local IP addresses from a list
+# Input: IP addresses via stdin (one per line)
+# Output: Filtered IP addresses (excluding local IPs) via stdout
+filter_local_ips() {
+    local temp_input
+    local temp_local
+    local filtered_result
+
+    # Create temporary files for processing
+    temp_input=$(mktemp)
+    temp_local=$(mktemp)
+
+    # Read stdin to temp file
+    cat > "$temp_input"
+
+    # Get local IPs
+    get_local_ips > "$temp_local"
+
+    # Filter out local IPs using grep with fixed strings
+    if [ -s "$temp_local" ]; then
+        grep -vxFf "$temp_local" "$temp_input" || true
+    else
+        # If no local IPs found, pass through all input
+        cat "$temp_input"
+    fi
+
+    # Clean up
+    rm -f "$temp_input" "$temp_local"
+}
+
 # Function for smart target selection with memory
 select_target() {
     echo "Target selection:" >&2

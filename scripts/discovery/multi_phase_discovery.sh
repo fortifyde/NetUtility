@@ -2572,7 +2572,7 @@ echo >> "$REPORT_FILE"
 
 # Combine all Phase 1 and Phase 2 results
 cat "$PHASE1_DIR/phase1_all_hosts.txt" "$PHASE2_DIR/ping_hosts.txt" "$PHASE2_DIR/tcp_hosts.txt" \
-    "$PHASE2_DIR/udp_hosts.txt" "$PHASE2_DIR/masscan_hosts.txt" "$PHASE2_DIR/ipv6_hosts.txt" | sort -u > "$PHASE2_DIR/all_hosts.txt"
+    "$PHASE2_DIR/udp_hosts.txt" "$PHASE2_DIR/masscan_hosts.txt" "$PHASE2_DIR/ipv6_hosts.txt" | sort -u | filter_local_ips > "$PHASE2_DIR/all_hosts.txt"
 all_hosts_count=$(wc -l < "$PHASE2_DIR/all_hosts.txt")
 
 echo "Phase 2 Comprehensive Host Discovery Summary:" >> "$REPORT_FILE"
