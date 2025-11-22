@@ -1,0 +1,37 @@
+# HP Comware Configuration and Compliance Commands
+# Special markers: @VERSION, @RUNNING_CONFIG, @RUNNING_CONFIG_ALL, @STARTUP_CONFIG
+# All other commands are saved to compliance_commands.txt
+
+# Version information
+@VERSION display version
+
+# Configuration files
+@RUNNING_CONFIG display current-configuration
+@RUNNING_CONFIG_ALL display current-configuration
+@STARTUP_CONFIG display saved-configuration
+
+# System information
+display device
+display device manuinfo
+
+# Interface information
+display interface brief
+display ip interface brief
+display interface description
+
+# Routing information
+display ip routing-table
+display ip routing-table statistics
+
+# Network discovery
+display lldp neighbor-information
+
+# VLAN and switching
+display vlan all
+display stp brief
+
+# Additional compliance data
+display arp
+display mac-address
+display cpu-usage
+display memory

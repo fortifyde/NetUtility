@@ -1,0 +1,140 @@
+script:
+  name: "Network Config Gatherer"
+  description: "Extract configurations and compliance data from network devices with vendor auto-detection"
+  category: "config"
+  subcategory: "backup"
+
+  file: "gather_network_configs.sh"
+  requires_root: false
+  estimated_duration: "5-30 minutes"
+
+  cli_shortcuts:
+    - "gather-configs"
+    - "backup-configs"
+    - "config-backup"
+    - "get-configs"
+  keywords:
+    - "config"
+    - "configuration"
+    - "backup"
+    - "gather"
+    - "extract"
+    - "compliance"
+    - "network"
+    - "device"
+    - "cisco"
+    - "hp"
+    - "aruba"
+
+  parameters:
+    - name: "target"
+      type: "target"
+      description: "Device IP, range, or categorized host file"
+      required: false
+    - name: "mode"
+      type: "choice"
+      description: "Execution mode"
+      required: false
+      default: "extract"
+      validation:
+        choices:
+          - value: "dry-run"
+            description: "Test connectivity only (no extraction)"
+          - value: "extract"
+            description: "Full configuration extraction"
+    - name: "credentials"
+      type: "choice"
+      description: "Credential input method"
+      required: false
+      default: "common"
+      validation:
+        choices:
+          - value: "common"
+            description: "Common username/password for all devices"
+          - value: "file"
+            description: "Credentials file (IP,user,pass format)"
+          - value: "interactive"
+            description: "Prompt for each device"
+    - name: "concurrency"
+      type: "text"
+      description: "Maximum parallel connections"
+      required: false
+      default: "5"
+
+  dependencies:
+    tools:
+      - name: "ssh"
+        package: "openssh-client"
+        check_command: "which ssh"
+      - name: "sshpass"
+        package: "sshpass"
+        check_command: "which sshpass"
+      - name: "sed"
+        package: "sed"
+        check_command: "which sed"
+      - name: "grep"
+        package: "grep"
+        check_command: "which grep"
+
+  output:
+    creates_files: true
+    workspace_subdirs: ["configs"]
+    files:
+      - path: "configs/gather_YYYYMMDD_HHMMSS/device_*/version.txt"
+        description: "Device version information"
+      - path: "configs/gather_YYYYMMDD_HHMMSS/device_*/running_config.txt"
+        description: "Running configuration"
+      - path: "configs/gather_YYYYMMDD_HHMMSS/device_*/running_config_all.txt"
+        description: "Running configuration with all defaults"
+      - path: "configs/gather_YYYYMMDD_HHMMSS/device_*/startup_config.txt"
+        description: "Startup/saved configuration"
+      - path: "configs/gather_YYYYMMDD_HHMMSS/device_*/compliance_commands.txt"
+        description: "Additional compliance command outputs"
+      - path: "configs/gather_YYYYMMDD_HHMMSS/device_*/metadata.txt"
+        description: "Device metadata and session info"
+      - path: "configs/gather_YYYYMMDD_HHMMSS/session_summary.txt"
+        description: "Session summary report"
+      - path: "configs/gather_YYYYMMDD_HHMMSS/failures.txt"
+        description: "Failed device log"
+      - path: "configs/gather_YYYYMMDD_HHMMSS/retry_failures.sh"
+        description: "Auto-generated retry script"
+    logs_operations: true
+
+  tags:
+    - "configuration"
+    - "backup"
+    - "compliance"
+    - "network-devices"
+    - "cisco"
+    - "hp"
+    - "aruba"
+    - "automation"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+
+  examples:
+    - description: "Interactive extraction with common credentials"
+      command: "netutil gather-configs"
+    - description: "Dry-run to test connectivity"
+      command: "./gather_network_configs.sh --dry-run"
+    - description: "Extract from categorized network devices"
+      command: "netutil gather-configs --targets /path/to/network_devices.txt"
+    - description: "High concurrency extraction"
+      command: "./gather_network_configs.sh --concurrency 10"
+    - description: "Use credentials file"
+      command: "./gather_network_configs.sh --cred-mode file --cred-file creds.csv"
+
+  notes:
+    - "Supports Cisco IOS, Cisco Nexus, HP Comware, HP ProVision, HP Aruba"
+    - "Automatically detects vendor/OS from version output"
+    - "Saves running-config and running-config all separately"
+    - "Uses fallback version commands for compatibility"
+    - "Offers retry on failures with different credentials"
+    - "Generates summary report and retry script"
+    - "Clean output with pagination and ANSI codes removed"
+    - "Command lists customizable per vendor in commands/ directory"
+
+  version: "1.0.0"
+  author: "fortifyde"
+  last_updated: "2025-01-22"
