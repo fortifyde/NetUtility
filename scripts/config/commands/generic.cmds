@@ -1,0 +1,22 @@
+# Generic/Unknown Vendor Configuration Commands
+# Special markers: @VERSION, @RUNNING_CONFIG, @RUNNING_CONFIG_ALL, @STARTUP_CONFIG
+# All other commands are saved to compliance_commands.txt
+# Uses fallback command syntax with pipe-separated alternatives
+
+# Version information (tries multiple commands)
+@VERSION show version
+
+# Configuration files (tries common variants)
+@RUNNING_CONFIG show running-config
+@RUNNING_CONFIG_ALL show running-config all
+@STARTUP_CONFIG show startup-config
+
+# Basic interface information
+show interfaces
+show ip interface
+
+# Basic routing information
+show ip route
+
+# Basic system information
+show system
