@@ -35,3 +35,20 @@ display arp
 display mac-address
 display cpu-usage
 display memory
+
+# Security and Access Control
+display port-security
+display acl all
+
+# AAA and Authentication
+display aaa
+
+# SNMP Configuration
+display snmp-agent
+display snmp-agent community
+
+# Logging and Monitoring
+display logbuffer
+
+# Stack Management
+display stack

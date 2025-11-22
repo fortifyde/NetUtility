@@ -33,3 +33,35 @@ show arp
 show mac-address
 show cpu
 show memory
+
+# Security and Access Control
+show port-security
+show port-security ethernet all
+show port-security intrusion-log
+show access-list config
+
+# AAA and Authentication
+show aaa
+show authentication
+
+# SNMP Configuration
+show snmp-server
+show snmpv3 enable
+
+# Logging and Monitoring
+show logging
+
+# DHCP Services
+show dhcp-relay
+show dhcp-snooping
+show trunks
+
+# Management and Security
+show ip authorized-managers
+show management
+show front-panel-security
+
+# Time and NTP
+show time
+show sntp
+show sntp status

@@ -34,3 +34,47 @@ show mac-address
 show cpu
 show memory
 show uptime
+
+# Security and Access Control
+show port-security
+show port-security ethernet all
+show port-security intrusion-log
+show access-list config
+
+# AAA and Authentication
+show aaa
+show authentication
+show password-configuration
+
+# SNMP Configuration
+show snmp-server
+show snmpv3 enable
+
+# Logging and Monitoring
+show logging
+
+# Stack and Management
+show stack
+show stack all
+show front-panel-security
+show management
+show ip authorized-managers
+
+# DHCP Services
+show dhcp-relay
+show dhcp-snooping
+show ip helper-address
+
+# VRRP and Trunks
+show vrrp config
+show trunks
+
+# Time and NTP
+show time
+show sntp
+show sntp status
+show sntp associations
+show sntp authentication
+
+# Accounting
+show accounting

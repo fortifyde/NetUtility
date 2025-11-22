@@ -38,3 +38,20 @@ show vsx brief
 show arp
 show mac-address-table
 show system resource-utilization
+
+# Security and Access Control
+show port-security
+show access-list
+
+# AAA and Authentication
+show aaa
+
+# SNMP Configuration
+show snmp
+
+# Logging and Monitoring
+show logging
+
+# Time and NTP
+show ntp status
+show ntp associations

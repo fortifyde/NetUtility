@@ -39,3 +39,44 @@ show mac address-table
 show version | include uptime
 show processes cpu
 show processes memory
+
+# Security and Access Control
+show port-security
+show port-security address
+show access-lists
+show ip access-lists
+
+# AAA and Authentication
+show aaa
+show aaa authentication
+show aaa servers
+show radius server detail
+show tacacs-server detail
+
+# HSRP/VRRP (Redundancy)
+show standby all
+show standby neighbors
+show vrrp config
+
+# VTP and Trunking
+show vtp status
+show vtp password
+show interfaces switchport
+
+# SNMP Configuration
+show snmp
+show snmp community
+show snmp host
+
+# Logging and Monitoring
+show logging
+show logging info
+
+# Stack and High Availability
+show stack
+show udld
+
+# DHCP Services
+show ip dhcp snooping
+show ip dhcp pool
+show dhcp server
