@@ -67,6 +67,10 @@ Run scripts directly without the TUI using shortcuts defined in metadata files:
 
 Use `./netutil --help` to list all available commands and shortcuts.
 
+## Sharing Scan Results
+
+NetUtility includes an HTTP file server for sharing scan results with your team across VLANs. Run `sudo ./netutil setup-fileserver` to configure the service with authentication. The setup wizard creates user accounts, installs a systemd service, and displays access URLs (default port: 8080).
+
 ## Safety and Legal Notice
 
 This toolkit generates network traffic and performs active scanning. Use only on networks you own or have explicit authorization to test. Unauthorized network scanning may violate computer fraud and abuse laws. The authors accept no liability for misuse.
