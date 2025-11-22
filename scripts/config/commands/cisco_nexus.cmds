@@ -44,3 +44,21 @@ show mac address-table
 show system uptime
 show processes cpu
 show processes memory
+
+# Security and Access Control
+show port-security
+show access-lists
+
+# AAA and Authentication
+show aaa
+show aaa authentication
+
+# SNMP Configuration
+show snmp
+show snmp community
+
+# Logging and Monitoring
+show logging
+
+# DHCP Services
+show ip dhcp snooping
