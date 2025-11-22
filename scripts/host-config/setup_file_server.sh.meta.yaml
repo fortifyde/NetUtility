@@ -1,0 +1,76 @@
+script:
+  name: "Setup File Server"
+  description: "Configure HTTP file server with authentication for sharing scan results across VLANs"
+  category: "host-config"
+  subcategory: "services"
+
+  file: "setup_file_server.sh"
+  requires_root: true
+  estimated_duration: "3-5 minutes"
+
+  cli_shortcuts:
+    - "setup-fileserver"
+    - "file-server"
+    - "setup-file-server"
+  keywords:
+    - "file"
+    - "server"
+    - "http"
+    - "share"
+    - "authentication"
+    - "vlan"
+    - "service"
+    - "systemd"
+
+  parameters: []
+
+  dependencies:
+    tools:
+      - name: "systemctl"
+        package: "systemd"
+        check_command: "which systemctl"
+      - name: "netutil-fileserver"
+        package: "netutil"
+        check_command: "command -v netutil-fileserver"
+    binaries:
+      - name: "netutil-fileserver"
+        description: "File server binary (must be installed in PATH)"
+
+  output:
+    creates_files: true
+    files:
+      - path: "/etc/systemd/system/netutil-fileserver.service"
+        description: "Systemd service file"
+      - path: "/etc/netutil/fileserver.creds"
+        description: "Credentials file with bcrypt hashes"
+    workspace_subdirs: []
+    logs_operations: true
+
+  tags:
+    - "networking"
+    - "service"
+    - "http"
+    - "authentication"
+    - "file-sharing"
+    - "vlan"
+    - "systemd"
+  risk_level: "medium"
+  network_access: true
+  modifies_system: true
+
+  examples:
+    - description: "Run setup wizard"
+      command: "netutil setup-fileserver"
+    - description: "Direct execution"
+      command: "sudo ./scripts/host-config/setup_file_server.sh"
+
+  notes:
+    - "Requires netutil-fileserver binary installed in PATH"
+    - "Creates systemd service for automatic startup"
+    - "Uses bcrypt for password hashing"
+    - "Manual firewall/VLAN configuration required for cross-VLAN access"
+    - "Default port 8080, configurable during setup"
+
+  version: "1.0"
+  author: "fortifyde"
+  last_updated: "2025-01-22"
