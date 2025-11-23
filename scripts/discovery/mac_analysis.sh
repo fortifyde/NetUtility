@@ -18,6 +18,8 @@ mkdir -p "$ANALYSIS_DIR"
 OUIHELPER_BIN=""
 if command -v ouihelper >/dev/null 2>&1; then
     OUIHELPER_BIN="ouihelper"
+elif [ -f "$(dirname "$0")/../../bin/ouihelper" ]; then
+    OUIHELPER_BIN="$(dirname "$0")/../../bin/ouihelper"
 elif [ -f "$(dirname "$0")/../../cmd/ouihelper/ouihelper" ]; then
     OUIHELPER_BIN="$(dirname "$0")/../../cmd/ouihelper/ouihelper"
 elif [ -f "$(dirname "$0")/../../ouihelper" ]; then

@@ -19,6 +19,8 @@ var (
 	workspaceDir = flag.String("workspace", "", "Path to workspace directory to serve")
 	credsFile    = flag.String("credentials", "", "Path to credentials file (username:bcrypt_hash)")
 	listenAddr   = flag.String("addr", "0.0.0.0", "Address to listen on")
+	tlsCert      = flag.String("tls-cert", "", "TLS certificate file (enables HTTPS)")
+	tlsKey       = flag.String("tls-key", "", "TLS private key file (enables HTTPS)")
 	hashPassword = flag.String("hash", "", "Hash a password and exit (utility mode)")
 	version      = "1.0.0"
 )
@@ -100,10 +102,30 @@ func main() {
 	log.Printf("Starting NetUtil File Server v%s", version)
 	log.Printf("Serving workspace: %s", absWorkspace)
 	log.Printf("Listening on: %s", addr)
-	log.Printf("Access URL: http://%s", addr)
 
-	if err := http.ListenAndServe(addr, handler); err != nil {
-		log.Fatalf("ERROR: Server failed: %v", err)
+	// Check if TLS is enabled
+	useTLS := *tlsCert != "" && *tlsKey != ""
+
+	if useTLS {
+		// Validate TLS certificate and key files exist
+		if _, err := os.Stat(*tlsCert); err != nil {
+			log.Fatalf("ERROR: TLS certificate file not found: %s", *tlsCert)
+		}
+		if _, err := os.Stat(*tlsKey); err != nil {
+			log.Fatalf("ERROR: TLS key file not found: %s", *tlsKey)
+		}
+
+		log.Printf("TLS enabled with certificate: %s", *tlsCert)
+		log.Printf("Access URL: https://%s", addr)
+		if err := http.ListenAndServeTLS(addr, *tlsCert, *tlsKey, handler); err != nil {
+			log.Fatalf("ERROR: HTTPS server failed: %v", err)
+		}
+	} else {
+		log.Printf("WARNING: Running without TLS encryption - credentials transmitted in cleartext")
+		log.Printf("Access URL: http://%s", addr)
+		if err := http.ListenAndServe(addr, handler); err != nil {
+			log.Fatalf("ERROR: HTTP server failed: %v", err)
+		}
 	}
 }
 

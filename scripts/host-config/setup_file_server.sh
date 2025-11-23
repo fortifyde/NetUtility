@@ -7,6 +7,10 @@
 
 set -e
 
+# Source logging utilities
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$SCRIPT_DIR/../common/logging.sh"
+
 # Color output (with fallback for non-color terminals)
 if [ -t 1 ]; then
     RED='\033[0;31m'
@@ -23,25 +27,26 @@ else
 fi
 
 print_header() {
-    printf "${BLUE}===================================================${NC}\n"
-    printf "${BLUE}  NetUtil File Server Setup${NC}\n"
-    printf "${BLUE}===================================================${NC}\n\n"
+    echo "${BLUE}===================================================${NC}"
+    echo "${BLUE}  NetUtil File Server Setup${NC}"
+    echo "${BLUE}===================================================${NC}"
+    echo ""
 }
 
 print_success() {
-    printf "${GREEN}✓ %s${NC}\n" "$1"
+    echo "${GREEN}✓ $1${NC}"
 }
 
 print_error() {
-    printf "${RED}✗ ERROR: %s${NC}\n" "$1" >&2
+    echo "${RED}✗ ERROR: $1${NC}" >&2
 }
 
 print_warning() {
-    printf "${YELLOW}⚠ WARNING: %s${NC}\n" "$1"
+    echo "${YELLOW}⚠ WARNING: $1${NC}"
 }
 
 print_info() {
-    printf "${BLUE}ℹ %s${NC}\n" "$1"
+    echo "${BLUE}ℹ $1${NC}"
 }
 
 # Check if running as root
@@ -60,6 +65,12 @@ find_fileserver_binary() {
         return 0
     fi
 
+    # Check relative to script location (scripts/host-config/)
+    if [ -x "$(dirname "$0")/../../bin/netutil-fileserver" ]; then
+        FILESERVER_BIN="$(dirname "$0")/../../bin/netutil-fileserver"
+        return 0
+    fi
+
     # Check common installation locations
     for path in /usr/local/bin/netutil-fileserver /usr/bin/netutil-fileserver /opt/netutil/bin/netutil-fileserver; do
         if [ -x "$path" ]; then
@@ -73,6 +84,17 @@ find_fileserver_binary() {
 
 # Get workspace directory from netutil config
 get_workspace_dir() {
+    # Check for config file relative to script location first (for development)
+    CONFIG_FILE="$(dirname "$0")/../../netutil-config.json"
+    if [ -f "$CONFIG_FILE" ]; then
+        # Parse workspace_dir from JSON (POSIX-compliant, no jq needed)
+        WORKSPACE=$(grep -o '"workspace_dir"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*:[[:space:]]*"\(.*\)".*/\1/')
+        if [ -n "$WORKSPACE" ] && [ -d "$WORKSPACE" ]; then
+            printf "%s" "$WORKSPACE"
+            return 0
+        fi
+    fi
+
     # Find netutil binary to locate config file
     NETUTIL_BIN=""
 
@@ -93,9 +115,19 @@ get_workspace_dir() {
         # Get directory where netutil binary is located
         NETUTIL_DIR="$(dirname "$NETUTIL_BIN")"
 
-        # Check for netutil-config.json in the same directory
-        CONFIG_FILE="${NETUTIL_DIR}/netutil-config.json"
+        # Check for netutil-config.json in parent directory first (e.g., bin/../netutil-config.json)
+        CONFIG_FILE="${NETUTIL_DIR}/../netutil-config.json"
+        if [ -f "$CONFIG_FILE" ]; then
+            # Parse workspace_dir from JSON (POSIX-compliant, no jq needed)
+            WORKSPACE=$(grep -o '"workspace_dir"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*:[[:space:]]*"\(.*\)".*/\1/')
+            if [ -n "$WORKSPACE" ] && [ -d "$WORKSPACE" ]; then
+                printf "%s" "$WORKSPACE"
+                return 0
+            fi
+        fi
 
+        # Check for netutil-config.json in the same directory as fallback
+        CONFIG_FILE="${NETUTIL_DIR}/netutil-config.json"
         if [ -f "$CONFIG_FILE" ]; then
             # Parse workspace_dir from JSON (POSIX-compliant, no jq needed)
             WORKSPACE=$(grep -o '"workspace_dir"[[:space:]]*:[[:space:]]*"[^"]*"' "$CONFIG_FILE" | sed 's/.*:[[:space:]]*"\(.*\)".*/\1/')
@@ -121,9 +153,9 @@ prompt() {
     default_value="$2"
 
     if [ -n "$default_value" ]; then
-        printf "%s [%s]: " "$prompt_text" "$default_value"
+        echo "$prompt_text [$default_value]: " >&2
     else
-        printf "%s: " "$prompt_text"
+        echo "$prompt_text: " >&2
     fi
 
     read -r response
@@ -135,21 +167,21 @@ prompt() {
     fi
 }
 
-# Prompt for password (no echo)
+# Prompt for password (visible in TUI but not logged)
 prompt_password() {
     prompt_text="$1"
 
-    printf "%s: " "$prompt_text"
-    stty -echo
+    echo "$prompt_text: " >&2
     read -r password
-    stty echo
-    printf "\n"
+    echo "" >&2
 
     printf "%s" "$password"
 }
 
 # Main setup
 main() {
+    log_script_start "setup_file_server.sh" "$@"
+
     print_header
     check_root
 
@@ -157,10 +189,12 @@ main() {
 
     # Find fileserver binary
     if ! find_fileserver_binary; then
+        log_error "netutil-fileserver binary not found" "setup_file_server.sh"
         print_error "netutil-fileserver binary not found"
         print_info "Please build it first with: make build"
         exit 1
     fi
+    log_info "Found fileserver binary: $FILESERVER_BIN" "setup_file_server.sh"
     print_success "Found fileserver: $FILESERVER_BIN"
 
     # Get workspace directory
@@ -175,13 +209,35 @@ main() {
         exit 1
     fi
     WORKSPACE=$(readlink -f "$WORKSPACE")
+    log_config_change "workspace_directory" "Workspace: $WORKSPACE" "setup_file_server.sh"
     print_success "Using workspace: $WORKSPACE"
 
     # Get configuration
-    printf "\n${BLUE}Configuration:${NC}\n"
+    echo "" >&2
+    echo "${BLUE}Configuration:${NC}" >&2
     PORT=$(prompt "Server port" "8080")
+    log_config_change "server_port" "Port: $PORT" "setup_file_server.sh"
     LISTEN_ADDR=$(prompt "Listen address" "0.0.0.0")
-    CREDS_FILE=$(prompt "Credentials file path" "/etc/netutil/fileserver.creds")
+    log_config_change "listen_address" "Listen address: $LISTEN_ADDR" "setup_file_server.sh"
+    CREDS_FILE="$(readlink -f "$(dirname "$0")/../../fileserver.creds")"
+    log_config_change "credentials_file" "Credentials file: $CREDS_FILE" "setup_file_server.sh"
+    print_info "Credentials file: $CREDS_FILE"
+
+    # TLS/HTTPS configuration
+    ENABLE_TLS=$(prompt "Enable HTTPS/TLS encryption? (y/n)" "y")
+    if [ "$ENABLE_TLS" = "y" ] || [ "$ENABLE_TLS" = "Y" ]; then
+        USE_TLS=true
+        CERT_FILE="$(readlink -f "$(dirname "$0")/../../cert.pem")"
+        KEY_FILE="$(readlink -f "$(dirname "$0")/../../key.pem")"
+        log_config_change "tls_enabled" "TLS enabled: true, Cert: $CERT_FILE, Key: $KEY_FILE" "setup_file_server.sh"
+        print_info "TLS certificate: $CERT_FILE"
+        print_info "TLS key: $KEY_FILE"
+    else
+        USE_TLS=false
+        log_config_change "tls_enabled" "TLS enabled: false" "setup_file_server.sh"
+        log_warn "TLS disabled - credentials will be transmitted in cleartext" "setup_file_server.sh"
+        print_warning "TLS disabled - credentials will be transmitted in cleartext"
+    fi
 
     # Create credentials directory if needed
     CREDS_DIR=$(dirname "$CREDS_FILE")
@@ -191,7 +247,8 @@ main() {
     fi
 
     # Create or append to credentials file
-    printf "\n${BLUE}User Management:${NC}\n"
+    echo ""
+    echo "${BLUE}User Management:${NC}"
     if [ -f "$CREDS_FILE" ]; then
         print_warning "Credentials file already exists: $CREDS_FILE"
         ADD_USER=$(prompt "Add another user? (y/n)" "y")
@@ -218,6 +275,7 @@ main() {
             fi
             # Remove existing entry
             sed -i "/^${USERNAME}:/d" "$CREDS_FILE"
+            log_security_event "user_overwrite" "User credentials updated: $USERNAME" "setup_file_server.sh"
         fi
 
         PASSWORD=$(prompt_password "Password")
@@ -242,25 +300,72 @@ main() {
 
         # Add to credentials file
         printf "%s:%s\n" "$USERNAME" "$HASH" >> "$CREDS_FILE"
+        log_security_event "user_added" "User added: $USERNAME" "setup_file_server.sh"
         print_success "Added user: $USERNAME"
 
         ADD_USER=$(prompt "Add another user? (y/n)" "n")
     done
 
+    # Generate TLS certificate if enabled
+    if [ "$USE_TLS" = true ]; then
+        echo ""
+        print_info "Generating self-signed TLS certificate..."
+
+        # Get hostname for certificate
+        HOSTNAME=$(hostname -f 2>/dev/null || hostname)
+        log_info "Generating TLS certificate for hostname: $HOSTNAME" "setup_file_server.sh"
+
+        # Generate self-signed certificate valid for 365 days
+        if command -v openssl >/dev/null 2>&1; then
+            openssl req -x509 -newkey rsa:4096 -nodes \
+                -keyout "$KEY_FILE" -out "$CERT_FILE" -days 365 \
+                -subj "/CN=$HOSTNAME/O=NetUtil File Server/C=US" \
+                -addext "subjectAltName=DNS:$HOSTNAME,DNS:localhost,IP:127.0.0.1" \
+                2>/dev/null
+
+            if [ $? -eq 0 ]; then
+                chmod 600 "$KEY_FILE"
+                chmod 644 "$CERT_FILE"
+                log_config_change "tls_certificate_generated" "Certificate: $CERT_FILE, Key: $KEY_FILE, Hostname: $HOSTNAME, Valid: 365 days" "setup_file_server.sh"
+                print_success "TLS certificate generated successfully"
+                print_info "Certificate valid for 365 days"
+                print_warning "Browsers will show security warnings for self-signed certificates"
+            else
+                log_error "Failed to generate TLS certificate" "setup_file_server.sh"
+                print_error "Failed to generate certificate"
+                exit 1
+            fi
+        else
+            log_error "OpenSSL not found - cannot generate TLS certificate" "setup_file_server.sh"
+            print_error "OpenSSL not found - cannot generate certificate"
+            print_info "Install openssl and run this script again, or disable TLS"
+            exit 1
+        fi
+    fi
+
     # Create systemd service file
     print_info "Creating systemd service..."
     SERVICE_FILE="/etc/systemd/system/netutil-fileserver.service"
+
+    # Build ExecStart command with optional TLS flags
+    EXEC_START="${FILESERVER_BIN} -workspace ${WORKSPACE} -credentials ${CREDS_FILE} -port ${PORT} -addr ${LISTEN_ADDR}"
+    READ_ONLY_PATHS="${CREDS_FILE}"
+
+    if [ "$USE_TLS" = true ]; then
+        EXEC_START="${EXEC_START} -tls-cert ${CERT_FILE} -tls-key ${KEY_FILE}"
+        READ_ONLY_PATHS="${READ_ONLY_PATHS} ${CERT_FILE} ${KEY_FILE}"
+    fi
 
     cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=NetUtil File Server
 After=network.target
-Documentation=https://github.com/yourusername/netutil
+Documentation=https://github.com/fortifyde/NetUtility
 
 [Service]
 Type=simple
 User=root
-ExecStart=${FILESERVER_BIN} -workspace ${WORKSPACE} -credentials ${CREDS_FILE} -port ${PORT} -addr ${LISTEN_ADDR}
+ExecStart=${EXEC_START}
 Restart=on-failure
 RestartSec=5s
 
@@ -268,26 +373,29 @@ RestartSec=5s
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
-ProtectHome=true
+ProtectHome=read-only
 ReadWritePaths=${WORKSPACE}
-ReadOnlyPaths=${CREDS_FILE}
+ReadOnlyPaths=${READ_ONLY_PATHS}
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
     chmod 644 "$SERVICE_FILE"
+    log_config_change "systemd_service_created" "Created service file: $SERVICE_FILE" "setup_file_server.sh"
     print_success "Created service file: $SERVICE_FILE"
 
     # Reload systemd
     print_info "Reloading systemd daemon..."
     systemctl daemon-reload
+    log_command_result "systemctl daemon-reload" 0 "setup_file_server.sh"
     print_success "Systemd reloaded"
 
     # Enable and start service
     ENABLE=$(prompt "Enable service to start on boot? (y/n)" "y")
     if [ "$ENABLE" = "y" ] || [ "$ENABLE" = "Y" ]; then
         systemctl enable netutil-fileserver.service
+        log_config_change "service_enabled" "Service enabled for auto-start" "setup_file_server.sh"
         print_success "Service enabled for auto-start"
     fi
 
@@ -297,8 +405,10 @@ EOF
         sleep 1
 
         if systemctl is-active --quiet netutil-fileserver.service; then
+            log_command_result "systemctl start netutil-fileserver.service" 0 "setup_file_server.sh"
             print_success "Service started successfully"
         else
+            log_error "Service failed to start - check journalctl for details" "setup_file_server.sh"
             print_error "Service failed to start"
             print_info "Check logs with: journalctl -u netutil-fileserver.service -n 50"
             exit 1
@@ -306,39 +416,59 @@ EOF
     fi
 
     # Display access information
-    printf "\n${GREEN}===================================================${NC}\n"
-    printf "${GREEN}  Setup Complete!${NC}\n"
-    printf "${GREEN}===================================================${NC}\n\n"
+    echo ""
+    echo "${GREEN}===================================================${NC}"
+    echo "${GREEN}  Setup Complete!${NC}"
+    echo "${GREEN}===================================================${NC}"
+    echo ""
 
     # Get primary IP address
     PRIMARY_IP=$(ip route get 1.1.1.1 2>/dev/null | grep -oP 'src \K[^ ]+' || echo "YOUR_IP")
 
-    printf "${BLUE}Access Information:${NC}\n"
-    printf "  Local:     http://localhost:%s\n" "$PORT"
-    printf "  Network:   http://%s:%s\n" "$PRIMARY_IP" "$PORT"
-    printf "  All IPs:   http://%s:%s\n\n" "$LISTEN_ADDR" "$PORT"
+    # Determine protocol
+    if [ "$USE_TLS" = true ]; then
+        PROTOCOL="https"
+    else
+        PROTOCOL="http"
+    fi
 
-    printf "${BLUE}Service Management:${NC}\n"
-    printf "  Status:    systemctl status netutil-fileserver\n"
-    printf "  Start:     systemctl start netutil-fileserver\n"
-    printf "  Stop:      systemctl stop netutil-fileserver\n"
-    printf "  Restart:   systemctl restart netutil-fileserver\n"
-    printf "  Logs:      journalctl -u netutil-fileserver -f\n\n"
+    echo "${BLUE}Access Information:${NC}"
+    echo "  Local:     $PROTOCOL://localhost:$PORT"
+    echo "  Network:   $PROTOCOL://$PRIMARY_IP:$PORT"
+    echo "  All IPs:   $PROTOCOL://$LISTEN_ADDR:$PORT"
+    echo ""
 
-    printf "${BLUE}Add More Users:${NC}\n"
-    printf "  1. Generate hash: %s -hash 'password'\n" "$FILESERVER_BIN"
-    printf "  2. Add to file:   echo 'username:hash' >> %s\n" "$CREDS_FILE"
-    printf "  3. Restart:       systemctl restart netutil-fileserver\n\n"
+    if [ "$USE_TLS" = true ]; then
+        echo "${YELLOW}TLS/HTTPS Enabled:${NC}"
+        echo "  - Browsers will show a security warning (self-signed certificate)"
+        echo "  - Click 'Advanced' → 'Accept Risk and Continue' to proceed"
+        echo "  - Certificate is valid for $HOSTNAME, localhost, and 127.0.0.1"
+        echo "  - All traffic including credentials is encrypted"
+        echo ""
+    else
+        echo "${YELLOW}WARNING - No TLS:${NC}"
+        echo "  - Credentials are transmitted in CLEARTEXT"
+        echo "  - Use only on isolated/trusted networks"
+        echo "  - Consider SSH tunneling for added security"
+        echo ""
+    fi
 
-    printf "${YELLOW}Network Configuration (Manual):${NC}\n"
-    printf "  To enable access across VLANs, configure your router/firewall:\n"
-    printf "  1. Allow traffic to %s:%s from all VLANs\n" "$PRIMARY_IP" "$PORT"
-    printf "  2. Example iptables rule:\n"
-    printf "     iptables -A INPUT -p tcp --dport %s -j ACCEPT\n" "$PORT"
-    printf "  3. Configure inter-VLAN routing on your Layer 3 switch\n"
-    printf "  4. Add ACLs to permit HTTP traffic to this host\n\n"
+    echo "${BLUE}Service Management:${NC}"
+    echo "  Status:    systemctl status netutil-fileserver"
+    echo "  Start:     systemctl start netutil-fileserver"
+    echo "  Stop:      systemctl stop netutil-fileserver"
+    echo "  Restart:   systemctl restart netutil-fileserver"
+    echo "  Logs:      journalctl -u netutil-fileserver -f"
+    echo ""
+
+    echo "${BLUE}Add More Users:${NC}"
+    echo "  1. Generate hash: $FILESERVER_BIN -hash 'password'"
+    echo "  2. Add to file:   echo 'username:hash' >> $CREDS_FILE"
+    echo "  3. Restart:       systemctl restart netutil-fileserver"
+    echo ""
 
     print_success "NetUtil File Server is ready!"
+    log_script_end "setup_file_server.sh" 0
 }
 
 main "$@"
