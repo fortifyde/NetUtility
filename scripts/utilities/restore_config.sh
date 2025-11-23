@@ -1,215 +1,341 @@
 #!/bin/sh
+#
+# Network Configuration Restoration Script
+# Restores network configuration from backup created by backup_config.sh
+# Features: Interactive selection, preview, automatic rollback
+#
 
-echo "=== Network Configuration Restore ==="
-echo
+set -e
 
-BACKUP_DIR="${NETUTIL_WORKDIR:-$HOME}/netutil_backups"
-
-echo "Available backup files:"
-if [ -d "$BACKUP_DIR" ]; then
-    ls -la "$BACKUP_DIR"/*.tar.gz 2>/dev/null || {
-        echo "No backup files found in $BACKUP_DIR"
-        exit 1
-    }
+# Source common utilities for select_file function
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+COMMON_DIR="${SCRIPT_DIR}/../common"
+if [ -f "${COMMON_DIR}/utils.sh" ]; then
+    . "${COMMON_DIR}/utils.sh"
 else
-    echo "Backup directory $BACKUP_DIR not found"
+    echo "ERROR: Cannot find common utilities" >&2
     exit 1
 fi
 
-echo
-echo "Enter full path to backup file: " >&2
-read backup_file
+# Configuration
+BACKUP_DIR="${NETUTIL_WORKDIR:-$HOME}/netutil_backups"
+ROLLBACK_DIR="${BACKUP_DIR}/rollback"
+TEMP_EXTRACT_DIR=$(mktemp -d)
 
-if [ ! -f "$backup_file" ]; then
-    echo "Error: Backup file not found"
+# Cleanup on exit
+trap 'rm -rf "$TEMP_EXTRACT_DIR"' EXIT
+
+echo "=== Network Configuration Restoration ==="
+echo
+echo "Backup directory: $BACKUP_DIR"
+echo
+
+# ============================================================================
+# Phase 1: Select Backup File
+# ============================================================================
+
+echo "Phase 1: Selecting backup file..."
+echo
+
+# Check if backup directory exists
+if [ ! -d "$BACKUP_DIR" ]; then
+    echo "ERROR: Backup directory does not exist: $BACKUP_DIR" >&2
     exit 1
 fi
 
-echo "Backup file: $backup_file"
-echo "Backup contents:"
-tar -tzf "$backup_file"
+# Check if any backups exist
+if ! ls "$BACKUP_DIR"/network_config_*.tar.gz >/dev/null 2>&1; then
+    echo "ERROR: No backup files found in $BACKUP_DIR" >&2
+    echo "Create a backup first using: backup_config.sh" >&2
+    exit 1
+fi
+
+# List available backups with metadata
+echo "Available backups:"
+echo
+
+backup_count=0
+rm -f /tmp/netutil_backups.$$
+
+for backup in "$BACKUP_DIR"/network_config_*.tar.gz; do
+    backup_count=$((backup_count + 1))
+    filename=$(basename "$backup")
+
+    # Extract timestamp from filename (network_config_YYYYMMDD_HHMMSS.tar.gz)
+    timestamp=$(echo "$filename" | sed 's/network_config_\(.*\)\.tar\.gz/\1/')
+
+    # Try to extract metadata from backup
+    metadata=""
+    if tar -xzf "$backup" -O metadata.txt 2>/dev/null | grep -q "Interface Count"; then
+        interface_count=$(tar -xzf "$backup" -O metadata.txt 2>/dev/null | grep "Interface Count:" | cut -d: -f2 | tr -d ' ')
+        vlan_count=$(tar -xzf "$backup" -O metadata.txt 2>/dev/null | grep "VLAN Count:" | cut -d: -f2 | tr -d ' ')
+        ip_count=$(tar -xzf "$backup" -O metadata.txt 2>/dev/null | grep "IP Address Count:" | cut -d: -f2 | tr -d ' ')
+
+        metadata="$interface_count interfaces, $vlan_count VLANs, $ip_count IPs"
+    else
+        metadata="metadata unavailable"
+    fi
+
+    # Get file size
+    size=$(du -h "$backup" | cut -f1)
+
+    # Display with number
+    printf "%d. %s (%s, %s)\n" "$backup_count" "$filename" "$metadata" "$size"
+
+    # Store mapping
+    echo "$backup_count:$backup" >> /tmp/netutil_backups.$$
+done
 
 echo
-echo "Restoration options:"
-echo "1. Guided restoration (display only, manual commands)"
-echo "2. Automatic restoration (execute restoration script)"
-echo "3. Cancel"
-echo
-echo "Select restoration method (1-3): " >&2
-read restore_method
 
-case "$restore_method" in
-    1)
-        echo "Selected: Guided restoration"
-        restore_mode="guided"
-        ;;
-    2)
-        echo "Selected: Automatic restoration"
-        restore_mode="automatic"
-        ;;
-    3|*)
-        echo "Restore cancelled"
+# Get selection from user
+while true; do
+    echo "Select backup to restore (1-$backup_count) or 'q' to quit: " >&2
+    read -r selection
+
+    if [ "$selection" = "q" ] || [ "$selection" = "Q" ]; then
+        echo "Restoration cancelled."
+        rm -f /tmp/netutil_backups.$$
         exit 0
-        ;;
-esac
+    fi
 
-TEMP_DIR=$(mktemp -d)
-echo "Extracting backup to: $TEMP_DIR"
+    # Validate selection
+    case "$selection" in
+        ''|*[!0-9]*)
+            echo "ERROR: Invalid selection. Please enter a number between 1 and $backup_count" >&2
+            ;;
+        *)
+            if [ "$selection" -ge 1 ] && [ "$selection" -le "$backup_count" ]; then
+                # Get selected backup path
+                backup_file=$(grep "^${selection}:" /tmp/netutil_backups.$$ | cut -d: -f2-)
+                break
+            else
+                echo "ERROR: Invalid selection. Please enter a number between 1 and $backup_count" >&2
+            fi
+            ;;
+    esac
+done
 
-cd "$TEMP_DIR" || exit 1
-tar -xzf "$backup_file"
-
-echo "Backup information:"
-cat backup_info.txt 2>/dev/null || echo "No backup info available"
+rm -f /tmp/netutil_backups.$$
 
 echo
-echo "Restoring network configuration..."
+echo "Selected backup: $(basename "$backup_file")"
+echo
 
-# Create rollback backup before restoration
-ROLLBACK_DIR="${NETUTIL_WORKDIR:-$HOME}/netutil_rollback"
-ROLLBACK_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-ROLLBACK_FILE="$ROLLBACK_DIR/rollback_before_restore_$ROLLBACK_TIMESTAMP.tar.gz"
+# ============================================================================
+# Phase 2: Extract and Validate Backup
+# ============================================================================
 
-echo "Creating rollback backup of current configuration..."
-mkdir -p "$ROLLBACK_DIR"
-ROLLBACK_TEMP=$(mktemp -d)
+echo "Phase 2: Extracting and validating backup..."
 
-# Save current configuration for rollback
-ip addr show > "$ROLLBACK_TEMP/current_ip_addresses.txt"
-ip route show > "$ROLLBACK_TEMP/current_routes.txt"
-ip link show > "$ROLLBACK_TEMP/current_interfaces.txt"
-cp /etc/resolv.conf "$ROLLBACK_TEMP/current_resolv.conf" 2>/dev/null || echo "No resolv.conf" > "$ROLLBACK_TEMP/current_resolv.conf"
-echo "$(date): Rollback backup created before restoration" > "$ROLLBACK_TEMP/rollback_info.txt"
+# Extract backup to temporary directory
+if ! tar -xzf "$backup_file" -C "$TEMP_EXTRACT_DIR" 2>/dev/null; then
+    echo "ERROR: Failed to extract backup file" >&2
+    exit 1
+fi
 
-# Create rollback restoration script
-cat > "$ROLLBACK_TEMP/rollback_restore.sh" << 'ROLLBACK_EOF'
-#!/bin/sh
-echo "=== Network Configuration Rollback ==="
-echo "WARNING: This will revert to the configuration before the last restore operation!"
-echo "Press Ctrl+C to cancel, or Enter to continue..."
-read -r
+# Validate required files exist
+if [ ! -f "$TEMP_EXTRACT_DIR/restore.sh" ]; then
+    echo "ERROR: Backup is missing restore.sh script" >&2
+    exit 1
+fi
 
-echo "Rolling back network configuration..."
-echo "Note: This is a basic rollback - manual verification may be required"
-echo "Rollback completed. Please verify network connectivity."
-ROLLBACK_EOF
+if [ ! -f "$TEMP_EXTRACT_DIR/metadata.txt" ]; then
+    echo "WARNING: Backup is missing metadata.txt" >&2
+else
+    echo "  Backup metadata:"
+    cat "$TEMP_EXTRACT_DIR/metadata.txt" | while read -r line; do
+        echo "    $line"
+    done
+    echo
+fi
 
-chmod +x "$ROLLBACK_TEMP/rollback_restore.sh"
+# Make restore script executable
+chmod +x "$TEMP_EXTRACT_DIR/restore.sh"
 
-cd "$ROLLBACK_TEMP" || exit 1
-tar -czf "$ROLLBACK_FILE" ./*
-rm -rf "$ROLLBACK_TEMP"
+echo "  Backup validated successfully"
+echo
 
-echo "Rollback backup created: $ROLLBACK_FILE"
+# ============================================================================
+# Phase 3: Preview Restoration
+# ============================================================================
+
+echo "Phase 3: Previewing restoration..."
+echo
+
+# Run restore script in preview mode
+cd "$TEMP_EXTRACT_DIR"
+./restore.sh
+
+echo
+echo "========================================"
+echo
+
+# ============================================================================
+# Phase 4: Confirmation
+# ============================================================================
+
+echo "Phase 4: Confirmation required"
 echo
 
 echo "WARNING: This will modify your current network configuration!"
-echo "Continue with restoration? (y/N): " >&2
-read final_confirm
-if ! echo "$final_confirm" | grep -E '^[Yy]$' >/dev/null; then
-    echo "Restore cancelled"
-    rm -rf "$TEMP_DIR"
-    exit 0
+echo "All network interfaces will be reconfigured according to the backup."
+echo
+
+while true; do
+    echo "Do you want to proceed with restoration? (yes/no): " >&2
+    read -r confirmation
+
+    case "$confirmation" in
+        yes|YES|y|Y)
+            echo "Proceeding with restoration..."
+            break
+            ;;
+        no|NO|n|N)
+            echo "Restoration cancelled by user."
+            exit 0
+            ;;
+        *)
+            echo "Please answer 'yes' or 'no'" >&2
+            ;;
+    esac
+done
+
+echo
+
+# ============================================================================
+# Phase 5: Create Rollback Backup
+# ============================================================================
+
+echo "Phase 5: Creating rollback backup..."
+
+# Create rollback directory
+mkdir -p "$ROLLBACK_DIR"
+
+# Generate rollback backup name
+ROLLBACK_TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+ROLLBACK_NAME="rollback_before_restore_$ROLLBACK_TIMESTAMP"
+
+echo "  Creating current configuration backup for rollback..."
+
+# Create temporary directory for rollback backup
+ROLLBACK_TEMP=$(mktemp -d)
+trap 'rm -rf "$TEMP_EXTRACT_DIR" "$ROLLBACK_TEMP"' EXIT
+
+# Use same backup logic as backup_config.sh (simplified version for rollback)
+# Just capture essentials for quick rollback
+
+# Capture current state
+ip link show > "$ROLLBACK_TEMP/ip_link_before.txt"
+ip addr show > "$ROLLBACK_TEMP/ip_addr_before.txt"
+ip route show > "$ROLLBACK_TEMP/ip_route_before.txt"
+cp /etc/resolv.conf "$ROLLBACK_TEMP/resolv.conf.before" 2>/dev/null || true
+
+# Create rollback info
+cat > "$ROLLBACK_TEMP/rollback_info.txt" << ROLLBACK_INFO_EOF
+Rollback Backup Created: $ROLLBACK_TIMESTAMP
+Before restoration of: $(basename "$backup_file")
+Hostname: $(hostname)
+Kernel: $(uname -r)
+ROLLBACK_INFO_EOF
+
+# Package rollback
+cd "$ROLLBACK_TEMP"
+tar czf "$ROLLBACK_DIR/$ROLLBACK_NAME.tar.gz" ./*
+
+echo "  Rollback backup saved: $ROLLBACK_DIR/$ROLLBACK_NAME.tar.gz"
+echo
+
+# ============================================================================
+# Phase 6: Execute Restoration
+# ============================================================================
+
+echo "Phase 6: Executing restoration..."
+echo
+
+echo "========================================"
+echo "RESTORATION IN PROGRESS"
+echo "========================================"
+echo
+
+# Execute restore script
+cd "$TEMP_EXTRACT_DIR"
+if ./restore.sh --execute; then
+    restoration_success=true
+else
+    restoration_success=false
 fi
 
-if [ "$restore_mode" = "automatic" ]; then
-    echo "=== AUTOMATIC RESTORATION MODE ==="
-    
-    # Check if executable restoration script exists
-    if [ -f "restore_network_config.sh" ]; then
-        echo "Found executable restoration script. Executing..."
-        chmod +x restore_network_config.sh
-        
-        # Execute the restoration script in the same directory as the backup files
-        echo "Executing automatic restoration..."
-        if ./restore_network_config.sh; then
-            echo "Automatic restoration completed successfully!"
-        else
-            echo "Automatic restoration encountered errors. Check the output above."
-        fi
-    else
-        echo "No executable restoration script found in backup."
-        echo "Falling back to guided restoration mode..."
-        restore_mode="guided"
-    fi
-fi
+echo
+echo "========================================"
 
-if [ "$restore_mode" = "guided" ]; then
-    echo "=== GUIDED RESTORATION MODE ==="
-    
-    echo "1. Restoring working directory..."
-    if [ -f "workdir.txt" ]; then
-        workdir=$(cat workdir.txt)
-        if [ -d "$workdir" ]; then
-            cd "$workdir" || echo "Could not change to $workdir"
-            export NETUTIL_WORKDIR="$workdir"
-            echo "Working directory restored to: $workdir"
-        else
-            echo "Original working directory $workdir no longer exists"
-        fi
-    fi
+# ============================================================================
+# Phase 7: Validation and Summary
+# ============================================================================
 
-    echo "2. Restoring DNS configuration..."
-    if [ -f "resolv.conf" ]; then
-        cp resolv.conf /etc/resolv.conf
-        echo "DNS configuration restored"
-    else
-        echo "No DNS configuration to restore"
-    fi
+echo "Phase 7: Validation and summary"
+echo
 
-    echo "3. Displaying interface information from backup..."
-    if [ -f "interfaces.txt" ]; then
-        echo "Interfaces that were configured:"
-        cat interfaces.txt
-        echo
-    fi
+if [ "$restoration_success" = "true" ]; then
+    echo "✓ Network configuration restoration completed successfully!"
+    echo
 
-    echo "4. Displaying IP addresses from backup..."
-    if [ -f "ip_addresses.txt" ]; then
-        echo "IP addresses that were configured:"
-        cat ip_addresses.txt
-        echo
-    fi
+    echo "Current network state:"
+    echo
 
-    echo "5. Displaying routes from backup..."
-    if [ -f "routes.txt" ]; then
-        echo "Routes that were configured:"
-        cat routes.txt
-        echo
-    fi
+    # Show interface summary
+    interface_count=$(ip link show | grep -c "^[0-9]*:" || true)
+    vlan_count=$(ip link show | grep -c "@" || true)
+    echo "  Interfaces: $interface_count ($vlan_count VLANs)"
 
-    echo "6. Displaying VLAN information from backup..."
-    if [ -f "vlans.txt" ]; then
-        echo "VLAN interfaces that were configured:"
-        cat vlans.txt
-        echo
-    fi
+    # Show IP summary
+    ipv4_count=$(ip -4 addr show | grep -c "inet " || true)
+    ipv6_count=$(ip -6 addr show | grep -c "inet6" || true)
+    echo "  IP Addresses: $((ipv4_count + ipv6_count)) ($ipv4_count IPv4, $ipv6_count IPv6)"
 
-    echo "Manual restoration required for:"
-    echo "- IP addresses (use configure_ip.sh)"
-    echo "- Routes (use configure_routes.sh)"  
-    echo "- VLAN interfaces (use add_vlan.sh)"
-    echo "- Interface states (use network_interfaces.sh)"
+    # Show route summary
+    route_count=$(ip route show | wc -l)
+    echo "  Routes: $route_count"
 
     echo
-    echo "Current configuration:"
-    echo "--- IP addresses ---"
-    ip addr show
+    echo "Verification commands:"
+    echo "  ip addr show         # List all IP addresses"
+    echo "  ip link show         # List all interfaces"
+    echo "  ip route show        # List all routes"
+    echo "  cat /etc/resolv.conf # Check DNS configuration"
     echo
-    echo "--- Routes ---"
-    ip route show
+
+    echo "Rollback information:"
+    echo "  If you need to revert this restoration, your previous"
+    echo "  configuration was saved to:"
+    echo "  $ROLLBACK_DIR/$ROLLBACK_NAME.tar.gz"
     echo
-    echo "--- DNS ---"
-    cat /etc/resolv.conf
+    echo "  To rollback, run restore_config.sh and select the rollback file."
+    echo
+
+else
+    echo "✗ Network configuration restoration encountered errors!"
+    echo
+    echo "Some configuration steps may have failed. Review the output above."
+    echo
+    echo "Rollback option:"
+    echo "  Your previous configuration was saved before restoration:"
+    echo "  $ROLLBACK_DIR/$ROLLBACK_NAME.tar.gz"
+    echo
+    echo "  To restore your previous configuration, run:"
+    echo "    cd $ROLLBACK_DIR"
+    echo "    tar -xzf $ROLLBACK_NAME.tar.gz"
+    echo "    # Then manually review the before_*.txt files"
+    echo
+    echo "  Or run restore_config.sh and select the rollback file."
+    echo
 fi
 
-echo "Cleaning up..."
-rm -rf "$TEMP_DIR"
+# ============================================================================
+# Cleanup
+# ============================================================================
 
-echo "Restore process completed!"
-echo "Rollback backup available at: $ROLLBACK_FILE"
-echo "To rollback this restoration, extract and run the rollback_restore.sh script"
+# Cleanup happens automatically via trap
 
-if [ "$restore_mode" = "guided" ]; then
-    echo "Note: Some configurations may require manual restoration using the appropriate scripts."
-fi
+echo "=== Restoration Complete ==="
+echo
