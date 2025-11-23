@@ -18,6 +18,20 @@ else
     exit 1
 fi
 
+# Check for required dependencies
+if ! command -v sshpass >/dev/null 2>&1; then
+    echo "ERROR: sshpass is required but not installed" >&2
+    echo "" >&2
+    echo "This script uses sshpass for non-interactive SSH password authentication." >&2
+    echo "Please install it using your package manager:" >&2
+    echo "" >&2
+    echo "  Fedora/RHEL/CentOS:  sudo dnf install sshpass" >&2
+    echo "  Debian/Ubuntu:       sudo apt-get install sshpass" >&2
+    echo "  Arch Linux:          sudo pacman -S sshpass" >&2
+    echo "" >&2
+    exit 1
+fi
+
 # Global variables
 VERSION="1.0.0"
 NETUTIL_WORKDIR="${NETUTIL_WORKDIR:-$HOME}"
