@@ -305,25 +305,6 @@ if [ "$unknown_count" -gt 0 ]; then
 fi
 
 echo >> "$REPORT_FILE"
-
-# Recommendations
-echo "--- RECOMMENDATIONS ---" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
-echo "Network security recommendations:" >> "$REPORT_FILE"
-echo "- Monitor for unknown MAC addresses that appear frequently" >> "$REPORT_FILE"
-echo "- Implement MAC address filtering on critical network segments" >> "$REPORT_FILE"
-echo "- Be aware that MAC addresses can be spoofed" >> "$REPORT_FILE"
-echo "- Consider MAC address randomization as a privacy feature" >> "$REPORT_FILE"
-
-if [ "$unknown_count" -gt 5 ]; then
-    echo "- High number of unknown vendors detected - investigate further" >> "$REPORT_FILE"
-fi
-
-if [ "$locally_administered" -gt 10 ]; then
-    echo "- Significant MAC randomization detected - normal for modern mobile devices" >> "$REPORT_FILE"
-fi
-
 echo >> "$REPORT_FILE"
 echo "Analysis completed at $(date)" >> "$REPORT_FILE"
 

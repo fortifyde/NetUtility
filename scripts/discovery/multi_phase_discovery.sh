@@ -443,11 +443,13 @@ get_mac_vendor() {
     # Try ouihelper in various locations
     vendor=""
     if command -v ouihelper >/dev/null 2>&1; then
-        vendor=$(ouihelper "$mac" 2>/dev/null | head -1)
-    elif [ -x "cmd/ouihelper/ouihelper" ]; then
-        vendor=$(cmd/ouihelper/ouihelper "$mac" 2>/dev/null | head -1)
-    elif [ -x "../../ouihelper" ]; then
-        vendor=$(../../ouihelper "$mac" 2>/dev/null | head -1)
+        vendor=$(ouihelper lookup "$mac" 2>/dev/null | head -1)
+    elif [ -x "$(dirname "$0")/../../bin/ouihelper" ]; then
+        vendor=$("$(dirname "$0")/../../bin/ouihelper" lookup "$mac" 2>/dev/null | head -1)
+    elif [ -x "$(dirname "$0")/../../cmd/ouihelper/ouihelper" ]; then
+        vendor=$("$(dirname "$0")/../../cmd/ouihelper/ouihelper" lookup "$mac" 2>/dev/null | head -1)
+    elif [ -x "$(dirname "$0")/../../ouihelper" ]; then
+        vendor=$("$(dirname "$0")/../../ouihelper" lookup "$mac" 2>/dev/null | head -1)
     fi
 
     if [ -n "$vendor" ]; then
