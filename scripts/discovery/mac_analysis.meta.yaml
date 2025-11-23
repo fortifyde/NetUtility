@@ -6,7 +6,7 @@ script:
   
   file: "mac_analysis.sh"
   requires_root: false
-  estimated_duration: "2-5 minutes"
+  estimated_duration: "0-5 minutes"
   
   cli_shortcuts:
     - "mac"

@@ -227,35 +227,13 @@ snmp_count=$(tshark -r "$capture_file" -Y "snmp" 2>/dev/null | wc -l)
 dns_count=$(tshark -r "$capture_file" -Y "dns" 2>/dev/null | wc -l)
 
 echo "Security-relevant protocol counts:" >> "$REPORT_FILE"
-echo "  HTTP (unencrypted): $http_count" >> "$REPORT_FILE"
-echo "  FTP (unencrypted): $ftp_count" >> "$REPORT_FILE"
-echo "  Telnet (unencrypted): $telnet_count" >> "$REPORT_FILE"
+echo "  HTTP: $http_count" >> "$REPORT_FILE"
+echo "  FTP: $ftp_count" >> "$REPORT_FILE"
+echo "  Telnet: $telnet_count" >> "$REPORT_FILE"
 echo "  SNMP: $snmp_count" >> "$REPORT_FILE"
 echo "  DNS: $dns_count" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
-# Security Recommendations
-echo "--- SECURITY RECOMMENDATIONS ---" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
-if [ "$http_count" -gt 0 ]; then
-    echo "⚠️  HTTP traffic detected - consider HTTPS migration" >> "$REPORT_FILE"
-fi
-
-if [ "$ftp_count" -gt 0 ]; then
-    echo "⚠️  FTP traffic detected - consider SFTP/FTPS migration" >> "$REPORT_FILE"
-fi
-
-if [ "$telnet_count" -gt 0 ]; then
-    echo "⚠️  Telnet traffic detected - migrate to SSH immediately" >> "$REPORT_FILE"
-fi
-
-if [ "$snmp_count" -gt 0 ]; then
-    echo "ℹ️  SNMP traffic detected - ensure SNMPv3 is used" >> "$REPORT_FILE"
-fi
-
 if [ -s "$TEMP_DIR/wpad_dns.txt" ] || [ -s "$TEMP_DIR/wpad_nbns.txt" ]; then
-    echo "⚠️  WPAD requests detected - potential security vulnerability" >> "$REPORT_FILE"
+    echo "WPAD requests detected - potential security vulnerability" >> "$REPORT_FILE"
 fi
 
 echo >> "$REPORT_FILE"
