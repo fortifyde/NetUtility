@@ -517,18 +517,16 @@ offer_retry() {
 
     echo "" >&2
     print_warning "$FAILURE_COUNT device(s) failed during extraction"
-    printf "Would you like to retry failed devices with different credentials? (y/n): " >&2
+    echo "Would you like to retry failed devices with different credentials? (y/n): " >&2
     read -r retry_response
 
     if [ "$retry_response" = "y" ] || [ "$retry_response" = "Y" ]; then
         print_info "Re-enter credentials for retry:"
-        printf "Username: " >&2
+        echo "Username: " >&2
         read -r new_user
-        printf "Password: " >&2
-        stty -echo
+        echo "Password: " >&2
         read -r new_pass
-        stty echo
-        printf "\n" >&2
+        echo "" >&2
 
         # Extract failed IPs
         failed_ips=$(cut -d',' -f1 "$FAILURES_FILE")
@@ -598,7 +596,7 @@ main() {
     # Get targets if not provided
     if [ -z "$TARGETS" ]; then
         print_info "Select target devices:"
-        TARGETS=$(select_target)
+        TARGETS=$(select_config_targets)
 
         if [ -z "$TARGETS" ]; then
             print_error "No targets selected"
@@ -611,13 +609,11 @@ main() {
     # Get credentials based on mode
     if [ "$CRED_MODE" = "common" ]; then
         print_info "Enter common credentials for all devices:"
-        printf "Username: " >&2
+        echo "Username: " >&2
         read -r COMMON_USER
-        printf "Password: " >&2
-        stty -echo
+        echo "Password: " >&2
         read -r COMMON_PASS
-        stty echo
-        printf "\n" >&2
+        echo "" >&2
     fi
 
     # Build device list

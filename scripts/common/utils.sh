@@ -416,6 +416,9 @@ select_capture_file() {
 
 # Specialized function for host file selection from categorized discovery outputs
 select_host_file() {
+    # Optional filter parameter (e.g., "network_devices")
+    filter="$1"
+
     if [ -n "$NETUTIL_WORKDIR" ]; then
         base_dir="$NETUTIL_WORKDIR/discovery"
     else
@@ -461,7 +464,14 @@ select_host_file() {
             fi
 
             # Find top-level categorized files (exclude enriched versions)
-            find "$categorized_dir" -maxdepth 1 -type f -name "*_hosts.txt" ! -name "*_enriched.txt" | sort > /tmp/netutil_catfiles.$$
+            # Apply filter if specified
+            if [ -n "$filter" ]; then
+                # Filter specified - only show matching category
+                find "$categorized_dir" -maxdepth 1 -type f -name "${filter}_hosts.txt" | sort > /tmp/netutil_catfiles.$$
+            else
+                # No filter - show all categories
+                find "$categorized_dir" -maxdepth 1 -type f -name "*_hosts.txt" ! -name "*_enriched.txt" | sort > /tmp/netutil_catfiles.$$
+            fi
 
             while read -r host_file; do
                 category=$(basename "$host_file" .txt)
@@ -471,17 +481,20 @@ select_host_file() {
             done < /tmp/netutil_catfiles.$$
 
             # Find vendor-specific files in network_devices subdirectory
+            # Only process if no filter OR filter is "network_devices"
             if [ -d "$categorized_dir/network_devices" ]; then
-                find "$categorized_dir/network_devices" -maxdepth 1 -type f -name "*.txt" | sort > /tmp/netutil_vendorfiles.$$
+                if [ -z "$filter" ] || [ "$filter" = "network_devices" ]; then
+                    find "$categorized_dir/network_devices" -maxdepth 1 -type f -name "*.txt" | sort > /tmp/netutil_vendorfiles.$$
 
-                while read -r vendor_file; do
-                    vendor=$(basename "$vendor_file" .txt)
-                    display_name="$timestamp/$network_name/$vendor"
-                    file_count=$((file_count + 1))
-                    echo "$file_count:$vendor_file:$display_name" >> /tmp/netutil_files.$$
-                done < /tmp/netutil_vendorfiles.$$
+                    while read -r vendor_file; do
+                        vendor=$(basename "$vendor_file" .txt)
+                        display_name="$timestamp/$network_name/$vendor"
+                        file_count=$((file_count + 1))
+                        echo "$file_count:$vendor_file:$display_name" >> /tmp/netutil_files.$$
+                    done < /tmp/netutil_vendorfiles.$$
 
-                rm -f /tmp/netutil_vendorfiles.$$
+                    rm -f /tmp/netutil_vendorfiles.$$
+                fi
             fi
 
             rm -f /tmp/netutil_catfiles.$$
@@ -894,6 +907,119 @@ select_target() {
                 ;;
             *)
                 echo "Error: Invalid option. Please select 1-5" >&2
+                ;;
+        esac
+    done
+}
+
+# Target selection specifically for config gathering
+# More focused than select_target() - only specific devices, no ranges
+select_config_targets() {
+    echo "Target selection for config gathering:" >&2
+    echo "1. Single IP address" >&2
+    echo "2. Custom host file (manual path)" >&2
+    echo "3. Discovered network devices" >&2
+    echo "4. Recent targets" >&2
+    echo >&2
+
+    while true; do
+        echo "Select target type (1-4): " >&2
+        read -r target_type
+
+        case $target_type in
+            1)
+                # Single IP address
+                echo "Enter IP address:" >&2
+                read -r target_value
+                if validate_ip "$target_value"; then
+                    save_target "$target_value"
+                    echo "$target_value"
+                    return 0
+                fi
+                ;;
+            2)
+                # Custom host file (manual path)
+                echo "Enter path to host file:" >&2
+                read -r target_value
+                if [ -f "$target_value" ]; then
+                    target_value=$(readlink -f "$target_value")
+                    save_target "$target_value"
+                    echo "-iL $target_value"
+                    return 0
+                else
+                    echo "Error: File not found: $target_value" >&2
+                fi
+                ;;
+            3)
+                # Discovered network devices (filtered)
+                if target_value=$(select_host_file "network_devices"); then
+                    save_target "$target_value"
+                    echo "-iL $target_value"
+                    return 0
+                fi
+                ;;
+            4)
+                # Recent targets
+                echo "Recent targets:" >&2
+                # Get recent targets and store in temp file
+                rm -f /tmp/netutil_recent_targets.$$
+                rm -f /tmp/netutil_recent_targets_raw.$$
+                get_recent_targets > /tmp/netutil_recent_targets_raw.$$
+                target_count=0
+                while read -r target; do
+                    if [ -n "$target" ]; then
+                        target_count=$((target_count + 1))
+                        echo "$target_count:$target" >> /tmp/netutil_recent_targets.$$
+                    fi
+                done < /tmp/netutil_recent_targets_raw.$$
+                rm -f /tmp/netutil_recent_targets_raw.$$
+
+                # Display recent targets
+                if [ -f /tmp/netutil_recent_targets.$$ ] && [ -s /tmp/netutil_recent_targets.$$ ]; then
+                    while IFS=':' read -r num target; do
+                        printf "%d. %s\n" "$num" "$target" >&2
+                    done < /tmp/netutil_recent_targets.$$
+                    echo >&2
+
+                    # Get max target number
+                    max_target_num=0
+                    while IFS=':' read -r num target; do
+                        if [ "$num" -gt "$max_target_num" ]; then
+                            max_target_num=$num
+                        fi
+                    done < /tmp/netutil_recent_targets.$$
+
+                    echo "Select target (1-$max_target_num):" >&2
+                    read -r target_num
+
+                    # Validate target selection
+                    case "$target_num" in
+                        ''|*[!0-9]*)
+                            echo "Error: Invalid target selection" >&2
+                            ;;
+                        *)
+                            if [ "$target_num" -ge 1 ] && [ "$target_num" -le "$max_target_num" ]; then
+                                # Find selected target
+                                while IFS=':' read -r num target; do
+                                    if [ "$num" = "$target_num" ]; then
+                                        save_target "$target"
+                                        echo "$target"
+                                        rm -f /tmp/netutil_recent_targets.$$
+                                        return 0
+                                    fi
+                                done < /tmp/netutil_recent_targets.$$
+                            else
+                                echo "Error: Invalid target selection" >&2
+                            fi
+                            ;;
+                    esac
+                    rm -f /tmp/netutil_recent_targets.$$
+                else
+                    echo "No recent targets found." >&2
+                fi
+                ;;
+            *)
+                echo "Error: Invalid option. Please select 1-4" >&2
                 ;;
         esac
     done
