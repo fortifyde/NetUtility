@@ -1,5 +1,7 @@
 # NetUtility
 
+[![CI](https://github.com/fortifyde/NetUtility/actions/workflows/ci.yml/badge.svg)](https://github.com/fortifyde/NetUtility/actions/workflows/ci.yml)
+
 A terminal-based toolkit for network security assessments. NetUtility automates discovery, host categorization, and initial scanning to establish a foundation for deeper analysis. It handles the mechanical work of network enumeration while organizing results for follow-on investigation.
 
 ## Purpose

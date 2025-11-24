@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.24.x', 'stable']
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-${{ matrix.go-version }}-
+
+    - name: Download dependencies
+      run: go mod download
+
+    - name: Verify dependencies
+      run: go mod verify
+
+    - name: Run tests
+      run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+
+    - name: Upload coverage
+      uses: actions/upload-artifact@v4
+      with:
+        name: coverage-${{ matrix.go-version }}
+        path: coverage.txt
+        retention-days: 7
+
+  shellcheck:
+    name: Shellcheck
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run shellcheck
+      uses: ludeeus/action-shellcheck@master
+      with:
+        scandir: './scripts'
+        severity: warning
+        format: tty
+
+  build:
+    name: Build Validation
+    runs-on: ubuntu-latest
+    needs: [test, shellcheck]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.24.x'
+
+    - name: Cache Go modules
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-build-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-build-
+
+    - name: Build netutil
+      run: go build -v -o netutil ./cmd/netutil
+
+    - name: Build ouihelper
+      run: go build -v -o bin/ouihelper ./cmd/ouihelper
+
+    - name: Build netutil-fileserver
+      run: go build -v -o bin/netutil-fileserver ./cmd/fileserver
+
+    - name: Verify binaries
+      run: |
+        test -f netutil
+        test -f bin/ouihelper
+        test -f bin/netutil-fileserver
+        ./netutil --version || true
+        ./bin/ouihelper --help || true
+        ./bin/netutil-fileserver --help || true
