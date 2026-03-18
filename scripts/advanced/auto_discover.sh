@@ -1216,8 +1216,11 @@ if [ -x "$discovery_script" ]; then
                         export AUTO_DISCOVERY_VLAN_DIR="$vlan_discovery_dir"
                         export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
                         
-                        "$discovery_script" "$vlan_interface" "1" > "$vlan_discovery_dir/discovery_output.txt" 2>&1
-                        vlan_discovery_exit=$?
+                        _disc_status=$(mktemp)
+                        { "$discovery_script" "$vlan_interface" "1"; echo $? > "$_disc_status"; } 2>&1 | \
+                            tee "$vlan_discovery_dir/discovery_output.txt"
+                        vlan_discovery_exit=$(cat "$_disc_status" 2>/dev/null || echo 1)
+                        rm -f "$_disc_status"
                         
                         # Clean up environment variables
                         unset MANUAL_NETWORK_RANGE AUTO_DISCOVERY_SESSION AUTO_DISCOVERY_VLAN_ID 
