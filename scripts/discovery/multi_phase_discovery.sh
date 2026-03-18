@@ -2804,37 +2804,44 @@ if command -v nmap >/dev/null 2>&1; then
         OPEN_UDP_PORTS=""
     fi
 
-    # Version detection on discovered open ports only
-    # Using -Pn since hosts are already confirmed up from Phase 2
-    echo "  Stage 1: Version detection and banner grabbing (TCP)..." >> "$REPORT_FILE"
-    nmap -Pn -n -sV --version-intensity 5 -T4 $PORT_ARGS \
-        -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_version_detection" 2>/dev/null || true
+    if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
+        # Inventory mode: single lightweight pass — version strings + OS detection
+        echo "  Auto-discovery mode: lightweight inventory scan..." >> "$REPORT_FILE"
+        nmap -Pn -n -sV -O --version-intensity 2 -T4 $PORT_ARGS \
+            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_inventory" 2>/dev/null || true
+    else
+        # Version detection on discovered open ports only
+        # Using -Pn since hosts are already confirmed up from Phase 2
+        echo "  Stage 1: Version detection and banner grabbing (TCP)..." >> "$REPORT_FILE"
+        nmap -Pn -n -sV --version-intensity 5 -T4 $PORT_ARGS \
+            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_version_detection" 2>/dev/null || true
 
-    # Default script scan on discovered open ports only
-    # Using -Pn since hosts are already confirmed up from Phase 2
-    echo "  Stage 2: Default NSE scripts (TCP)..." >> "$REPORT_FILE"
-    nmap -Pn -n -sC -T4 $PORT_ARGS \
-        -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_default_scripts" 2>/dev/null || true
+        # Default script scan on discovered open ports only
+        # Using -Pn since hosts are already confirmed up from Phase 2
+        echo "  Stage 2: Default NSE scripts (TCP)..." >> "$REPORT_FILE"
+        nmap -Pn -n -sC -T4 $PORT_ARGS \
+            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_default_scripts" 2>/dev/null || true
 
-    # UDP service enumeration on discovered open UDP ports
-    if [ -n "$OPEN_UDP_PORTS" ]; then
-        echo "  Stage 3: UDP service version detection..." >> "$REPORT_FILE"
-        nmap -Pn -n -sU -sV --version-intensity 5 -T4 -p "$OPEN_UDP_PORTS" \
-            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_services" 2>/dev/null || true
+        # UDP service enumeration on discovered open UDP ports
+        if [ -n "$OPEN_UDP_PORTS" ]; then
+            echo "  Stage 3: UDP service version detection..." >> "$REPORT_FILE"
+            nmap -Pn -n -sU -sV --version-intensity 5 -T4 -p "$OPEN_UDP_PORTS" \
+                -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_services" 2>/dev/null || true
 
-        echo "  Stage 4: UDP default NSE scripts..." >> "$REPORT_FILE"
-        nmap -Pn -n -sU -sC -T4 -p "$OPEN_UDP_PORTS" \
-            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_scripts" 2>/dev/null || true
+            echo "  Stage 4: UDP default NSE scripts..." >> "$REPORT_FILE"
+            nmap -Pn -n -sU -sC -T4 -p "$OPEN_UDP_PORTS" \
+                -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_scripts" 2>/dev/null || true
+        fi
+
+        # Service-specific enumeration
+        enumerate_ftp_services
+        enumerate_ssh_services
+        enumerate_web_services
+        enumerate_database_services
+        enumerate_smb_services
+        enumerate_dns_services
+        enumerate_snmp_services
     fi
-    
-    # Service-specific enumeration
-    enumerate_ftp_services
-    enumerate_ssh_services
-    enumerate_web_services
-    enumerate_database_services
-    enumerate_smb_services
-    enumerate_dns_services
-    enumerate_snmp_services
     
 else
     echo "nmap not available, skipping service enumeration" >> "$REPORT_FILE"
