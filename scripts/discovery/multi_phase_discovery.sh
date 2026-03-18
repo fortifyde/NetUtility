@@ -2407,6 +2407,7 @@ enumerate_snmp_services() {
 echo "--- PHASE 1: ENHANCED NETWORK DISCOVERY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
+emit_progress "Phase 1: Enhanced Network Discovery" 1 8
 if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 1: ENHANCED NETWORK DISCOVERY"
     color_info "Layer 2 discovery..."
@@ -2487,6 +2488,7 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 2: COMPREHENSIVE HOST DISCOVERY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
+emit_progress "Phase 2: Comprehensive Host Discovery" 2 8
 if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 2: COMPREHENSIVE HOST DISCOVERY"
     color_info "Multi-protocol discovery..."
@@ -2612,6 +2614,7 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 3: DNS REVERSE LOOKUP ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
+emit_progress "Phase 3: DNS Reverse Lookup" 3 8
 if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 3: DNS REVERSE LOOKUP"
     color_info "Resolving hostnames..."
@@ -2643,6 +2646,7 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 4: WINDOWS-SPECIFIC DISCOVERY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
+emit_progress "Phase 4: Windows-Specific Discovery" 4 8
 if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 4: WINDOWS-SPECIFIC DISCOVERY"
     color_info "SMB and NetBIOS enumeration..."
@@ -2707,6 +2711,8 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 5: PROGRESSIVE PORT SCAN ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
+emit_progress "Phase 5: Progressive Port Scan" 5 8
+
 if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 5: PROGRESSIVE PORT SCAN"
     color_info "Multi-layered port discovery..."
@@ -2760,6 +2766,8 @@ echo >> "$REPORT_FILE"
 # Phase 6: Service Enumeration
 echo "--- PHASE 6: SERVICE ENUMERATION ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
+
+emit_progress "Phase 6: Service Enumeration" 6 8
 
 if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 6: SERVICE ENUMERATION"
@@ -2852,6 +2860,8 @@ echo >> "$REPORT_FILE"
 # Phase 7: Host Categorization
 echo "--- PHASE 7: HOST CATEGORIZATION ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
+
+emit_progress "Phase 7: Host Categorization" 7 8
 
 if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 7: HOST CATEGORIZATION"
@@ -2982,6 +2992,7 @@ echo >> "$REPORT_FILE"
 echo "--- PHASE 8: EVIDENCE PROCESSING ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
+emit_progress "Phase 8: Evidence Processing" 8 8
 if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 8: EVIDENCE PROCESSING"
     color_info "Consolidating scan data and generating comprehensive service inventory..."
@@ -3154,6 +3165,13 @@ fi
 
 echo "Final reporting complete" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
+
+emit_summary \
+    "hosts=$(wc -l < "$PHASE2_DIR/all_hosts.txt" 2>/dev/null || echo 0)" \
+    "windows=$(wc -l < "$SESSION_DIR/categorized/windows_hosts.txt" 2>/dev/null || echo 0)" \
+    "linux=$(wc -l < "$SESSION_DIR/categorized/linux_hosts.txt" 2>/dev/null || echo 0)" \
+    "network=$(wc -l < "$SESSION_DIR/categorized/network_devices.txt" 2>/dev/null || echo 0)" \
+    "report=$REPORT_FILE"
 
 echo
 echo "Multi-phase discovery complete!"

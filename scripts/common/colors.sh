@@ -14,13 +14,23 @@ elif command -v tput >/dev/null 2>&1; then
     fi
 fi
 
-# Initialize color codes using tput
-if [ "$HAS_COLORS" = "true" ]; then
+# Initialize color codes
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    # Direct ANSI — Go TUI renderer expects these exact single-code sequences
+    COLOR_RESET=$(printf '\033[0m')
+    COLOR_BOLD=$(printf '\033[1m')
+    COLOR_DIM=$(printf '\033[2m')
+    COLOR_RED=$(printf '\033[31m')
+    COLOR_GREEN=$(printf '\033[32m')
+    COLOR_YELLOW=$(printf '\033[33m')
+    COLOR_BLUE=$(printf '\033[34m')
+    COLOR_MAGENTA=$(printf '\033[35m')
+    COLOR_CYAN=$(printf '\033[36m')
+elif [ "$HAS_COLORS" = "true" ]; then
+    # tput for real terminals
     COLOR_RESET=$(tput sgr0)
     COLOR_BOLD=$(tput bold)
     COLOR_DIM=$(tput dim 2>/dev/null || echo "")
-
-    # Foreground colors
     COLOR_RED=$(tput setaf 1)
     COLOR_GREEN=$(tput setaf 2)
     COLOR_YELLOW=$(tput setaf 3)
@@ -96,11 +106,11 @@ print_phase_header() {
 
     echo ""
     echo ""
-    printf "%s%s" "$COLOR_CYAN$COLOR_BOLD" "$(printf '=%.0s' $(seq 1 "$_pph_width"))"
+    printf "%s%s" "$COLOR_CYAN$COLOR_BOLD" "$(awk -v n="$_pph_width" 'BEGIN{for(i=0;i<n;i++) printf "="}')"
     color_reset
     echo ""
     printf "%s=== %s%s\n" "$COLOR_CYAN$COLOR_BOLD" "$_pph_title" "$COLOR_RESET"
-    printf "%s%s" "$COLOR_CYAN$COLOR_BOLD" "$(printf '=%.0s' $(seq 1 "$_pph_width"))"
+    printf "%s%s" "$COLOR_CYAN$COLOR_BOLD" "$(awk -v n="$_pph_width" 'BEGIN{for(i=0;i<n;i++) printf "="}')"
     color_reset
     echo ""
     echo ""
@@ -113,12 +123,12 @@ print_subphase() {
 
     echo ""
     printf "%s  " "$COLOR_BLUE$COLOR_BOLD"
-    printf "%s" "$(printf -- '-%.0s' $(seq 1 "$_ps_width"))"
+    printf "%s" "$(awk -v n="$_ps_width" 'BEGIN{for(i=0;i<n;i++) printf "-"}')"
     color_reset
     echo ""
     printf "%s  --- %s%s\n" "$COLOR_BLUE$COLOR_BOLD" "$_ps_title" "$COLOR_RESET"
     printf "%s  " "$COLOR_BLUE$COLOR_BOLD"
-    printf "%s" "$(printf -- '-%.0s' $(seq 1 "$_ps_width"))"
+    printf "%s" "$(awk -v n="$_ps_width" 'BEGIN{for(i=0;i<n;i++) printf "-"}')"
     color_reset
     echo ""
 }
@@ -145,6 +155,24 @@ print_separator() {
     _psep_char="${1--}"
     _psep_width="${2:-70}"
 
-    printf "%s" "$(printf "${_psep_char}%.0s" $(seq 1 "$_psep_width"))"
+    printf "%s" "$(awk -v c="$_psep_char" -v n="$_psep_width" 'BEGIN{for(i=0;i<n;i++) printf c}')"
     echo ""
+}
+
+# Emit a live progress marker — intercepted by Go tool, not shown in text stream
+# Usage: emit_progress "Phase name" current total
+emit_progress() {
+    [ "$NETUTIL_FORCE_COLOR" = "1" ] || return 0
+    printf '##NETUTIL:PROGRESS## [%s/%s] %s\n' "$2" "$3" "$1"
+}
+
+# Emit a summary marker at script completion
+# Usage: emit_summary "key=value" "key=value" ...
+emit_summary() {
+    [ "$NETUTIL_FORCE_COLOR" = "1" ] || return 0
+    printf '##NETUTIL:SUMMARY##'
+    for _es_pair in "$@"; do
+        printf ' %s' "$_es_pair"
+    done
+    printf '\n'
 }
