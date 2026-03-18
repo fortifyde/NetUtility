@@ -1188,6 +1188,7 @@ if [ -x "$discovery_script" ]; then
                 vlan_interface="${target_interface}.${vlan_id}"
                 vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
 
+                emit_progress "VLAN $vlan_id ($vlan_discovery_network)" "$_vlan_current" "$vlan_network_count"
                 if command -v print_progress >/dev/null 2>&1; then
                     print_progress "$_vlan_current" "$vlan_network_count" "Discovering VLAN $vlan_id on $vlan_discovery_network" >&2
                 else

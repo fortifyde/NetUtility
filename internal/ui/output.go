@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -25,10 +24,12 @@ type OutputViewer struct {
 	inputField *tview.InputField
 	statusLine *tview.TextView
 
-	executor    *executor.StreamingExecutor
-	result      *executor.StreamingResult
-	outputLines []executor.OutputLine
-	scriptPath  string // Store script path for title updates
+	executor     *executor.StreamingExecutor
+	result       *executor.StreamingResult
+	outputLines  []executor.OutputLine
+	scriptPath   string   // Store script path for title updates
+	progressText string   // Current phase from ##NETUTIL:PROGRESS## markers
+	summaryLines []string // Accumulated ##NETUTIL:SUMMARY## data
 
 	// Display settings
 	showTimestamp bool
@@ -89,7 +90,7 @@ func NewOutputViewer(app *tview.Application, pages *tview.Pages, jobManager *job
 		inputField:           inputField,
 		statusLine:           statusLine,
 		showTimestamp:        true,
-		showSource:           true,
+		showSource:           false,
 		maxLines:             1000,
 		following:            true,
 		stopChan:             make(chan struct{}),
@@ -372,6 +373,27 @@ func (ov *OutputViewer) processOutput() {
 				statusColor = "red"
 			}
 
+			// Add summary card if markers were emitted
+			ov.mu.RLock()
+			summaryLines := ov.summaryLines
+			ov.mu.RUnlock()
+			if len(summaryLines) > 0 {
+				ov.addOutputLine(executor.OutputLine{Content: "────────────────────────────────────────────────────────────────", Timestamp: time.Now(), Source: "system"})
+				ov.addOutputLine(executor.OutputLine{Content: "[cyan]Discovery Summary[white]", Timestamp: time.Now(), Source: "system"})
+				for _, field := range summaryLines {
+					for _, pair := range strings.Fields(field) {
+						kv := strings.SplitN(pair, "=", 2)
+						if len(kv) == 2 {
+							ov.addOutputLine(executor.OutputLine{
+								Content:   fmt.Sprintf("  [white]%-10s[white] %s", kv[0]+":", kv[1]),
+								Timestamp: time.Now(),
+								Source:    "system",
+							})
+						}
+					}
+				}
+			}
+
 			// Add visual separator and completion message
 			ov.addOutputLine(executor.OutputLine{
 				Content:   "────────────────────────────────────────────────────────────────",
@@ -401,6 +423,23 @@ func (ov *OutputViewer) processOutput() {
 			if !ok {
 				// Output channel closed, script finished
 				return
+			}
+			if strings.HasPrefix(line.Content, "##NETUTIL:PROGRESS## ") {
+				text := strings.TrimPrefix(line.Content, "##NETUTIL:PROGRESS## ")
+				ov.mu.Lock()
+				ov.progressText = text
+				ov.mu.Unlock()
+				ov.app.QueueUpdateDraw(func() {
+					ov.statusLine.SetText(fmt.Sprintf("[cyan]%s[white] | Tab=Switch | Ctrl+J=Jobs | Ctrl+B=Background | Esc=Close", text))
+				})
+				continue
+			}
+			if strings.HasPrefix(line.Content, "##NETUTIL:SUMMARY## ") {
+				fields := strings.TrimPrefix(line.Content, "##NETUTIL:SUMMARY## ")
+				ov.mu.Lock()
+				ov.summaryLines = append(ov.summaryLines, fields)
+				ov.mu.Unlock()
+				continue
 			}
 			ov.addOutputLine(line)
 
@@ -558,11 +597,10 @@ func (ov *OutputViewer) formatLines(lines []executor.OutputLine) string {
 			case "stdout":
 				color = "green"
 			}
-			content.WriteString(fmt.Sprintf("[%s][%s][white] ", color, line.Source))
+			content.WriteString(fmt.Sprintf("[%s]%s[white] ", color, line.Source))
 		}
 
-		// Convert ANSI escape codes to tview color tags
-		lineContent := convertANSIToTview(line.Content)
+		lineContent := tview.TranslateANSI(line.Content)
 
 		// Add color coding for special lines only if they don't already have color codes
 		// (to avoid double-coloring from both ANSI and keyword detection)
@@ -581,106 +619,6 @@ func (ov *OutputViewer) formatLines(lines []executor.OutputLine) string {
 	}
 
 	return content.String()
-}
-
-// convertANSIToTview converts ANSI escape codes to tview color tags
-func convertANSIToTview(text string) string {
-	// ANSI color code mappings to tview color names
-	ansiToTview := map[string]string{
-		"\033[0m":  "[white]",   // Reset
-		"\033[1m":  "",          // Bold - tview doesn't support, remove it
-		"\033[2m":  "",          // Dim - tview doesn't support, remove it
-		"\033[30m": "[black]",   // Black
-		"\033[31m": "[red]",     // Red
-		"\033[32m": "[green]",   // Green
-		"\033[33m": "[yellow]",  // Yellow
-		"\033[34m": "[blue]",    // Blue
-		"\033[35m": "[magenta]", // Magenta
-		"\033[36m": "[cyan]",    // Cyan
-		"\033[37m": "[white]",   // White
-		"\033[90m": "[gray]",    // Bright Black (Gray)
-		"\033[91m": "[red]",     // Bright Red
-		"\033[92m": "[green]",   // Bright Green
-		"\033[93m": "[yellow]",  // Bright Yellow
-		"\033[94m": "[blue]",    // Bright Blue
-		"\033[95m": "[magenta]", // Bright Magenta
-		"\033[96m": "[cyan]",    // Bright Cyan
-		"\033[97m": "[white]",   // Bright White
-	}
-
-	// Replace known ANSI codes
-	result := text
-	for ansi, tviewColor := range ansiToTview {
-		result = strings.ReplaceAll(result, ansi, tviewColor)
-	}
-
-	// Handle \x1b[m (reset without digit) before the cleanup regex removes it
-	result = strings.ReplaceAll(result, "\x1b[m", "[white]")
-
-	// Handle tput-generated codes: ESC[Xm where X is a number
-	// These are more complex ANSI codes
-	re := regexp.MustCompile(`\x1b\[(\d+)m`)
-	result = re.ReplaceAllStringFunc(result, func(match string) string {
-		// Extract the number
-		code := re.FindStringSubmatch(match)
-		if len(code) < 2 {
-			return ""
-		}
-
-		// Map common codes
-		switch code[1] {
-		case "0":
-			return "[white]" // Reset
-		case "1":
-			return "" // Bold - tview doesn't support, remove it
-		case "2":
-			return "" // Dim - tview doesn't support, remove it
-		case "30":
-			return "[black]"
-		case "31":
-			return "[red]"
-		case "32":
-			return "[green]"
-		case "33":
-			return "[yellow]"
-		case "34":
-			return "[blue]"
-		case "35":
-			return "[magenta]"
-		case "36":
-			return "[cyan]"
-		case "37":
-			return "[white]"
-		case "90":
-			return "[gray]"
-		case "91":
-			return "[red]"
-		case "92":
-			return "[green]"
-		case "93":
-			return "[yellow]"
-		case "94":
-			return "[blue]"
-		case "95":
-			return "[magenta]"
-		case "96":
-			return "[cyan]"
-		case "97":
-			return "[white]"
-		default:
-			return "" // Remove unknown codes
-		}
-	})
-
-	// Remove any remaining ANSI codes we don't handle
-	re = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-	result = re.ReplaceAllString(result, "")
-
-	// Handle special tput sequences like (B[m (alternate charset reset)
-	result = strings.ReplaceAll(result, "(B[m", "")
-	result = strings.ReplaceAll(result, "\x1b(B", "")
-
-	return result
 }
 
 // Stop stops the script execution
