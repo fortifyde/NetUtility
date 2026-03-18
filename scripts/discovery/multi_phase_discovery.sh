@@ -1746,7 +1746,7 @@ categorize_services_enhanced() {
             output=$(awk '/Nmap scan report for/{host=$5} /5900\/tcp.*open/{print host}' "$scan_file" 2>/dev/null)
             [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/vnc_targets.txt"
 
-            output=$(awk '/Nmap scan report for/{host=$5} /161\/udp.*open/{print host}' "$scan_file" 2>/dev/null)
+            output=$(awk '/Nmap scan report for/{host=$5} /161\/udp[[:space:]]+open[[:space:]]/{print host}' "$scan_file" 2>/dev/null)
             [ -n "$output" ] && echo "$output" >> "$SERVICE_TARGETS_DIR/snmp_targets.txt"
         fi
     done
@@ -1809,7 +1809,7 @@ enumerate_ftp_services() {
     
     # Safe FTP enumeration - only anonymous access check and banner grabbing
     nmap -n -p21 --script ftp-anon -T4 \
-        -iL "$SERVICE_TARGETS_DIR/ftp_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_ftp_enum" 2>/dev/null || true
+        -iL "$SERVICE_TARGETS_DIR/ftp_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_ftp_enum" > /dev/null 2>&1 || true
     
     # Manual FTP banner grabbing
     echo "    FTP banners:" >> "$REPORT_FILE"
@@ -1830,7 +1830,7 @@ enumerate_ssh_services() {
     
     # Enhanced SSH enumeration with comprehensive analysis
     nmap -n -p22 --script ssh-hostkey,ssh2-enum-algos,ssh-auth-methods,banner -T4 \
-        -iL "$SERVICE_TARGETS_DIR/ssh_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_ssh_enum" 2>/dev/null || true
+        -iL "$SERVICE_TARGETS_DIR/ssh_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_ssh_enum" > /dev/null 2>&1 || true
     
     # Enhanced SSH fingerprinting and banner analysis
     echo "    SSH service fingerprinting:" >> "$REPORT_FILE"
@@ -1888,11 +1888,11 @@ enumerate_web_services() {
     
     # Enhanced HTTP enumeration with comprehensive fingerprinting
     nmap -n -p80,443,8080,8443 --script http-methods,http-headers,http-title,http-server-header,http-robots.txt,http-security-headers -T4 \
-        -iL "$SERVICE_TARGETS_DIR/web_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_web_enum" 2>/dev/null || true
-    
+        -iL "$SERVICE_TARGETS_DIR/web_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_web_enum" > /dev/null 2>&1 || true
+
     # SSL certificate and security analysis
     nmap -n -p443 --script ssl-cert,ssl-enum-ciphers,ssl-date -T4 \
-        -iL "$SERVICE_TARGETS_DIR/web_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_ssl_info" 2>/dev/null || true
+        -iL "$SERVICE_TARGETS_DIR/web_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_ssl_info" > /dev/null 2>&1 || true
     
     # Enhanced web service fingerprinting
     echo "    Web service fingerprinting:" >> "$REPORT_FILE"
@@ -2009,19 +2009,19 @@ enumerate_database_services() {
     
     # Enhanced database enumeration with comprehensive fingerprinting
     nmap -n -p3306 --script mysql-info,mysql-variables,banner -T4 \
-        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_mysql_info" 2>/dev/null || true
-    
+        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_mysql_info" > /dev/null 2>&1 || true
+
     nmap -n -p1433 --script ms-sql-info,ms-sql-config,banner -T4 \
-        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_mssql_info" 2>/dev/null || true
-    
+        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_mssql_info" > /dev/null 2>&1 || true
+
     nmap -n -p27017 --script mongodb-info,mongodb-databases,banner -T4 \
-        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_mongodb_info" 2>/dev/null || true
-    
+        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_mongodb_info" > /dev/null 2>&1 || true
+
     nmap -n -p5432 --script pgsql-databases,banner -T4 \
-        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_postgresql_info" 2>/dev/null || true
-    
+        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_postgresql_info" > /dev/null 2>&1 || true
+
     nmap -n -p1521 --script oracle-sid-brute,oracle-enum-users,banner -T4 \
-        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_oracle_info" 2>/dev/null || true
+        -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_oracle_info" > /dev/null 2>&1 || true
     
     # Enhanced database service fingerprinting
     echo "    Database service fingerprinting:" >> "$REPORT_FILE"
@@ -2106,7 +2106,7 @@ enumerate_smb_services() {
     
     # Enhanced SMB enumeration with comprehensive fingerprinting
     nmap -n -p445,139 --script smb-protocols,smb-security-mode,smb-os-discovery,smb2-capabilities -T4 \
-        -iL "$SERVICE_TARGETS_DIR/smb_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_smb_info" 2>/dev/null || true
+        -iL "$SERVICE_TARGETS_DIR/smb_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_smb_info" > /dev/null 2>&1 || true
     
     # Detailed SMB banner grabbing and version detection
     echo "    SMB server analysis:" >> "$REPORT_FILE"
@@ -2197,7 +2197,7 @@ enumerate_dns_services() {
     
     # Enhanced DNS server enumeration and fingerprinting
     nmap -n -p53 --script dns-nsid,dns-service-discovery,dns-recursion -T4 \
-        -iL "$SERVICE_TARGETS_DIR/dns_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_dns_info" 2>/dev/null || true
+        -iL "$SERVICE_TARGETS_DIR/dns_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_dns_info" > /dev/null 2>&1 || true
     
     # Detailed DNS server analysis
     echo "    DNS server analysis:" >> "$REPORT_FILE"
@@ -2285,7 +2285,7 @@ enumerate_snmp_services() {
     
     # Enhanced SNMP enumeration with comprehensive system information
     nmap -n -sU -p161 --script snmp-sysdescr,snmp-info,snmp-interfaces -T4 \
-        -iL "$SERVICE_TARGETS_DIR/snmp_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_snmp_info" 2>/dev/null || true
+        -iL "$SERVICE_TARGETS_DIR/snmp_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_snmp_info" > /dev/null 2>&1 || true
     
     # Detailed SNMP server analysis
     echo "    SNMP server analysis:" >> "$REPORT_FILE"
@@ -2408,7 +2408,9 @@ echo "--- PHASE 1: ENHANCED NETWORK DISCOVERY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 emit_progress "Phase 1: Enhanced Network Discovery" 1 8
-if command -v print_phase_header >/dev/null 2>&1; then
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_DIM" "Phase 1/8: ENHANCED NETWORK DISCOVERY — Layer 2 discovery" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 1: ENHANCED NETWORK DISCOVERY"
     color_info "Layer 2 discovery..."
 else
@@ -2489,7 +2491,9 @@ echo "--- PHASE 2: COMPREHENSIVE HOST DISCOVERY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 emit_progress "Phase 2: Comprehensive Host Discovery" 2 8
-if command -v print_phase_header >/dev/null 2>&1; then
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_DIM" "Phase 2/8: COMPREHENSIVE HOST DISCOVERY — Multi-protocol discovery" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 2: COMPREHENSIVE HOST DISCOVERY"
     color_info "Multi-protocol discovery..."
 else
@@ -2505,6 +2509,7 @@ fi
 
 # Sub-phase 2.1: ICMP Discovery (Traditional Ping Sweep)
 echo "  Sub-phase 2.1: ICMP connectivity testing..." >> "$REPORT_FILE"
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 2.1: ICMP sweep (fping/ping)" "$COLOR_RESET"
 
 if command -v fping >/dev/null 2>&1; then
     echo "Using fping for fast ping sweep..." >> "$REPORT_FILE"
@@ -2544,16 +2549,19 @@ ping_count=$(wc -l < "$PHASE2_DIR/ping_hosts.txt")
 echo >> "$REPORT_FILE"
 echo "  Sub-phase 2.1 complete: Found $ping_count ICMP-responsive hosts." >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 2.1 complete — $ping_count ICMP-responsive hosts" "$COLOR_RESET"
 
 # Sub-phase 2.2: TCP Discovery with Firewall Bypass
 echo "  Sub-phase 2.2: TCP discovery..." >> "$REPORT_FILE"
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 2.2: TCP discovery (nmap SYN ping)" "$COLOR_RESET"
 perform_tcp_discovery "$target_networks" "$PHASE2_DIR/tcp_hosts.txt"
 tcp_count=$(wc -l < "$PHASE2_DIR/tcp_hosts.txt")
 echo "  Sub-phase 2.2 complete: Found $tcp_count TCP-responsive hosts." >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-# Sub-phase 2.3: UDP Service Discovery  
+# Sub-phase 2.3: UDP Service Discovery
 echo "  Sub-phase 2.3: UDP service discovery..." >> "$REPORT_FILE"
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 2.3: UDP service discovery" "$COLOR_RESET"
 perform_udp_discovery "$target_networks" "$PHASE2_DIR/udp_hosts.txt"
 udp_count=$(wc -l < "$PHASE2_DIR/udp_hosts.txt")
 echo "  Sub-phase 2.3 complete: Found $udp_count UDP-responsive hosts." >> "$REPORT_FILE"
@@ -2561,6 +2569,7 @@ echo >> "$REPORT_FILE"
 
 # Sub-phase 2.4: High-Speed Discovery (if masscan available)
 echo "  Sub-phase 2.4: High-speed discovery (masscan)..." >> "$REPORT_FILE"
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 2.4: High-speed scan (masscan)" "$COLOR_RESET"
 perform_masscan_discovery "$target_networks" "$PHASE2_DIR/masscan_hosts.txt"
 masscan_count=$(wc -l < "$PHASE2_DIR/masscan_hosts.txt")
 echo "  Sub-phase 2.4 complete: Found $masscan_count hosts via masscan." >> "$REPORT_FILE"
@@ -2615,7 +2624,9 @@ echo "--- PHASE 3: DNS REVERSE LOOKUP ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 emit_progress "Phase 3: DNS Reverse Lookup" 3 8
-if command -v print_phase_header >/dev/null 2>&1; then
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_DIM" "Phase 3/8: DNS REVERSE LOOKUP — Resolving hostnames" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 3: DNS REVERSE LOOKUP"
     color_info "Resolving hostnames..."
 else
@@ -2624,6 +2635,7 @@ else
 fi
 echo "IP Address\tHostname" >> "$REPORT_FILE"
 echo "----------------------------" >> "$REPORT_FILE"
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 3: Reverse DNS lookup for $all_hosts_count hosts" "$COLOR_RESET"
 
 while read -r host; do
     if [ -n "$host" ]; then
@@ -2647,7 +2659,9 @@ echo "--- PHASE 4: WINDOWS-SPECIFIC DISCOVERY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 emit_progress "Phase 4: Windows-Specific Discovery" 4 8
-if command -v print_phase_header >/dev/null 2>&1; then
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_DIM" "Phase 4/8: WINDOWS-SPECIFIC DISCOVERY — SMB and NetBIOS enumeration" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 4: WINDOWS-SPECIFIC DISCOVERY"
     color_info "SMB and NetBIOS enumeration..."
 else
@@ -2659,6 +2673,7 @@ fi
 echo "SMB/NetBIOS enumeration:" >> "$REPORT_FILE"
 : > "$PHASE4_DIR/smb_hosts.txt"
 : > "$PHASE4_DIR/netbios_names.txt"
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 4: SMB/NetBIOS/RDP probe on $all_hosts_count hosts" "$COLOR_RESET"
 
 while read -r host; do
     if [ -n "$host" ]; then
@@ -2713,7 +2728,9 @@ echo >> "$REPORT_FILE"
 
 emit_progress "Phase 5: Progressive Port Scan" 5 8
 
-if command -v print_phase_header >/dev/null 2>&1; then
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_DIM" "Phase 5/8: PROGRESSIVE PORT SCAN — Multi-layered port discovery" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 5: PROGRESSIVE PORT SCAN"
     color_info "Multi-layered port discovery..."
 else
@@ -2729,11 +2746,14 @@ if command -v nmap >/dev/null 2>&1; then
     # Stage 1: Fast common port scan
     # Using top 1000 ports for comprehensive coverage while maintaining reasonable speed
     echo "  Stage 1: Fast common port scan (top 1000 ports)..." >> "$REPORT_FILE"
-    echo "  Running TCP scan on top 1000 ports..."
+    printf "%s%s%s\n" "$COLOR_DIM" "TCP scan (top 1000 ports) → $SESSION_DIR/nmap_fast_scan.txt" "$COLOR_RESET"
 
-    nmap -n -sS --top-ports 1000 -T4 --min-rate 2000 --open --reason -oN "$SESSION_DIR/nmap_fast_scan.txt" \
-        -iL "$PHASE2_DIR/all_hosts.txt" 2>&1 | \
-        filter_nmap_output | tee -a "$REPORT_FILE"
+    nmap -n -sS --top-ports 1000 -T4 --min-rate 2000 --open --reason \
+        -oN "$SESSION_DIR/nmap_fast_scan.txt" \
+        -iL "$PHASE2_DIR/all_hosts.txt" > /dev/null 2>&1
+    filter_nmap_output < "$SESSION_DIR/nmap_fast_scan.txt" >> "$REPORT_FILE"
+    tcp_open_count=$(grep -c "/tcp.*open" "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null || echo 0)
+    printf "%s%s%s\n" "$COLOR_DIM" "TCP scan complete — $tcp_open_count open ports" "$COLOR_RESET"
     
     # Extract high-value targets for comprehensive scanning
     echo "  Identifying high-value targets..." >> "$REPORT_FILE"
@@ -2747,11 +2767,13 @@ if command -v nmap >/dev/null 2>&1; then
     # Reduced from 100 to top 20 UDP ports for efficiency
     # Covers DNS, SNMP, NTP, DHCP, and other critical UDP services
     echo "  Stage 2: UDP scan on critical ports (top 20)..." >> "$REPORT_FILE"
-    echo "  Running UDP scan on top 20 ports..."
+    printf "%s%s%s\n" "$COLOR_DIM" "UDP scan (top 20 ports) → $PHASE5_DIR/raw_scans/nmap_udp_scan.txt" "$COLOR_RESET"
 
     nmap -n -sU --top-ports 20 -T4 --open \
-        -iL "$PHASE2_DIR/all_hosts.txt" -oN "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" 2>&1 | \
-        filter_nmap_output | tee -a "$REPORT_FILE" || true
+        -iL "$PHASE2_DIR/all_hosts.txt" -oN "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" > /dev/null 2>&1 || true
+    filter_nmap_output < "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" >> "$REPORT_FILE" 2>/dev/null || true
+    udp_open_count=$(grep -cE '[0-9]+/udp[[:space:]]+open[[:space:]]' "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" 2>/dev/null || echo 0)
+    printf "%s%s%s\n" "$COLOR_DIM" "UDP scan complete — $udp_open_count open ports" "$COLOR_RESET"
     
     # Service categorization
     echo "  Categorizing discovered services..." >> "$REPORT_FILE"
@@ -2769,7 +2791,9 @@ echo >> "$REPORT_FILE"
 
 emit_progress "Phase 6: Service Enumeration" 6 8
 
-if command -v print_phase_header >/dev/null 2>&1; then
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_DIM" "Phase 6/8: SERVICE ENUMERATION — Detailed service analysis" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 6: SERVICE ENUMERATION"
     color_info "Detailed service analysis..."
 else
@@ -2816,38 +2840,46 @@ if command -v nmap >/dev/null 2>&1; then
         # Inventory mode: single lightweight pass — version strings + OS detection
         echo "  Auto-discovery mode: lightweight inventory scan..." >> "$REPORT_FILE"
         nmap -Pn -n -sV -O --version-intensity 2 -T4 $PORT_ARGS \
-            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_inventory" 2>/dev/null || true
+            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_inventory" > /dev/null 2>&1 || true
     else
         # Version detection on discovered open ports only
         # Using -Pn since hosts are already confirmed up from Phase 2
         echo "  Stage 1: Version detection and banner grabbing (TCP)..." >> "$REPORT_FILE"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: Version detection and banner grabbing" "$COLOR_RESET"
         nmap -Pn -n -sV --version-intensity 5 -T4 $PORT_ARGS \
-            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_version_detection" 2>/dev/null || true
+            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_version_detection" > /dev/null 2>&1 || true
 
         # Default script scan on discovered open ports only
         # Using -Pn since hosts are already confirmed up from Phase 2
         echo "  Stage 2: Default NSE scripts (TCP)..." >> "$REPORT_FILE"
         nmap -Pn -n -sC -T4 $PORT_ARGS \
-            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_default_scripts" 2>/dev/null || true
+            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_default_scripts" > /dev/null 2>&1 || true
 
         # UDP service enumeration on discovered open UDP ports
         if [ -n "$OPEN_UDP_PORTS" ]; then
             echo "  Stage 3: UDP service version detection..." >> "$REPORT_FILE"
             nmap -Pn -n -sU -sV --version-intensity 5 -T4 -p "$OPEN_UDP_PORTS" \
-                -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_services" 2>/dev/null || true
+                -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_services" > /dev/null 2>&1 || true
 
             echo "  Stage 4: UDP default NSE scripts..." >> "$REPORT_FILE"
             nmap -Pn -n -sU -sC -T4 -p "$OPEN_UDP_PORTS" \
-                -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_scripts" 2>/dev/null || true
+                -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_scripts" > /dev/null 2>&1 || true
         fi
 
         # Service-specific enumeration
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: FTP service enumeration" "$COLOR_RESET"
         enumerate_ftp_services
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: SSH service enumeration" "$COLOR_RESET"
         enumerate_ssh_services
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: Web service enumeration" "$COLOR_RESET"
         enumerate_web_services
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: Database service enumeration" "$COLOR_RESET"
         enumerate_database_services
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: SMB service enumeration" "$COLOR_RESET"
         enumerate_smb_services
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: DNS service enumeration" "$COLOR_RESET"
         enumerate_dns_services
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: SNMP service enumeration" "$COLOR_RESET"
         enumerate_snmp_services
     fi
     
@@ -2863,7 +2895,9 @@ echo >> "$REPORT_FILE"
 
 emit_progress "Phase 7: Host Categorization" 7 8
 
-if command -v print_phase_header >/dev/null 2>&1; then
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_DIM" "Phase 7/8: HOST CATEGORIZATION — Analyzing discovered hosts" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 7: HOST CATEGORIZATION"
     color_info "Analyzing discovered hosts..."
 else
@@ -2884,6 +2918,7 @@ mkdir -p "$SESSION_DIR/categorized/network_devices"
 echo "IP\tHostname\tCategory\tVendor\tConfidence\tScore" > "$PHASE7_DIR/categorization_details.txt"
 
 # Categorize based on advanced scoring system
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 7: Categorizing $all_hosts_count hosts" "$COLOR_RESET"
 while read -r host; do
     if [ -n "$host" ]; then
         # Use advanced categorization
@@ -2993,7 +3028,9 @@ echo "--- PHASE 8: EVIDENCE PROCESSING ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 emit_progress "Phase 8: Evidence Processing" 8 8
-if command -v print_phase_header >/dev/null 2>&1; then
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_DIM" "Phase 8/8: EVIDENCE PROCESSING — Consolidating scan data and generating service inventory" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 8: EVIDENCE PROCESSING"
     color_info "Consolidating scan data and generating comprehensive service inventory..."
 else
@@ -3173,68 +3210,72 @@ emit_summary \
     "network=$(wc -l < "$SESSION_DIR/categorized/network_devices.txt" 2>/dev/null || echo 0)" \
     "report=$REPORT_FILE"
 
-echo
-echo "Multi-phase discovery complete!"
-echo "Results saved to: $SESSION_DIR"
-
 # Update latest symlinks
 update_latest_links "discovery" "$SESSION_DIR"
 
 log_info "Multi-phase discovery completed successfully"
 log_info "Results saved to: $SESSION_DIR"
 log_info "Discovery summary: $all_hosts_count total hosts, $windows_count Windows, $linux_count Linux/Unix, $network_count network devices"
-echo
-echo "Enhanced Discovery Summary:"
-echo "  Network scanned: $network_range"
-echo "  Total hosts discovered: $all_hosts_count"
-echo "  Windows hosts: $windows_count"
-echo "  Linux/Unix hosts: $linux_count"
-echo "  Network devices: $network_count"
-echo "  Web servers: $web_count"
-echo "  Database servers: $database_count"
-echo "  Unknown hosts: $unknown_count"
-echo
-echo "Team Assignment Summary:"
-echo "  🪟 Windows Team: $team_windows_count hosts"
-echo "  🐧 Linux Team: $team_linux_count hosts"
-echo "  🌐 Network Team: $team_network_count hosts"
 
-# Show vulnerability count if available
-if [ -f "$PHASE7_DIR/vulnerabilities_found.txt" ]; then
-    vuln_count=$(wc -l < "$PHASE7_DIR/vulnerabilities_found.txt")
-    echo "  Potential vulnerabilities: $vuln_count"
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_DIM" "Discovery complete — $all_hosts_count hosts found" "$COLOR_RESET"
+    printf "%s%s%s\n" "$COLOR_DIM" "Results: $windows_count Windows | $linux_count Linux | $network_count network devices" "$COLOR_RESET"
+    printf "%s%s%s\n" "$COLOR_DIM" "Files saved to: $SESSION_DIR" "$COLOR_RESET"
+else
+    echo
+    echo "Multi-phase discovery complete!"
+    echo "Results saved to: $SESSION_DIR"
+    echo
+    echo "Enhanced Discovery Summary:"
+    echo "  Network scanned: $network_range"
+    echo "  Total hosts discovered: $all_hosts_count"
+    echo "  Windows hosts: $windows_count"
+    echo "  Linux/Unix hosts: $linux_count"
+    echo "  Network devices: $network_count"
+    echo "  Web servers: $web_count"
+    echo "  Database servers: $database_count"
+    echo "  Unknown hosts: $unknown_count"
+    echo
+    echo "Team Assignment Summary:"
+    echo "  Windows Team: $team_windows_count hosts"
+    echo "  Linux Team: $team_linux_count hosts"
+    echo "  Network Team: $team_network_count hosts"
+
+    # Show vulnerability count if available
+    if [ -f "$PHASE7_DIR/vulnerabilities_found.txt" ]; then
+        vuln_count=$(wc -l < "$PHASE7_DIR/vulnerabilities_found.txt")
+        echo "  Potential vulnerabilities: $vuln_count"
+    fi
+
+    echo
+    echo "Key Files Created:"
+    echo "  comprehensive_service_inventory.csv (complete service catalog)"
+    echo "  attack_surface_summary.txt (executive summary)"
+    echo "  discovery_report.txt (detailed technical report)"
+    echo "  categorized/ (hosts organized by type)"
+    echo "  all_discovered_hosts.txt (master host list)"
+    echo "  dns_results.txt (hostname resolutions)"
+    echo "  Evidence preservation:"
+    echo "     - EVIDENCE_MANIFEST.txt (complete file inventory with checksums)"
+    echo "     - evidence/ directory (organized by reconnaissance phase)"
+    echo "     - service_targets/ directory (service-specific target lists)"
+    echo
+    echo "  Team Assignment Files:"
+    echo "     - evidence/phase7_host_categorization/team_windows.txt"
+    echo "     - evidence/phase7_host_categorization/team_linux.txt"
+    echo "     - evidence/phase7_host_categorization/team_network.txt"
+
+    if [ -f "$SESSION_DIR/smb_hosts.txt" ]; then
+        echo "  smb_hosts.txt (SMB/Windows hosts)"
+    fi
+    if [ -f "$SESSION_DIR/netbios_names.txt" ]; then
+        echo "  netbios_names.txt (NetBIOS computer names)"
+    fi
+    echo
+    echo "Opening detailed report..."
+    echo
+    cat "$REPORT_FILE"
 fi
-
-echo
-echo "Key Files Created:"
-echo "  📊 comprehensive_service_inventory.csv (complete service catalog)"
-echo "  📋 attack_surface_summary.txt (executive summary)"
-echo "  📝 discovery_report.txt (detailed technical report)"
-echo "  📁 categorized/ (hosts organized by type)"
-echo "  📍 all_discovered_hosts.txt (master host list)"
-echo "  🔍 dns_results.txt (hostname resolutions)"
-
-# Enhanced scan results
-echo "  🛡️  Evidence preservation:"
-echo "     - EVIDENCE_MANIFEST.txt (complete file inventory with checksums)"
-echo "     - evidence/ directory (organized by reconnaissance phase)"
-echo "     - service_targets/ directory (service-specific target lists)"
-echo
-echo "  👥 Team Assignment Files:"
-echo "     - evidence/phase7_host_categorization/team_windows.txt"
-echo "     - evidence/phase7_host_categorization/team_linux.txt" 
-echo "     - evidence/phase7_host_categorization/team_network.txt"
-
-if [ -f "$SESSION_DIR/smb_hosts.txt" ]; then
-    echo "  🪟 smb_hosts.txt (SMB/Windows hosts)"
-fi
-if [ -f "$SESSION_DIR/netbios_names.txt" ]; then
-    echo "  🏷️  netbios_names.txt (NetBIOS computer names)"
-fi
-echo
-echo "Opening detailed report..."
-echo
-cat "$REPORT_FILE"
 
 # Log script completion
 log_script_end "multi_phase_discovery.sh" 0
