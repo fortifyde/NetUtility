@@ -108,5 +108,10 @@ echo "Updated DNS configuration:"
 cat /etc/resolv.conf
 
 echo
-echo "Testing DNS resolution:"
-nslookup google.com || echo "DNS test failed"
+ns=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf)
+if [ -n "$ns" ]; then
+    echo "Testing DNS resolution (querying $ns):"
+    nslookup "$ns" "$ns" || echo "DNS test failed"
+else
+    echo "No nameserver configured, skipping DNS test"
+fi
