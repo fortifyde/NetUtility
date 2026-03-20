@@ -2789,6 +2789,9 @@ if command -v nmap >/dev/null 2>&1; then
         if [ -f "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" ]; then
             grep -oP '\d+/udp\s+open\s' "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" 2>/dev/null | \
                 cut -d'/' -f1 | sort -nu | tr '\n' ',' | sed 's/,$//' > "$PHASE6_DIR/open_udp_ports.txt" || true
+            awk '/^Nmap scan report for/{ip=$NF} /\/udp[[:space:]]+open[^|]/{print ip}' \
+                "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" 2>/dev/null | sort -u \
+                > "$PHASE6_DIR/udp_open_hosts.txt" || true
         fi
 
         OPEN_TCP_PORTS=$(cat "$PHASE6_DIR/open_ports.txt" 2>/dev/null)
@@ -2837,12 +2840,12 @@ if command -v nmap >/dev/null 2>&1; then
             echo "  Stage 3: UDP service version detection..." >> "$REPORT_FILE"
             printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.3: UDP service version detection" "$COLOR_RESET"
             nmap -Pn -n -sU -sV --version-intensity 5 -T4 -p "$OPEN_UDP_PORTS" \
-                -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_services" > /dev/null 2>&1 || true
+                -iL "$PHASE6_DIR/udp_open_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_services" > /dev/null 2>&1 || true
 
             echo "  Stage 4: UDP default NSE scripts..." >> "$REPORT_FILE"
             printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.4: UDP default NSE scripts" "$COLOR_RESET"
             nmap -Pn -n -sU -sC -T4 -p "$OPEN_UDP_PORTS" \
-                -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_scripts" > /dev/null 2>&1 || true
+                -iL "$PHASE6_DIR/udp_open_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_scripts" > /dev/null 2>&1 || true
         fi
 
         # Service-specific enumeration
