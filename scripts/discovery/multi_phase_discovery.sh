@@ -2960,16 +2960,6 @@ while read -r host; do
                 ;;
         esac
 
-        # Keep web_servers and database_servers for compatibility (file created on first write)
-        if [ -f "$SESSION_DIR/nmap_fast_scan.txt" ]; then
-            if grep -A 30 "Nmap scan report for $host" "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null | grep -qE "(http|80|443|8080|8443).*open"; then
-                echo "$host" >> "$SESSION_DIR/categorized/web_servers.txt"
-            fi
-            if grep -A 30 "Nmap scan report for $host" "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null | grep -qE "(mysql|postgresql|mssql|oracle|1433|3306|5432).*open"; then
-                echo "$host" >> "$SESSION_DIR/categorized/database_servers.txt"
-            fi
-        fi
-
         # Report output
         echo "$host\t$hostname\t$category ($vendor, $confidence confidence)" >> "$REPORT_FILE"
     fi
@@ -2980,8 +2970,6 @@ echo "  Creating enriched categorized host files..." >> "$REPORT_FILE"
 create_enriched_categorized_hosts "windows" "$SESSION_DIR/categorized/windows_hosts.txt"
 create_enriched_categorized_hosts "linux" "$SESSION_DIR/categorized/linux_hosts.txt"
 create_enriched_categorized_hosts "network_devices" "$SESSION_DIR/categorized/network_devices.txt"
-create_enriched_categorized_hosts "web_servers" "$SESSION_DIR/categorized/web_servers.txt"
-create_enriched_categorized_hosts "database_servers" "$SESSION_DIR/categorized/database_servers.txt"
 create_enriched_categorized_hosts "unknown" "$SESSION_DIR/categorized/unknown.txt"
 echo "  Enriched categorized host files created" >> "$REPORT_FILE"
 
@@ -3114,8 +3102,6 @@ echo >> "$REPORT_FILE"
 windows_count=$([ -f "$SESSION_DIR/categorized/windows_hosts.txt" ] && wc -l < "$SESSION_DIR/categorized/windows_hosts.txt" || echo 0)
 linux_count=$([ -f "$SESSION_DIR/categorized/linux_hosts.txt" ] && wc -l < "$SESSION_DIR/categorized/linux_hosts.txt" || echo 0)
 network_count=$([ -f "$SESSION_DIR/categorized/network_devices.txt" ] && wc -l < "$SESSION_DIR/categorized/network_devices.txt" || echo 0)
-web_count=$([ -f "$SESSION_DIR/categorized/web_servers.txt" ] && wc -l < "$SESSION_DIR/categorized/web_servers.txt" || echo 0)
-database_count=$([ -f "$SESSION_DIR/categorized/database_servers.txt" ] && wc -l < "$SESSION_DIR/categorized/database_servers.txt" || echo 0)
 unknown_count=$([ -f "$SESSION_DIR/categorized/unknown.txt" ] && wc -l < "$SESSION_DIR/categorized/unknown.txt" || echo 0)
 
 # Team assignment counts
@@ -3128,8 +3114,6 @@ echo "  Total hosts discovered: $all_hosts_count" >> "$REPORT_FILE"
 echo "  Windows hosts: $windows_count" >> "$REPORT_FILE"
 echo "  Linux/Unix hosts: $linux_count" >> "$REPORT_FILE"
 echo "  Network devices: $network_count" >> "$REPORT_FILE"
-echo "  Web servers: $web_count" >> "$REPORT_FILE"
-echo "  Database servers: $database_count" >> "$REPORT_FILE"
 echo "  Unknown hosts: $unknown_count" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 echo "Team Assignment Summary:" >> "$REPORT_FILE"
@@ -3202,8 +3186,6 @@ else
     echo "  Windows hosts: $windows_count"
     echo "  Linux/Unix hosts: $linux_count"
     echo "  Network devices: $network_count"
-    echo "  Web servers: $web_count"
-    echo "  Database servers: $database_count"
     echo "  Unknown hosts: $unknown_count"
     echo
     echo "Team Assignment Summary:"
