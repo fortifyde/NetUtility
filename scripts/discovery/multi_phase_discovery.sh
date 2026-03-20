@@ -234,7 +234,6 @@ mkdir -p "$EVIDENCE_DIR/phase1_network_discovery" \
          "$EVIDENCE_DIR/phase7_host_categorization"
 mkdir -p "$EVIDENCE_DIR/phase1_network_discovery/raw_scans" \
          "$EVIDENCE_DIR/phase2_host_discovery/raw_scans" \
-         "$EVIDENCE_DIR/phase3_dns_analysis/raw_scans" \
          "$EVIDENCE_DIR/phase4_windows_discovery/raw_scans" \
          "$EVIDENCE_DIR/phase5_port_scanning/raw_scans" \
          "$EVIDENCE_DIR/phase6_service_enumeration/raw_scans"
@@ -1074,8 +1073,8 @@ create_enriched_categorized_hosts() {
 
             # Get hostname
             hostname="-"
-            if [ -f "$SESSION_DIR/dns_results.txt" ]; then
-                hostname=$(grep "^${ip}[[:space:]]" "$SESSION_DIR/dns_results.txt" 2>/dev/null | awk '{print $2}' | head -1)
+            if [ -f "$PHASE3_DIR/dns_results.txt" ]; then
+                hostname=$(grep "^${ip}" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | sed 's/.*\t//' | head -1)
                 [ -z "$hostname" ] && hostname="-"
             fi
 
@@ -2414,6 +2413,7 @@ fi
 mkdir -p "$PHASE1_DIR/raw_scans"
 
 # Sub-phase 1.1: Layer 2 ARP Discovery (runs first — results used by 1.2)
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 1.1: Layer 2 ARP discovery" "$COLOR_RESET"
 echo "  Sub-phase 1.1: Layer 2 ARP discovery..." >> "$REPORT_FILE"
 
 arp_scan_raw="$PHASE1_DIR/raw_scans/arp_scan_full.txt"
@@ -2431,18 +2431,22 @@ else
 fi
 
 # Sub-phase 1.2: Network Topology Discovery (reads from 1.1 arp-scan results)
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 1.2: Network topology discovery" "$COLOR_RESET"
 echo "  Sub-phase 1.2: Network topology discovery" >> "$REPORT_FILE"
 discover_network_topology "$target_networks" "$PHASE1_DIR/topology_hosts.txt"
 
 # Sub-phase 1.3: Infrastructure Device Identification
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 1.3: Infrastructure identification" "$COLOR_RESET"
 echo "  Sub-phase 1.3: Network infrastructure identification" >> "$REPORT_FILE"
 identify_network_devices "$target_networks" "$PHASE1_DIR/infrastructure_hosts.txt"
 
 # Sub-phase 1.4: Reverse DNS Pattern Analysis (skipped if no nameserver configured)
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 1.4: Reverse DNS enumeration" "$COLOR_RESET"
 echo "  Sub-phase 1.4: Reverse DNS enumeration" >> "$REPORT_FILE"
 perform_reverse_dns_enumeration "$network_range" "$PHASE1_DIR/topology_hosts.txt"
 
 # Sub-phase 1.5: Network Segmentation Analysis
+printf "%s%s%s\n" "$COLOR_DIM" "Phase 1.5: Network segmentation analysis" "$COLOR_RESET"
 echo "  Sub-phase 1.5: Network segmentation analysis" >> "$REPORT_FILE"
 : > "$PHASE1_DIR/segmentation_analysis.txt"
 analyze_network_segmentation "$target_networks" "$PHASE1_DIR/segmentation_analysis.txt"
@@ -2651,7 +2655,9 @@ while read -r host; do
             
             # Try to get NetBIOS name using nmblookup
             if command -v nmblookup >/dev/null 2>&1; then
-                netbios_name=$(nmblookup -A "$host" 2>/dev/null | grep "<00>" | head -1 | awk '{print $1}')
+                nmblookup_raw=$(nmblookup -A "$host" 2>/dev/null)
+                printf '%s\n' "$nmblookup_raw" > "$PHASE4_DIR/raw_scans/nmblookup_$(echo "$host" | tr '.' '_').txt"
+                netbios_name=$(printf '%s\n' "$nmblookup_raw" | grep "<00>" | head -1 | awk '{print $1}')
                 if [ -n "$netbios_name" ]; then
                     echo "$host\t$netbios_name" >> "$PHASE4_DIR/netbios_names.txt"
                     echo "    NetBIOS name: $netbios_name" >> "$REPORT_FILE"
@@ -2660,7 +2666,9 @@ while read -r host; do
             
             # Try to get SMB information using smbclient
             if command -v smbclient >/dev/null 2>&1; then
-                smb_info=$(smbclient -L "$host" -N 2>/dev/null | grep "Workgroup\|Domain" | head -1)
+                smbclient_raw=$(smbclient -L "$host" -N 2>/dev/null)
+                printf '%s\n' "$smbclient_raw" > "$PHASE4_DIR/raw_scans/smbclient_$(echo "$host" | tr '.' '_').txt"
+                smb_info=$(printf '%s\n' "$smbclient_raw" | grep "Workgroup\|Domain" | head -1)
                 if [ -n "$smb_info" ]; then
                     echo "    $smb_info" >> "$REPORT_FILE"
                 fi
@@ -2806,47 +2814,51 @@ if command -v nmap >/dev/null 2>&1; then
     if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
         # Inventory mode: single lightweight pass — version strings + OS detection
         echo "  Auto-discovery mode: lightweight inventory scan..." >> "$REPORT_FILE"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.1: Lightweight inventory scan" "$COLOR_RESET"
         nmap -Pn -n -sV -O --version-intensity 2 -T4 $PORT_ARGS \
             -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_inventory" > /dev/null 2>&1 || true
     else
         # Version detection on discovered open ports only
         # Using -Pn since hosts are already confirmed up from Phase 2
         echo "  Stage 1: Version detection and banner grabbing (TCP)..." >> "$REPORT_FILE"
-        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: Version detection and banner grabbing" "$COLOR_RESET"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.1: Version detection and banner grabbing" "$COLOR_RESET"
         nmap -Pn -n -sV --version-intensity 5 -T4 $PORT_ARGS \
             -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_version_detection" > /dev/null 2>&1 || true
 
         # Default script scan on discovered open ports only
         # Using -Pn since hosts are already confirmed up from Phase 2
         echo "  Stage 2: Default NSE scripts (TCP)..." >> "$REPORT_FILE"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.2: Default NSE scripts (TCP)" "$COLOR_RESET"
         nmap -Pn -n -sC -T4 $PORT_ARGS \
             -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_default_scripts" > /dev/null 2>&1 || true
 
         # UDP service enumeration on discovered open UDP ports
         if [ -n "$OPEN_UDP_PORTS" ]; then
             echo "  Stage 3: UDP service version detection..." >> "$REPORT_FILE"
+            printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.3: UDP service version detection" "$COLOR_RESET"
             nmap -Pn -n -sU -sV --version-intensity 5 -T4 -p "$OPEN_UDP_PORTS" \
                 -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_services" > /dev/null 2>&1 || true
 
             echo "  Stage 4: UDP default NSE scripts..." >> "$REPORT_FILE"
+            printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.4: UDP default NSE scripts" "$COLOR_RESET"
             nmap -Pn -n -sU -sC -T4 -p "$OPEN_UDP_PORTS" \
                 -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_scripts" > /dev/null 2>&1 || true
         fi
 
         # Service-specific enumeration
-        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: FTP service enumeration" "$COLOR_RESET"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.5: FTP service enumeration" "$COLOR_RESET"
         enumerate_ftp_services
-        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: SSH service enumeration" "$COLOR_RESET"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.6: SSH service enumeration" "$COLOR_RESET"
         enumerate_ssh_services
-        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: Web service enumeration" "$COLOR_RESET"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.7: Web service enumeration" "$COLOR_RESET"
         enumerate_web_services
-        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: Database service enumeration" "$COLOR_RESET"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.8: Database service enumeration" "$COLOR_RESET"
         enumerate_database_services
-        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: SMB service enumeration" "$COLOR_RESET"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.9: SMB service enumeration" "$COLOR_RESET"
         enumerate_smb_services
-        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: DNS service enumeration" "$COLOR_RESET"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.10: DNS service enumeration" "$COLOR_RESET"
         enumerate_dns_services
-        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6: SNMP service enumeration" "$COLOR_RESET"
+        printf "%s%s%s\n" "$COLOR_DIM" "Phase 6.11: SNMP service enumeration" "$COLOR_RESET"
         enumerate_snmp_services
     fi
     
@@ -3121,15 +3133,6 @@ echo "Discovery completed at $(date)" >> "$REPORT_FILE"
 # Create summary files
 echo "Creating summary files..."
 cp "$PHASE2_DIR/all_hosts.txt" "$SESSION_DIR/all_discovered_hosts.txt"
-cp "$PHASE3_DIR/dns_results.txt" "$SESSION_DIR/dns_results.txt"
-
-# Copy Windows-specific discovery results
-if [ -s "$PHASE4_DIR/smb_hosts.txt" ]; then
-    cp "$PHASE4_DIR/smb_hosts.txt" "$SESSION_DIR/smb_hosts.txt"
-fi
-if [ -s "$PHASE4_DIR/netbios_names.txt" ]; then
-    cp "$PHASE4_DIR/netbios_names.txt" "$SESSION_DIR/netbios_names.txt"
-fi
 
 echo "Final reporting complete" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
