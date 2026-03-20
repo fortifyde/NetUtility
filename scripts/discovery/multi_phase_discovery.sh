@@ -120,6 +120,35 @@ else
     log_info "Network range: $network_range"
 fi
 
+# DNS pre-flight check
+dns_preflight_check() {
+    if grep -q "^nameserver" /etc/resolv.conf 2>/dev/null; then
+        dns_configured=true
+        return
+    fi
+    printf "No DNS nameserver configured. Would you like to add one now? (y/N) " >&2
+    read -r dns_answer
+    case "$dns_answer" in
+        y|Y|yes|YES)
+            printf "Enter nameserver IP: " >&2
+            read -r nameserver_ip
+            if ! echo "$nameserver_ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+                echo "Invalid IP format. Skipping DNS configuration." >&2
+                dns_configured=false
+                return
+            fi
+            echo "nameserver $nameserver_ip" >> /etc/resolv.conf
+            echo "Nameserver $nameserver_ip added." >&2
+            dns_configured=true
+            ;;
+        *)
+            echo "Skipping DNS configuration. Phase 1.4 and Phase 3 DNS lookups will be skipped." >&2
+            dns_configured=false
+            ;;
+    esac
+}
+dns_preflight_check
+
 echo
 
 # Create discovery session - check for auto-discovery context
@@ -670,15 +699,11 @@ categorize_host_advanced() {
     snmp_sysdescr=$(get_snmp_sysdescr "$ip")
     vendor=$(detect_device_vendor "$ip" "$mac_vendor" "$ssh_banner" "$http_server" "$snmp_sysdescr")
 
-    # Get TTL - first try from Phase 2 ICMP results, then from nmap output
-    ttl=$(grep "$ip" "$PHASE2_DIR/icmp_responsive.txt" 2>/dev/null | awk '{print $2}')
-    if [ -z "$ttl" ] && [ -f "$SESSION_DIR/nmap_fast_scan.txt" ]; then
-        # Extract TTL from nmap scan results (appears as "ttl 64" in output)
-        ttl=$(grep -A 10 "Nmap scan report for $ip" "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null | grep -oP 'ttl \K[0-9]+' | head -1)
-    fi
+    # Get TTL from Phase 2.1.1 ICMP collection (format: "IP TTL")
+    ttl=$(grep "^$ip " "$PHASE2_DIR/icmp_responsive.txt" 2>/dev/null | awk '{print $2}')
 
-    # Get nmap OS detection from Phase 2
-    nmap_os=$(grep "^$ip" "$PHASE2_DIR/early_os_detection.txt" 2>/dev/null | sed 's/.*\t//')
+    # Get nmap OS detection from available nmap output files
+    nmap_os=$(extract_os_from_nmap "$ip")
 
     # Log gathered data
     {
@@ -887,7 +912,7 @@ categorize_host_advanced() {
 
     # Nmap OS detection scoring (Phase 2 results)
     echo >> "$debug_file"
-    if [ -n "$nmap_os" ]; then
+    if [ -n "$nmap_os" ] && [ "$nmap_os" != "Unknown" ]; then
         echo "  [NMAP_OS] OS detection result: $nmap_os" >> "$debug_file"
 
         # Add significant weight for nmap OS detection matches
@@ -1081,35 +1106,42 @@ discover_network_topology() {
         if [ -n "$network" ]; then
             echo "    Analyzing network: $network" >> "$REPORT_FILE"
             
-            # Extract gateway IP (usually .1 or .254)
-            network_base=$(echo "$network" | cut -d'/' -f1 | cut -d'.' -f1-3)
-            
-            # Test common gateway addresses
-            for gateway_last in 1 254; do
-                gateway_ip="${network_base}.${gateway_last}"
+            # Compute first and last usable host addresses for this subnet
+            gateway_candidates=$(awk -v cidr="$network" 'BEGIN {
+                split(cidr, parts, "/")
+                split(parts[1], oct, ".")
+                net_int = oct[1] * 16777216 + oct[2] * 65536 + oct[3] * 256 + oct[4]
+                prefix = int(parts[2])
+                if (prefix == 32) {
+                    exit
+                } else if (prefix == 31) {
+                    first_int = net_int
+                    last_int  = net_int + 1
+                } else {
+                    first_int = net_int + 1
+                    last_int  = net_int + 2 ^ (32 - prefix) - 2
+                }
+                printf "%d.%d.%d.%d\n", int(first_int/16777216)%256, int(first_int/65536)%256, int(first_int/256)%256, first_int%256
+                if (last_int != first_int)
+                    printf "%d.%d.%d.%d\n", int(last_int/16777216)%256, int(last_int/65536)%256, int(last_int/256)%256, last_int%256
+            }')
+
+            # Test first and last usable hosts as gateway candidates
+            for gateway_ip in $gateway_candidates; do
                 if ping -c 1 -W 1 "$gateway_ip" >/dev/null 2>&1; then
                     echo "      Gateway detected: $gateway_ip" >> "$REPORT_FILE"
                     echo "$gateway_ip" >> "$output_file"
-                    
-                    # Try to get gateway MAC and vendor info
-                    if command -v arp-scan >/dev/null 2>&1; then
-                        gateway_mac=$(arp-scan -l 2>/dev/null | grep "$gateway_ip" | awk '{print $2}' | head -1)
+
+                    # Try to get gateway MAC from Phase 1.1 arp-scan results
+                    arp_full="$PHASE1_DIR/raw_scans/arp_scan_full.txt"
+                    if [ -f "$arp_full" ]; then
+                        gateway_mac=$(grep "^$gateway_ip" "$arp_full" | awk '{print $2}' | head -1)
                         if [ -n "$gateway_mac" ]; then
                             echo "        MAC: $gateway_mac" >> "$REPORT_FILE"
                         fi
                     fi
                 fi
             done
-            
-            # Network boundary detection via traceroute
-            if command -v traceroute >/dev/null 2>&1; then
-                echo "      Tracing network boundaries..." >> "$REPORT_FILE"
-                sample_ip="${network_base}.10"
-                if traceroute -m 5 -w 2 "$sample_ip" 2>/dev/null | head -5 | tail -n +2 | \
-                   grep -E "^[[:space:]]*[0-9]+" >/dev/null 2>&1; then
-                    echo "        Network routing detected for $network" >> "$REPORT_FILE"
-                fi
-            fi
         fi
     done
 }
@@ -1118,6 +1150,11 @@ discover_network_topology() {
 perform_reverse_dns_enumeration() {
     network="$1"
     output_file="$2"
+
+    if [ "$dns_configured" != "true" ]; then
+        echo "  Skipping reverse DNS enumeration (no nameserver configured)" >> "$REPORT_FILE"
+        return
+    fi
 
     echo "  Performing reverse DNS enumeration..." >> "$REPORT_FILE"
     
@@ -1530,31 +1567,6 @@ analyze_network_segmentation() {
     output_file="$2"
 
     echo "  Analyzing network segmentation and reachability..." >> "$REPORT_FILE"
-    
-    # Analyze subnet reachability
-    echo "    Testing subnet reachability patterns..." >> "$REPORT_FILE"
-    
-    # Test common private network ranges for reachability
-    test_ranges="10.0.0.0/24 10.1.0.0/24 172.16.0.0/24 172.16.1.0/24 192.168.0.0/24 192.168.1.0/24 192.168.10.0/24 192.168.100.0/24"
-    reachable_subnets=0
-    
-    for test_range in $test_ranges; do
-        # Extract the first IP of the range for testing
-        test_ip=$(echo "$test_range" | cut -d'/' -f1 | cut -d'.' -f1-3).1
-        
-        # Quick connectivity test
-        if ping -c 1 -W 1 "$test_ip" >/dev/null 2>&1; then
-            echo "      Reachable subnet detected: $test_range (via $test_ip)" >> "$REPORT_FILE"
-            echo "$test_range" >> "$output_file"
-            reachable_subnets=$((reachable_subnets + 1))
-        fi
-    done
-    
-    if [ $reachable_subnets -eq 0 ]; then
-        echo "      No additional subnets detected in common ranges" >> "$REPORT_FILE"
-    else
-        echo "      Found $reachable_subnets potentially reachable subnets" >> "$REPORT_FILE"
-    fi
 
     # Routing analysis
     echo "    Analyzing routing information..." >> "$REPORT_FILE"
@@ -1634,70 +1646,49 @@ enhanced_fping_sweep() {
         return 0
     fi
     
-    # Attempt 2: Fallback with relaxed settings for difficult networks
-    echo "  Standard mode failed, trying compatibility mode..." >> "$REPORT_FILE"
-    : > "$temp_output"
-    : > "$temp_errors"
-
-    # More conservative settings for difficult networks
-    fping -a -g -t 2000 -r 3 -i 50 -q "$network" 2>"$temp_errors" >"$temp_output"
-    if [ -s "$temp_output" ]; then
-        cat "$temp_output" >> "$output_file"
-        hosts_found=$(wc -l < "$temp_output")
-        echo "    Compatibility mode: Found $hosts_found hosts" >> "$REPORT_FILE"
-
-        # Keep raw scan for evidence
-        return 0
-    fi
-    
-    # Attempt 3: Check for common permission/network issues and provide guidance
-    echo "  Compatibility mode failed, diagnosing issues..." >> "$REPORT_FILE"
-    
-    if grep -q "Operation not permitted\|Permission denied" "$temp_errors"; then
-        echo "    Issue: Insufficient privileges for raw socket operations" >> "$REPORT_FILE"
-        echo "    Recommendation: Run with elevated privileges or use unprivileged mode" >> "$REPORT_FILE"
-        
-        # Try unprivileged mode (uses UDP instead of ICMP)
-        if command -v fping >/dev/null 2>&1 && fping -h 2>&1 | grep -q "\-S"; then
-            echo "  Attempting unprivileged mode..." >> "$REPORT_FILE"
+    # Attempt 2: Unprivileged mode for permission-denied scenarios
+    if grep -q "Operation not permitted\|Permission denied" "$temp_errors" 2>/dev/null; then
+        if fping -h 2>&1 | grep -q "\-S"; then
+            echo "  Attempting fping unprivileged mode (-S 0)..." >> "$REPORT_FILE"
+            : > "$temp_output"
             fping -a -g -S 0 -t 2000 -r 2 -q "$network" 2>/dev/null >"$temp_output"
             if [ -s "$temp_output" ]; then
                 cat "$temp_output" >> "$output_file"
                 hosts_found=$(wc -l < "$temp_output")
                 echo "    Unprivileged mode: Found $hosts_found hosts" >> "$REPORT_FILE"
-
-                # Keep raw scan for evidence
                 return 0
             fi
         fi
-    elif grep -q "Network is unreachable\|No route to host" "$temp_errors"; then
-        echo "    Issue: Network routing problem" >> "$REPORT_FILE"
-        echo "    Recommendation: Check network configuration and routing table" >> "$REPORT_FILE"
-    elif grep -q "Invalid argument\|Address family not supported" "$temp_errors"; then
-        echo "    Issue: Network configuration or IPv6/IPv4 mismatch" >> "$REPORT_FILE"
-        echo "    Recommendation: Verify network range format and system configuration" >> "$REPORT_FILE"
-    else
-        echo "    Issue: Unknown fping error" >> "$REPORT_FILE"
-        echo "    Error details: $(head -2 "$temp_errors" | tr '\n' '; ')" >> "$REPORT_FILE"
     fi
-    
-    # Attempt 4: Final fallback with basic settings
-    echo "  Final attempt with minimal options..." >> "$REPORT_FILE"
-    : > "$temp_output"
-    timeout 30 fping -a -g "$network" 2>/dev/null >"$temp_output"
-    if [ -s "$temp_output" ]; then
-        cat "$temp_output" >> "$output_file"
-        hosts_found=$(wc -l < "$temp_output")
-        echo "    Basic mode: Found $hosts_found hosts" >> "$REPORT_FILE"
 
-        # Keep raw scan for evidence
-        return 0
-    fi
-    
-    # Complete failure - log and return error
-    echo "    All fping attempts failed - network may be unreachable or misconfigured" >> "$REPORT_FILE"
+    echo "    fping sweep failed - network may be unreachable or misconfigured" >> "$REPORT_FILE"
     rm -f "$temp_output" "$temp_errors"
     return 1
+}
+
+# Collect TTL values for a list of ICMP-responsive hosts.
+# Writes "IP TTL" pairs to output_file, one per line.
+# Pings are run in parallel background jobs; per-host temp files avoid races.
+collect_ttl_values() {
+    host_file="$1"
+    output_file="$2"
+    ttl_tmp_dir=$(mktemp -d)
+
+    while IFS= read -r ip; do
+        [ -z "$ip" ] && continue
+        ip_key=$(printf "%s" "$ip" | tr '.' '_')
+        (
+            ttl=$(ping -c 1 -W 1 "$ip" 2>/dev/null | awk '
+                match($0, /[Tt][Tt][Ll]=[0-9]+/) {
+                    print substr($0, RSTART+4, RLENGTH-4)+0; exit
+                }')
+            [ -n "$ttl" ] && printf "%s %s\n" "$ip" "$ttl" > "$ttl_tmp_dir/$ip_key"
+        ) &
+    done < "$host_file"
+    wait
+
+    cat "$ttl_tmp_dir"/* >> "$output_file" 2>/dev/null
+    rm -rf "$ttl_tmp_dir"
 }
 
 # Enhanced service categorization function
@@ -2422,42 +2413,44 @@ fi
 : > "$PHASE1_DIR/arp_hosts.txt"
 : > "$PHASE1_DIR/topology_hosts.txt"
 : > "$PHASE1_DIR/infrastructure_hosts.txt"
+mkdir -p "$PHASE1_DIR/raw_scans"
 
-# Sub-phase 1.1: Network Topology Discovery
-echo "  Sub-phase 1.1: Network topology discovery" >> "$REPORT_FILE"
-discover_network_topology "$target_networks" "$PHASE1_DIR/topology_hosts.txt"
+# Sub-phase 1.1: Layer 2 ARP Discovery (runs first — results used by 1.2)
+echo "  Sub-phase 1.1: Layer 2 ARP discovery..." >> "$REPORT_FILE"
 
-# Sub-phase 1.2: Infrastructure Device Identification  
-echo "  Sub-phase 1.2: Network infrastructure identification" >> "$REPORT_FILE"
-identify_network_devices "$target_networks" "$PHASE1_DIR/infrastructure_hosts.txt"
-
-# Sub-phase 1.3: Reverse DNS Pattern Analysis
-echo "  Sub-phase 1.3: Reverse DNS enumeration" >> "$REPORT_FILE"
-perform_reverse_dns_enumeration "$network_range" "$PHASE1_DIR/topology_hosts.txt"
-
-# Sub-phase 1.4: Network Segmentation Analysis
-echo "  Sub-phase 1.4: Network segmentation analysis" >> "$REPORT_FILE"
-: > "$PHASE1_DIR/segmentation_analysis.txt"
-analyze_network_segmentation "$target_networks" "$PHASE1_DIR/segmentation_analysis.txt"
-segmentation_findings=$(wc -l < "$PHASE1_DIR/segmentation_analysis.txt")
-echo "  Sub-phase 1.4 complete: $segmentation_findings segmentation findings" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
-# Sub-phase 1.5: Layer 2 ARP Discovery
-echo "  Sub-phase 1.5: Layer 2 ARP discovery..." >> "$REPORT_FILE"
-
+arp_scan_raw="$PHASE1_DIR/raw_scans/arp_scan_full.txt"
 if command -v arp-scan >/dev/null 2>&1; then
     echo "Using arp-scan for Layer 2 discovery..." >> "$REPORT_FILE"
-    arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
-        awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
-    arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | grep -E "^([0-9]+\.){3}[0-9]+" | \
-        awk '{print $1 "\t" $2 "\t" $3}' >> "$REPORT_FILE"
+    arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | \
+        grep -E "^([0-9]+\.){3}[0-9]+" > "$arp_scan_raw"
+    awk '{print $1}' "$arp_scan_raw" > "$PHASE1_DIR/arp_hosts.txt"
+    awk '{print $1 "\t" $2 "\t" $3}' "$arp_scan_raw" >> "$REPORT_FILE"
 else
     echo "arp-scan not available, using IP neighbor discovery..." >> "$REPORT_FILE"
     ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
-        awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
+        tee "$arp_scan_raw" | awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
     ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" >> "$REPORT_FILE"
 fi
+
+# Sub-phase 1.2: Network Topology Discovery (reads from 1.1 arp-scan results)
+echo "  Sub-phase 1.2: Network topology discovery" >> "$REPORT_FILE"
+discover_network_topology "$target_networks" "$PHASE1_DIR/topology_hosts.txt"
+
+# Sub-phase 1.3: Infrastructure Device Identification
+echo "  Sub-phase 1.3: Network infrastructure identification" >> "$REPORT_FILE"
+identify_network_devices "$target_networks" "$PHASE1_DIR/infrastructure_hosts.txt"
+
+# Sub-phase 1.4: Reverse DNS Pattern Analysis (skipped if no nameserver configured)
+echo "  Sub-phase 1.4: Reverse DNS enumeration" >> "$REPORT_FILE"
+perform_reverse_dns_enumeration "$network_range" "$PHASE1_DIR/topology_hosts.txt"
+
+# Sub-phase 1.5: Network Segmentation Analysis
+echo "  Sub-phase 1.5: Network segmentation analysis" >> "$REPORT_FILE"
+: > "$PHASE1_DIR/segmentation_analysis.txt"
+analyze_network_segmentation "$target_networks" "$PHASE1_DIR/segmentation_analysis.txt"
+segmentation_findings=$(wc -l < "$PHASE1_DIR/segmentation_analysis.txt")
+echo "  Sub-phase 1.5 complete: $segmentation_findings segmentation findings" >> "$REPORT_FILE"
+echo >> "$REPORT_FILE"
 
 # Consolidate all Phase 1 discoveries
 cat "$PHASE1_DIR/arp_hosts.txt" "$PHASE1_DIR/topology_hosts.txt" "$PHASE1_DIR/infrastructure_hosts.txt" | \
@@ -2477,11 +2470,11 @@ echo "  Segmentation findings: $segmentation_findings" >> "$REPORT_FILE"
 echo "  Total unique hosts: $phase1_total" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 echo "  Sub-phases completed:" >> "$REPORT_FILE"
+echo "    ✓ Layer 2 ARP discovery" >> "$REPORT_FILE"
 echo "    ✓ Network topology and boundary analysis" >> "$REPORT_FILE"
 echo "    ✓ Infrastructure device identification" >> "$REPORT_FILE"
 echo "    ✓ Reverse DNS pattern analysis" >> "$REPORT_FILE"
 echo "    ✓ Network segmentation analysis" >> "$REPORT_FILE"
-echo "    ✓ Layer 2 ARP discovery" >> "$REPORT_FILE"
 
 log_network_operation "Enhanced Phase 1 discovery" "$network_range" "Found $phase1_total hosts ($arp_count ARP, $topology_count topology, $infrastructure_count infrastructure, $segmentation_findings segmentation)"
 echo >> "$REPORT_FILE"
@@ -2525,31 +2518,20 @@ else
     done
 fi
 
-# TTL-based OS fingerprinting
-echo "TTL-based OS fingerprinting:" >> "$REPORT_FILE"
-while read -r host; do
-    if [ -n "$host" ]; then
-        ttl=$(ping -c 1 -W 1 "$host" 2>/dev/null | grep "ttl=" | head -1 | sed 's/.*ttl=\([0-9]*\).*/\1/')
-        if [ -n "$ttl" ]; then
-            if [ "$ttl" -ge 240 ]; then
-                os_guess="Windows (TTL ~255)"
-            elif [ "$ttl" -ge 120 ]; then
-                os_guess="Windows (TTL ~128)"
-            elif [ "$ttl" -ge 60 ]; then
-                os_guess="Linux/Unix (TTL ~64)"
-            else
-                os_guess="Unknown (TTL $ttl)"
-            fi
-            echo "$host\t$ttl\t$os_guess" >> "$REPORT_FILE"
-        fi
-    fi
-done < "$PHASE2_DIR/ping_hosts.txt"
-
 ping_count=$(wc -l < "$PHASE2_DIR/ping_hosts.txt")
 echo >> "$REPORT_FILE"
 echo "  Sub-phase 2.1 complete: Found $ping_count ICMP-responsive hosts." >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 printf "%s%s%s\n" "$COLOR_DIM" "Phase 2.1 complete — $ping_count ICMP-responsive hosts" "$COLOR_RESET"
+
+# Sub-phase 2.1.1: TTL collection for ICMP-responsive hosts
+: > "$PHASE2_DIR/icmp_responsive.txt"
+if [ -s "$PHASE2_DIR/ping_hosts.txt" ]; then
+    echo "  Collecting TTL values for ICMP-responsive hosts..." >> "$REPORT_FILE"
+    collect_ttl_values "$PHASE2_DIR/ping_hosts.txt" "$PHASE2_DIR/icmp_responsive.txt"
+    ttl_count=$(wc -l < "$PHASE2_DIR/icmp_responsive.txt")
+    echo "  TTL collection complete: $ttl_count values captured." >> "$REPORT_FILE"
+fi
 
 # Sub-phase 2.2: TCP Discovery with Firewall Bypass
 echo "  Sub-phase 2.2: TCP discovery..." >> "$REPORT_FILE"
@@ -2599,26 +2581,6 @@ echo >> "$REPORT_FILE"
 
 log_network_operation "Enhanced Phase 2 discovery" "$network_range" "Found $all_hosts_count total hosts (ICMP:$ping_count, TCP:$tcp_count, UDP:$udp_count, Masscan:$masscan_count, IPv6:$ipv6_count)"
 
-# Sub-phase 2.6: Early OS Detection and Device Classification
-echo "  Sub-phase 2.6: Early OS detection and device classification..." >> "$REPORT_FILE"
-
-# Initialize classification files
-: > "$PHASE2_DIR/early_os_detection.txt"
-: > "$PHASE2_DIR/early_device_classification.txt"
-
-# Perform early OS detection on discovered hosts
-perform_early_os_detection "$PHASE2_DIR/all_hosts.txt" "$PHASE2_DIR/early_os_detection.txt"
-
-# Perform early device classification
-perform_early_device_classification "$PHASE2_DIR/all_hosts.txt" "$PHASE2_DIR/early_device_classification.txt"
-
-# Count classification results
-os_classified_count=$(wc -l < "$PHASE2_DIR/early_os_detection.txt")
-device_classified_count=$(wc -l < "$PHASE2_DIR/early_device_classification.txt")
-
-echo "  Sub-phase 2.5 complete: OS classified: $os_classified_count, Device types: $device_classified_count" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
 # Phase 3: DNS Reverse Lookup
 echo "--- PHASE 3: DNS REVERSE LOOKUP ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
@@ -2637,20 +2599,27 @@ echo "IP Address\tHostname" >> "$REPORT_FILE"
 echo "----------------------------" >> "$REPORT_FILE"
 printf "%s%s%s\n" "$COLOR_DIM" "Phase 3: Reverse DNS lookup for $all_hosts_count hosts" "$COLOR_RESET"
 
-while read -r host; do
-    if [ -n "$host" ]; then
-        # Try reverse DNS lookup
-        hostname=$(dig +short -x "$host" 2>/dev/null | sed 's/\.$//g')
-        if [ -z "$hostname" ]; then
-            hostname=$(nslookup "$host" 2>/dev/null | grep "name =" | head -1 | awk '{print $4}' | sed 's/\.$//g')
+if [ "$dns_configured" = "true" ]; then
+    while read -r host; do
+        if [ -n "$host" ]; then
+            # Try reverse DNS lookup
+            hostname=$(dig +short -x "$host" 2>/dev/null | sed 's/\.$//g')
+            if [ -z "$hostname" ]; then
+                hostname=$(nslookup "$host" 2>/dev/null | grep "name =" | head -1 | awk '{print $4}' | sed 's/\.$//g')
+            fi
+            if [ -z "$hostname" ]; then
+                hostname="<no hostname>"
+            fi
+            echo "$host\t$hostname" >> "$REPORT_FILE"
+            echo "$host\t$hostname" >> "$PHASE3_DIR/dns_results.txt"
         fi
-        if [ -z "$hostname" ]; then
-            hostname="<no hostname>"
-        fi
-        echo "$host\t$hostname" >> "$REPORT_FILE"
-        echo "$host\t$hostname" >> "$PHASE3_DIR/dns_results.txt"
-    fi
-done < "$PHASE2_DIR/all_hosts.txt"
+    done < "$PHASE2_DIR/all_hosts.txt"
+else
+    echo "  Skipping DNS reverse lookups (no nameserver configured)" >> "$REPORT_FILE"
+    while read -r host; do
+        [ -n "$host" ] && echo "$host\t<no DNS configured>" >> "$PHASE3_DIR/dns_results.txt"
+    done < "$PHASE2_DIR/all_hosts.txt"
+fi
 
 echo >> "$REPORT_FILE"
 
@@ -2985,10 +2954,9 @@ while read -r host; do
                 echo "$host" >> "$SESSION_DIR/categorized/network_devices/printers.txt"
                 echo "$host" >> "$PHASE7_DIR/team_network.txt"
                 ;;
-            *)
-                # Unknown or low confidence
-                echo "$host" >> "$SESSION_DIR/categorized/unknown_hosts.txt"
-                echo "$host" >> "$PHASE7_DIR/team_network.txt"
+            unknown|*)
+                echo "$host" >> "$SESSION_DIR/categorized/unknown.txt"
+                echo "$host" >> "$PHASE7_DIR/unknown.txt"
                 ;;
         esac
 
@@ -3014,7 +2982,7 @@ create_enriched_categorized_hosts "linux" "$SESSION_DIR/categorized/linux_hosts.
 create_enriched_categorized_hosts "network_devices" "$SESSION_DIR/categorized/network_devices.txt"
 create_enriched_categorized_hosts "web_servers" "$SESSION_DIR/categorized/web_servers.txt"
 create_enriched_categorized_hosts "database_servers" "$SESSION_DIR/categorized/database_servers.txt"
-create_enriched_categorized_hosts "unknown" "$SESSION_DIR/categorized/unknown_hosts.txt"
+create_enriched_categorized_hosts "unknown" "$SESSION_DIR/categorized/unknown.txt"
 echo "  Enriched categorized host files created" >> "$REPORT_FILE"
 
 # Generate enriched service target files (now that Phase 6 enumeration is complete)
@@ -3067,7 +3035,8 @@ echo "  Creating evidence manifest..." >> "$REPORT_FILE"
     echo "    ├── categorized/ (Detailed host type classifications)"
     echo "    ├── team_windows.txt (Windows hosts for Windows team)"
     echo "    ├── team_linux.txt (Linux/Unix hosts for Linux team)"  
-    echo "    └── team_network.txt (Network devices/unknown for Network team)"
+    echo "    ├── team_network.txt (Network devices for Network team)"
+    echo "    └── unknown.txt (Low-confidence / unclassified hosts)"
     echo ""
     echo "service_targets/ (Service-specific target lists and enriched files)"
     echo "reports/ (Final analysis and summaries)"
@@ -3147,7 +3116,7 @@ linux_count=$([ -f "$SESSION_DIR/categorized/linux_hosts.txt" ] && wc -l < "$SES
 network_count=$([ -f "$SESSION_DIR/categorized/network_devices.txt" ] && wc -l < "$SESSION_DIR/categorized/network_devices.txt" || echo 0)
 web_count=$([ -f "$SESSION_DIR/categorized/web_servers.txt" ] && wc -l < "$SESSION_DIR/categorized/web_servers.txt" || echo 0)
 database_count=$([ -f "$SESSION_DIR/categorized/database_servers.txt" ] && wc -l < "$SESSION_DIR/categorized/database_servers.txt" || echo 0)
-unknown_count=$([ -f "$SESSION_DIR/categorized/unknown_hosts.txt" ] && wc -l < "$SESSION_DIR/categorized/unknown_hosts.txt" || echo 0)
+unknown_count=$([ -f "$SESSION_DIR/categorized/unknown.txt" ] && wc -l < "$SESSION_DIR/categorized/unknown.txt" || echo 0)
 
 # Team assignment counts
 team_windows_count=$([ -f "$PHASE7_DIR/team_windows.txt" ] && wc -l < "$PHASE7_DIR/team_windows.txt" || echo 0)
@@ -3167,6 +3136,7 @@ echo "Team Assignment Summary:" >> "$REPORT_FILE"
 echo "  Windows Team: $team_windows_count hosts" >> "$REPORT_FILE"
 echo "  Linux Team: $team_linux_count hosts" >> "$REPORT_FILE"
 echo "  Network Team: $team_network_count hosts" >> "$REPORT_FILE"
+echo "  Unknown: $unknown_count hosts" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 echo "Enhanced discovery phases completed:" >> "$REPORT_FILE"
@@ -3240,6 +3210,7 @@ else
     echo "  Windows Team: $team_windows_count hosts"
     echo "  Linux Team: $team_linux_count hosts"
     echo "  Network Team: $team_network_count hosts"
+    echo "  Unknown: $unknown_count hosts"
 
     # Show vulnerability count if available
     if [ -f "$PHASE7_DIR/vulnerabilities_found.txt" ]; then
@@ -3264,6 +3235,7 @@ else
     echo "     - evidence/phase7_host_categorization/team_windows.txt"
     echo "     - evidence/phase7_host_categorization/team_linux.txt"
     echo "     - evidence/phase7_host_categorization/team_network.txt"
+    echo "     - evidence/phase7_host_categorization/unknown.txt"
 
     if [ -f "$SESSION_DIR/smb_hosts.txt" ]; then
         echo "  smb_hosts.txt (SMB/Windows hosts)"
