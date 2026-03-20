@@ -238,8 +238,7 @@ mkdir -p "$EVIDENCE_DIR/phase1_network_discovery/raw_scans" \
          "$EVIDENCE_DIR/phase4_windows_discovery/raw_scans" \
          "$EVIDENCE_DIR/phase5_port_scanning/raw_scans" \
          "$EVIDENCE_DIR/phase6_service_enumeration/raw_scans"
-mkdir -p "$SESSION_DIR/service_targets" \
-         "$SESSION_DIR/reports"
+mkdir -p "$SESSION_DIR/service_targets"
 
 # Define evidence directories for easy reference
 PHASE1_DIR="$EVIDENCE_DIR/phase1_network_discovery"
@@ -249,12 +248,11 @@ PHASE4_DIR="$EVIDENCE_DIR/phase4_windows_discovery"
 PHASE5_DIR="$EVIDENCE_DIR/phase5_port_scanning"
 PHASE6_DIR="$EVIDENCE_DIR/phase6_service_enumeration"
 PHASE7_DIR="$EVIDENCE_DIR/phase7_host_categorization"
-# Phase 7 (formerly Phase 9) removed - no longer generating separate team handoff files
 SERVICE_TARGETS_DIR="$SESSION_DIR/service_targets"
-REPORTS_DIR="$SESSION_DIR/reports"
+NMAP_FAST_SCAN="$PHASE5_DIR/raw_scans/nmap_fast_scan.txt"
 
-# Discovery report
-REPORT_FILE="$REPORTS_DIR/discovery_report.txt"
+# Discovery report (at session root for direct access)
+REPORT_FILE="$SESSION_DIR/discovery_report.txt"
 
 echo "=== Multi-Phase Network Discovery Report ===" > "$REPORT_FILE"
 echo "Interface: $selected_interface" >> "$REPORT_FILE"
@@ -764,8 +762,8 @@ categorize_host_advanced() {
     service_data=""
 
     # Check nmap_fast_scan.txt (Phase 5 TCP scan)
-    if [ -f "$SESSION_DIR/nmap_fast_scan.txt" ]; then
-        host_block=$(extract_host_data "$ip" "$SESSION_DIR/nmap_fast_scan.txt")
+    if [ -f "$NMAP_FAST_SCAN" ]; then
+        host_block=$(extract_host_data "$ip" "$NMAP_FAST_SCAN")
         service_data="$service_data $host_block"
     fi
 
@@ -2715,19 +2713,19 @@ if command -v nmap >/dev/null 2>&1; then
     # Stage 1: Fast common port scan
     # Using top 1000 ports for comprehensive coverage while maintaining reasonable speed
     echo "  Stage 1: Fast common port scan (top 1000 ports)..." >> "$REPORT_FILE"
-    printf "%s%s%s\n" "$COLOR_DIM" "TCP scan (top 1000 ports) → $SESSION_DIR/nmap_fast_scan.txt" "$COLOR_RESET"
+    printf "%s%s%s\n" "$COLOR_DIM" "TCP scan (top 1000 ports) → $NMAP_FAST_SCAN" "$COLOR_RESET"
 
     nmap -n -sS --top-ports 1000 -T4 --min-rate 2000 --open --reason \
-        -oN "$SESSION_DIR/nmap_fast_scan.txt" \
+        -oN "$NMAP_FAST_SCAN" \
         -iL "$PHASE2_DIR/all_hosts.txt" > /dev/null 2>&1
-    filter_nmap_output < "$SESSION_DIR/nmap_fast_scan.txt" >> "$REPORT_FILE"
-    tcp_open_count=$(grep -c "/tcp.*open" "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null || echo 0)
+    filter_nmap_output < "$NMAP_FAST_SCAN" >> "$REPORT_FILE"
+    tcp_open_count=$(grep -c "/tcp.*open" "$NMAP_FAST_SCAN" 2>/dev/null || echo 0)
     printf "%s%s%s\n" "$COLOR_DIM" "TCP scan complete — $tcp_open_count open ports" "$COLOR_RESET"
     
     # Extract high-value targets for comprehensive scanning
     echo "  Identifying high-value targets..." >> "$REPORT_FILE"
     awk '/Nmap scan report for/{host=$5} /(22|80|443|445|3389|21|23|25|53|135|139|1433|3306|5432)\/(tcp|udp).*open/{print host}' \
-        "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null | sort -u > "$PHASE5_DIR/high_value_targets.txt" || true
+        "$NMAP_FAST_SCAN" 2>/dev/null | sort -u > "$PHASE5_DIR/high_value_targets.txt" || true
     
     hv_count=$(wc -l < "$PHASE5_DIR/high_value_targets.txt")
     echo "    High-value targets identified: $hv_count" >> "$REPORT_FILE"
@@ -2774,9 +2772,9 @@ if command -v nmap >/dev/null 2>&1; then
 
     # Extract open ports from Phase 5 TCP scan for targeted enumeration
     echo "  Extracting open ports from Phase 5 results..." >> "$REPORT_FILE"
-    if [ -f "$SESSION_DIR/nmap_fast_scan.txt" ]; then
+    if [ -f "$NMAP_FAST_SCAN" ]; then
         # Extract unique open TCP ports across all hosts (excluding open|filtered)
-        grep -oP '\d+/tcp\s+open\s' "$SESSION_DIR/nmap_fast_scan.txt" 2>/dev/null | \
+        grep -oP '\d+/tcp\s+open\s' "$NMAP_FAST_SCAN" 2>/dev/null | \
             cut -d'/' -f1 | sort -nu | tr '\n' ',' | sed 's/,$//' > "$PHASE6_DIR/open_ports.txt" || true
 
         # Also extract UDP ports if available (excluding open|filtered)
@@ -2910,15 +2908,12 @@ while read -r host; do
         case "$category" in
             windows)
                 echo "$host" >> "$SESSION_DIR/categorized/windows_hosts.txt"
-                echo "$host" >> "$PHASE7_DIR/team_windows.txt"
                 ;;
             linux)
                 echo "$host" >> "$SESSION_DIR/categorized/linux_hosts.txt"
-                echo "$host" >> "$PHASE7_DIR/team_linux.txt"
                 ;;
             network_device|switch_router|firewall)
                 echo "$host" >> "$SESSION_DIR/categorized/network_devices.txt"
-                echo "$host" >> "$PHASE7_DIR/team_network.txt"
 
                 # Add to vendor-specific file if vendor detected (file created on first write)
                 case "$vendor" in
@@ -2952,11 +2947,9 @@ while read -r host; do
             printer)
                 echo "$host" >> "$SESSION_DIR/categorized/network_devices.txt"
                 echo "$host" >> "$SESSION_DIR/categorized/network_devices/printers.txt"
-                echo "$host" >> "$PHASE7_DIR/team_network.txt"
                 ;;
             unknown|*)
                 echo "$host" >> "$SESSION_DIR/categorized/unknown.txt"
-                echo "$host" >> "$PHASE7_DIR/unknown.txt"
                 ;;
         esac
 
@@ -3016,18 +3009,13 @@ echo "  Creating evidence manifest..." >> "$REPORT_FILE"
     echo "│   └── raw_scans/ (Port scan results)"
     echo "├── phase6_service_enumeration/"
     echo "│   └── raw_scans/ (Service detection scans)"
-    echo "├── phase7_vulnerability_assessment/"
-    echo "│   ├── vulnerabilities_found.txt"
-    echo "│   └── raw_scans/ (Vulnerability scans)"
     echo "└── phase7_host_categorization/"
-    echo "    ├── categorized/ (Detailed host type classifications)"
-    echo "    ├── team_windows.txt (Windows hosts for Windows team)"
-    echo "    ├── team_linux.txt (Linux/Unix hosts for Linux team)"  
-    echo "    ├── team_network.txt (Network devices for Network team)"
-    echo "    └── unknown.txt (Low-confidence / unclassified hosts)"
+    echo "    ├── categorization_details.txt (full per-host category/vendor/confidence table)"
+    echo "    └── categorization_debug/ (per-host scoring trace)"
     echo ""
-    echo "service_targets/ (Service-specific target lists and enriched files)"
-    echo "reports/ (Final analysis and summaries)"
+    echo "categorized/ (hosts by OS/device type — windows, linux, network_devices, unknown)"
+    echo "service_targets/ (hosts by service type — web, ssh, smb, database, …)"
+    echo "discovery_report.txt (final analysis and summaries)"
     echo ""
     echo "=== File Checksums ==="
     find "$EVIDENCE_DIR" -type f -exec sha256sum {} \; 2>/dev/null | sort
@@ -3104,23 +3092,12 @@ linux_count=$([ -f "$SESSION_DIR/categorized/linux_hosts.txt" ] && wc -l < "$SES
 network_count=$([ -f "$SESSION_DIR/categorized/network_devices.txt" ] && wc -l < "$SESSION_DIR/categorized/network_devices.txt" || echo 0)
 unknown_count=$([ -f "$SESSION_DIR/categorized/unknown.txt" ] && wc -l < "$SESSION_DIR/categorized/unknown.txt" || echo 0)
 
-# Team assignment counts
-team_windows_count=$([ -f "$PHASE7_DIR/team_windows.txt" ] && wc -l < "$PHASE7_DIR/team_windows.txt" || echo 0)
-team_linux_count=$([ -f "$PHASE7_DIR/team_linux.txt" ] && wc -l < "$PHASE7_DIR/team_linux.txt" || echo 0)
-team_network_count=$([ -f "$PHASE7_DIR/team_network.txt" ] && wc -l < "$PHASE7_DIR/team_network.txt" || echo 0)
-
 echo "Discovery Statistics:" >> "$REPORT_FILE"
 echo "  Total hosts discovered: $all_hosts_count" >> "$REPORT_FILE"
 echo "  Windows hosts: $windows_count" >> "$REPORT_FILE"
 echo "  Linux/Unix hosts: $linux_count" >> "$REPORT_FILE"
 echo "  Network devices: $network_count" >> "$REPORT_FILE"
 echo "  Unknown hosts: $unknown_count" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-echo "Team Assignment Summary:" >> "$REPORT_FILE"
-echo "  Windows Team: $team_windows_count hosts" >> "$REPORT_FILE"
-echo "  Linux Team: $team_linux_count hosts" >> "$REPORT_FILE"
-echo "  Network Team: $team_network_count hosts" >> "$REPORT_FILE"
-echo "  Unknown: $unknown_count hosts" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
 echo "Enhanced discovery phases completed:" >> "$REPORT_FILE"
@@ -3187,13 +3164,6 @@ else
     echo "  Linux/Unix hosts: $linux_count"
     echo "  Network devices: $network_count"
     echo "  Unknown hosts: $unknown_count"
-    echo
-    echo "Team Assignment Summary:"
-    echo "  Windows Team: $team_windows_count hosts"
-    echo "  Linux Team: $team_linux_count hosts"
-    echo "  Network Team: $team_network_count hosts"
-    echo "  Unknown: $unknown_count hosts"
-
     # Show vulnerability count if available
     if [ -f "$PHASE7_DIR/vulnerabilities_found.txt" ]; then
         vuln_count=$(wc -l < "$PHASE7_DIR/vulnerabilities_found.txt")
@@ -3202,22 +3172,14 @@ else
 
     echo
     echo "Key Files Created:"
-    echo "  comprehensive_service_inventory.csv (complete service catalog)"
-    echo "  attack_surface_summary.txt (executive summary)"
     echo "  discovery_report.txt (detailed technical report)"
-    echo "  categorized/ (hosts organized by type)"
+    echo "  comprehensive_service_inventory.csv (complete service catalog)"
     echo "  all_discovered_hosts.txt (master host list)"
     echo "  dns_results.txt (hostname resolutions)"
-    echo "  Evidence preservation:"
-    echo "     - EVIDENCE_MANIFEST.txt (complete file inventory with checksums)"
-    echo "     - evidence/ directory (organized by reconnaissance phase)"
-    echo "     - service_targets/ directory (service-specific target lists)"
-    echo
-    echo "  Team Assignment Files:"
-    echo "     - evidence/phase7_host_categorization/team_windows.txt"
-    echo "     - evidence/phase7_host_categorization/team_linux.txt"
-    echo "     - evidence/phase7_host_categorization/team_network.txt"
-    echo "     - evidence/phase7_host_categorization/unknown.txt"
+    echo "  categorized/ (hosts by OS/device type, with enriched details)"
+    echo "  service_targets/ (hosts by service type, with enriched details)"
+    echo "  EVIDENCE_MANIFEST.txt (file inventory with checksums)"
+    echo "  evidence/ (raw scan artifacts organized by phase)"
 
     if [ -f "$SESSION_DIR/smb_hosts.txt" ]; then
         echo "  smb_hosts.txt (SMB/Windows hosts)"
