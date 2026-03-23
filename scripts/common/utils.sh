@@ -197,11 +197,21 @@ select_interface() {
     # Show smart default prompt with immediate visibility
     if [ -n "$default_option" ]; then
         default_interface=$(get_interface_name "$default_option")
-        echo "$prompt_text (1-$max_num, default: $default_interface): " >&2
-        read interface_num
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s%s (1-%s, default: %s)%s\n" "$PROMPT_COLOR" "$prompt_text" "$max_num" "$default_interface" "$COLOR_RESET" >&2
+        else
+            printf "%s (1-%s, default: %s): \n" "$prompt_text" "$max_num" "$default_interface" >&2
+        fi
+        read -r interface_num
     else
-        echo "$prompt_text (1-$max_num): " >&2
-        read interface_num
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s%s (1-%s): %s\n" "$PROMPT_COLOR" "$prompt_text" "$max_num" "$COLOR_RESET" >&2
+        else
+            printf "%s (1-%s): \n" "$prompt_text" "$max_num" >&2
+        fi
+        read -r interface_num
     fi
     
     # Use default if no input provided
@@ -224,8 +234,13 @@ select_interface() {
         fi
         
         # If we get here, the input was invalid, ask again
-        echo "$prompt_text (1-$max_num): " >&2
-        read interface_num
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s%s (1-%s): %s\n" "$PROMPT_COLOR" "$prompt_text" "$max_num" "$COLOR_RESET" >&2
+        else
+            printf "%s (1-%s): \n" "$prompt_text" "$max_num" >&2
+        fi
+        read -r interface_num
     done
 }
 
@@ -388,9 +403,14 @@ select_file() {
     done < /tmp/netutil_files.$$
     
     while true; do
-        echo "$prompt_text (1-$max_num): " >&2
-        read file_num
-        
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s%s (1-%s): %s\n" "$PROMPT_COLOR" "$prompt_text" "$max_num" "$COLOR_RESET" >&2
+        else
+            printf "%s (1-%s): \n" "$prompt_text" "$max_num" >&2
+        fi
+        read -r file_num
+
         if validate_file_number "$file_num"; then
             if selected_file=$(get_file_path "$file_num"); then
                 echo "$selected_file"
@@ -528,8 +548,13 @@ select_host_file() {
 
     # Prompt user for selection
     while true; do
-        echo "Select host file (1-$max_num): " >&2
-        read file_num
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sSelect host file (1-%s): %s\n" "$PROMPT_COLOR" "$max_num" "$COLOR_RESET" >&2
+        else
+            printf "Select host file (1-%s): \n" "$max_num" >&2
+        fi
+        read -r file_num
 
         # Validate input is a number
         case "$file_num" in
@@ -762,12 +787,22 @@ select_target() {
     echo >&2
 
     while true; do
-        echo "Select target type (1-5): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sSelect target type (1-5): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Select target type (1-5): \n" >&2
+        fi
         read -r target_type
-        
+
         case $target_type in
             1)
-                echo "Enter IP address:" >&2
+                echo >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%sEnter IP address: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                else
+                    printf "Enter IP address: \n" >&2
+                fi
                 read -r target_value
                 if validate_ip "$target_value"; then
                     save_target "$target_value"
@@ -776,7 +811,12 @@ select_target() {
                 fi
                 ;;
             2)
-                echo "Enter IP range (e.g., 192.168.1.0/24):" >&2
+                echo >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%sEnter IP range (e.g., 192.168.1.0/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                else
+                    printf "Enter IP range (e.g., 192.168.1.0/24): \n" >&2
+                fi
                 read -r target_value
                 if validate_ip_range "$target_value"; then
                     save_target "$target_value"
@@ -819,7 +859,12 @@ select_target() {
                         fi
                     done < /tmp/netutil_target_ranges.$$
                     
-                    echo "Select range (1-$max_range_num):" >&2
+                    echo >&2
+                    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                        printf "%sSelect range (1-%s): %s\n" "$PROMPT_COLOR" "$max_range_num" "$COLOR_RESET" >&2
+                    else
+                        printf "Select range (1-%s): \n" "$max_range_num" >&2
+                    fi
                     read -r range_num
                     
                     # Validate range selection
@@ -876,9 +921,14 @@ select_target() {
                         fi
                     done < /tmp/netutil_recent_targets.$$
                     
-                    echo "Select target (1-$max_target_num):" >&2
+                    echo >&2
+                    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                        printf "%sSelect target (1-%s): %s\n" "$PROMPT_COLOR" "$max_target_num" "$COLOR_RESET" >&2
+                    else
+                        printf "Select target (1-%s): \n" "$max_target_num" >&2
+                    fi
                     read -r target_num
-                    
+
                     # Validate target selection
                     case "$target_num" in
                         ''|*[!0-9]*)
@@ -923,13 +973,23 @@ select_config_targets() {
     echo >&2
 
     while true; do
-        echo "Select target type (1-4): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sSelect target type (1-4): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Select target type (1-4): \n" >&2
+        fi
         read -r target_type
 
         case $target_type in
             1)
                 # Single IP address
-                echo "Enter IP address:" >&2
+                echo >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%sEnter IP address: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                else
+                    printf "Enter IP address: \n" >&2
+                fi
                 read -r target_value
                 if validate_ip "$target_value"; then
                     save_target "$target_value"
@@ -939,7 +999,12 @@ select_config_targets() {
                 ;;
             2)
                 # Custom host file (manual path)
-                echo "Enter path to host file:" >&2
+                echo >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%sEnter path to host file: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                else
+                    printf "Enter path to host file: \n" >&2
+                fi
                 read -r target_value
                 if [ -f "$target_value" ]; then
                     target_value=$(readlink -f "$target_value")
@@ -989,7 +1054,12 @@ select_config_targets() {
                         fi
                     done < /tmp/netutil_recent_targets.$$
 
-                    echo "Select target (1-$max_target_num):" >&2
+                    echo >&2
+                    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                        printf "%sSelect target (1-%s): %s\n" "$PROMPT_COLOR" "$max_target_num" "$COLOR_RESET" >&2
+                    else
+                        printf "Select target (1-%s): \n" "$max_target_num" >&2
+                    fi
                     read -r target_num
 
                     # Validate target selection
@@ -1041,7 +1111,7 @@ show_loading() {
         sleep "$delay"
         i=$((i + 1))
     done
-    echo
+    echo >&2
 }
 
 # Function to prompt with immediate visibility for Go subprocess environment
@@ -1050,8 +1120,13 @@ prompt_and_read() {
     var_name="$2"
     
     # Force immediate prompt visibility in Go subprocess environment
-    echo "$prompt" >&2
-    read value
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%s%s%s\n" "$PROMPT_COLOR" "$prompt" "$COLOR_RESET" >&2
+    else
+        printf "%s\n" "$prompt" >&2
+    fi
+    read -r value
     
     # Assign to variable name if provided
     if [ -n "$var_name" ]; then
@@ -1065,8 +1140,13 @@ prompt_and_read() {
 confirm_action() {
     prompt=$1
     
-    echo "$prompt (y/N): " >&2
-    read response
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%s%s (y/N): %s\n" "$PROMPT_COLOR" "$prompt" "$COLOR_RESET" >&2
+    else
+        printf "%s (y/N): \n" "$prompt" >&2
+    fi
+    read -r response
     case $response in
         [Yy]|[Yy][Ee][Ss])
             return 0
@@ -1164,16 +1244,21 @@ get_network_range() {
 prompt_network_range() {
     echo "Could not automatically determine network range."
     echo "Please enter the network range to scan manually."
-    echo
+    echo >&2
     echo "Examples:"
     echo "  192.168.1.0/24   (Class C network)"
     echo "  10.0.0.0/8       (Class A network)"
     echo "  172.16.0.0/16    (Class B network)"
-    echo
+    echo >&2
     
     while true; do
-        printf "Enter network range (CIDR notation): "
-        read network_range
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter network range (CIDR notation): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter network range (CIDR notation): \n" >&2
+        fi
+        read -r network_range
         
         if [ -n "$network_range" ] && validate_ip_range "$network_range"; then
             echo "$network_range"
@@ -1283,7 +1368,7 @@ show_latest_results() {
         fi
     done
 
-    echo
+    echo >&2
 }
 
 # =============================================================================

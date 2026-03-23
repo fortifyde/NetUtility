@@ -17,6 +17,7 @@ else
     echo "ERROR: Cannot find common utilities" >&2
     exit 1
 fi
+. "${COMMON_DIR}/colors.sh" 2>/dev/null || true
 
 # Check for required dependencies
 if ! command -v sshpass >/dev/null 2>&1; then
@@ -531,14 +532,29 @@ offer_retry() {
 
     echo "" >&2
     print_warning "$FAILURE_COUNT device(s) failed during extraction"
-    echo "Would you like to retry failed devices with different credentials? (y/n): " >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sWould you like to retry failed devices with different credentials? (y/n): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "Would you like to retry failed devices with different credentials? (y/n): \n" >&2
+    fi
     read -r retry_response
 
     if [ "$retry_response" = "y" ] || [ "$retry_response" = "Y" ]; then
         print_info "Re-enter credentials for retry:"
-        echo "Username: " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sUsername: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Username: \n" >&2
+        fi
         read -r new_user
-        echo "Password: " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sPassword: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Password: \n" >&2
+        fi
         read -r new_pass
         echo "" >&2
 
@@ -623,9 +639,19 @@ main() {
     # Get credentials based on mode
     if [ "$CRED_MODE" = "common" ]; then
         print_info "Enter common credentials for all devices:"
-        echo "Username: " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sUsername: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Username: \n" >&2
+        fi
         read -r COMMON_USER
-        echo "Password: " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sPassword: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Password: \n" >&2
+        fi
         read -r COMMON_PASS
         echo "" >&2
     fi

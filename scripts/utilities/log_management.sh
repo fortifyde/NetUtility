@@ -4,6 +4,7 @@
 # Provides utilities for managing NetUtility logs
 
 . "$(dirname "$0")/../common/logging.sh"
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
 echo "=== NetUtility Log Management ==="
 echo
@@ -21,7 +22,7 @@ show_menu() {
     echo "6. Set log level"
     echo "7. Export logs"
     echo "8. Exit"
-    echo
+    echo >&2
 }
 
 view_recent_logs() {
@@ -63,16 +64,21 @@ export_logs() {
 
 set_log_level() {
     echo "Current log level: $(get_log_level_name "$NETUTIL_LOG_LEVEL")"
-    echo
+    echo >&2
     echo "Available log levels:"
     echo "0. DEBUG (most verbose)"
     echo "1. INFO (default)"
     echo "2. WARN"
     echo "3. ERROR"
     echo "4. FATAL (least verbose)"
-    echo
-    echo "Select log level (0-4): " >&2
-    read new_level
+    echo >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sSelect log level (0-4): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "Select log level (0-4): \n" >&2
+    fi
+    read -r new_level
     
     case "$new_level" in
         0|1|2|3|4)
@@ -90,10 +96,20 @@ set_log_level() {
 
 search_logs_interactive() {
     echo "Log Search"
-    echo "Enter search pattern (regex supported): " >&2
-    read pattern
-    echo "Lines of context (0 for none): " >&2
-    read context
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sEnter search pattern (regex supported): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "Enter search pattern (regex supported): \n" >&2
+    fi
+    read -r pattern
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sLines of context (0 for none): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "Lines of context (0 for none): \n" >&2
+    fi
+    read -r context
     
     if [ -z "$pattern" ]; then
         echo "No search pattern provided"
@@ -107,29 +123,44 @@ search_logs_interactive() {
 
 while true; do
     show_menu
-    echo "Select option (1-8): " >&2
-    read choice
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sSelect option (1-8): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "Select option (1-8): \n" >&2
+    fi
+    read -r choice
     
     case "$choice" in
         1)
             get_log_stats
             ;;
         2)
-            echo
-            echo "Number of recent entries to show (default 50): " >&2
-            read lines
+            echo >&2
+            echo >&2
+            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                printf "%sNumber of recent entries to show (default 50): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            else
+                printf "Number of recent entries to show (default 50): \n" >&2
+            fi
+            read -r lines
             lines=${lines:-50}
             view_recent_logs "$lines"
             ;;
         3)
-            echo
+            echo >&2
             search_logs_interactive
             ;;
         4)
-            echo
+            echo >&2
             echo "WARNING: This will permanently delete all log entries!"
-            echo "Are you sure? (y/N): " >&2
-            read confirm
+            echo >&2
+            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                printf "%sAre you sure? (y/N): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            else
+                printf "Are you sure? (y/N): \n" >&2
+            fi
+            read -r confirm
             if echo "$confirm" | grep -E '^[Yy]$' >/dev/null; then
                 clear_logs
                 log_info "Logs cleared by user request"
@@ -138,17 +169,17 @@ while true; do
             fi
             ;;
         5)
-            echo
+            echo >&2
             echo "Rotating logs manually..."
             rotate_logs
             echo "Log rotation completed"
             ;;
         6)
-            echo
+            echo >&2
             set_log_level
             ;;
         7)
-            echo
+            echo >&2
             export_logs
             ;;
         8)
@@ -160,10 +191,15 @@ while true; do
             ;;
     esac
     
-    echo
-    echo "Press Enter to continue..." >&2
+    echo >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sPress Enter to continue...%s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "Press Enter to continue...\n" >&2
+    fi
     read -r REPLY
-    echo
+    echo >&2
 done
 
 log_script_end "log_management.sh" 0

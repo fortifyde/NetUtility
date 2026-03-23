@@ -52,10 +52,15 @@ prompt_ip_choice() {
     network_base="$2"
     vlan_interface="$3"
 
-    echo "Choose IP assignment for VLAN interface $vlan_interface:" >&2
+    printf "%sChoose IP assignment for VLAN interface %s:%s\n" "$COLOR_MINTCREAM" "$vlan_interface" "$COLOR_RESET" >&2
     echo "1) Accept suggested IP ($suggested_ip)" >&2
     echo "2) Provide custom IP address" >&2
-    echo "Choice [1-2]: " >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sChoice [1-2]: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "Choice [1-2]: \n" >&2
+    fi
     read -r choice
 
     case "$choice" in
@@ -65,7 +70,12 @@ prompt_ip_choice() {
             ;;
         2)
             while true; do
-                echo "Enter IP address (with CIDR, e.g., 192.168.1.100/24): " >&2
+                echo >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%sEnter IP address (with CIDR, e.g., 192.168.1.100/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                else
+                    printf "Enter IP address (with CIDR, e.g., 192.168.1.100/24): \n" >&2
+                fi
                 read -r custom_ip
 
                 # Basic validation
@@ -100,7 +110,12 @@ prompt_ip_choice() {
                 custom_network_base=$(echo "$ip_part" | cut -d'.' -f1-3)
                 if [ "$custom_network_base" != "$network_base" ]; then
                     echo "⚠ Warning: Custom IP ($custom_network_base.X) differs from discovered network ($network_base.0)" >&2
-                    echo "Continue anyway? [y/N]: " >&2
+                    echo >&2
+                    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                        printf "%sContinue anyway? [y/N]: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                    else
+                        printf "Continue anyway? [y/N]: \n" >&2
+                    fi
                     read -r confirm
                     case "$confirm" in
                         y|Y|yes|YES)
@@ -220,7 +235,7 @@ if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
 elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "STAGE 1: PACKET CAPTURE"
 else
-    echo
+    echo >&2
     echo "=== Stage 1: Packet Capture ===" >&2
 fi
 echo "--- STAGE 1: PACKET CAPTURE ---" >> "$WORKFLOW_REPORT"
@@ -340,7 +355,7 @@ if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
 elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "STAGE 2: TRAFFIC ANALYSIS"
 else
-    echo
+    echo >&2
     echo "=== Stage 2: Traffic Analysis ===" >&2
 fi
 echo "--- STAGE 2: TRAFFIC ANALYSIS ---" >> "$WORKFLOW_REPORT"
@@ -363,10 +378,10 @@ if [ "$vlan_count" -gt 0 ]; then
     cat "$TEMP_DIR/discovered_vlans.txt" | sed 's/^/  /' >> "$WORKFLOW_REPORT"
     
     # Display discovered VLANs to user for selection
-    echo
+    echo >&2
     echo "=== VLAN Discovery Results ===" >&2
     echo "The following VLANs and sample IPs were discovered in the captured traffic:" >&2
-    echo
+    echo >&2
     
     vlan_info=""
     while read -r vlan_id; do
@@ -384,10 +399,15 @@ if [ "$vlan_count" -gt 0 ]; then
         fi
     done < "$TEMP_DIR/discovered_vlans.txt"
     
-    echo
+    echo >&2
     echo "Which VLANs would you like to configure interfaces for?" >&2
     echo "Enter VLAN IDs separated by spaces (or 'all' for all VLANs, 'none' to skip):" >&2
-    echo "VLAN selection: " >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sVLAN selection: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "VLAN selection: \n" >&2
+    fi
     read -r vlan_selection
     
     # Process user selection
@@ -445,7 +465,12 @@ if [ "$vlan_count" -gt 0 ]; then
 
             echo >&2
             echo "Do you want to prioritize certain VLANs for early scanning?" >&2
-            echo "Prioritize VLANs? (y/n) [n]: " >&2
+            echo >&2
+            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                printf "%sPrioritize VLANs? (y/n) [n]: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            else
+                printf "Prioritize VLANs? (y/n) [n]: \n" >&2
+            fi
             read -r prioritize_choice
 
             case "$prioritize_choice" in
@@ -453,7 +478,12 @@ if [ "$vlan_count" -gt 0 ]; then
                     echo >&2
                     echo "Enter VLAN IDs to scan first (space-separated):" >&2
                     echo "Example: 300 500" >&2
-                    echo "Priority VLANs: " >&2
+                    echo >&2
+                    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                        printf "%sPriority VLANs: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                    else
+                        printf "Priority VLANs: \n" >&2
+                    fi
                     read -r priority_vlans
 
                     if [ -n "$priority_vlans" ]; then
@@ -623,7 +653,7 @@ echo "  Created: $vlan_interface" >> "$WORKFLOW_REPORT"
                         echo "  Discovered IPs: $(echo "$vlan_ips" | head -3 | tr '\n' ' ')"
                         echo "  Estimated network: $network_base.0$suggested_cidr"
                         echo "  Suggested IP: $suggested_ip"
-                        echo
+                        echo >&2
                         
                         # Prompt user for IP choice
                         chosen_ip=$(prompt_ip_choice "$suggested_ip" "$network_base" "$vlan_interface")
@@ -657,7 +687,12 @@ echo "  Created: $vlan_interface" >> "$WORKFLOW_REPORT"
                         while [ $ip_assigned -eq 0 ] && [ $retry_count -lt $max_retries ]; do
                             retry_count=$((retry_count + 1))
 
-                            echo "  Enter IP address for $vlan_interface (with CIDR, e.g., 192.168.1.100/24): " >&2
+                            echo >&2
+                            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                                printf "%s  Enter IP address for %s (with CIDR, e.g., 192.168.1.100/24): %s\n" "$PROMPT_COLOR" "$vlan_interface" "$COLOR_RESET" >&2
+                            else
+                                printf "  Enter IP address for %s (with CIDR, e.g., 192.168.1.100/24): \n" "$vlan_interface" >&2
+                            fi
                             read -r custom_ip
 
                             # Validate IP format
@@ -774,7 +809,7 @@ echo "    No IP configured - assignment required" >> "$WORKFLOW_REPORT"
 echo "  Traffic analysis results:" >&2
 echo "    Discovered IPs: $(echo "$main_ips" | head -3 | tr '\n' ' ')" >&2
 echo "    Suggested IP: $suggested_ip" >&2
-            echo
+            echo >&2
             
         else
             echo "  No valid IPs found in captured traffic for IP suggestion" >&2
@@ -795,8 +830,13 @@ echo "    Suggested IP: $suggested_ip" >&2
             else
                 echo "No network traffic detected for IP suggestion." >&2
                 echo "Please provide an IP address for interface $target_interface." >&2
-                echo "Enter IP address in CIDR notation (e.g., 192.168.1.100/24): " >&2
-                read chosen_ip
+                echo >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%sEnter IP address in CIDR notation (e.g., 192.168.1.100/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                else
+                    printf "Enter IP address in CIDR notation (e.g., 192.168.1.100/24): \n" >&2
+                fi
+                read -r chosen_ip
             fi
             
             # Validate IP format
@@ -1030,7 +1070,7 @@ if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
 elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "STAGE 4: NETWORK DISCOVERY"
 else
-    echo
+    echo >&2
     echo "=== Stage 4: Network Discovery ==="
 fi
 echo "--- STAGE 4: NETWORK DISCOVERY ---" >> "$WORKFLOW_REPORT"
@@ -1105,8 +1145,13 @@ if [ -x "$discovery_script" ]; then
                         echo "  VLAN $vlan_id Discovery Network Configuration:" >&2
                         echo "  1. Use interface network: $vlan_network" >&2
                         echo "  2. Enter custom network range" >&2
-                        echo "  Select discovery network for VLAN $vlan_id (1-2): " >&2
-                        read vlan_network_choice
+                        echo >&2
+                        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                            printf "%s  Select discovery network for VLAN %s (1-2): %s\n" "$PROMPT_COLOR" "$vlan_id" "$COLOR_RESET" >&2
+                        else
+                            printf "  Select discovery network for VLAN %s (1-2): \n" "$vlan_id" >&2
+                        fi
+                        read -r vlan_network_choice
 
                         case "$vlan_network_choice" in
                             1|"")
@@ -1114,8 +1159,13 @@ if [ -x "$discovery_script" ]; then
                                 echo "  ✓ Using interface network: $vlan_discovery_network" >&2
                                 ;;
                             2)
-                                echo "  Enter network range in CIDR notation (e.g., 192.168.1.0/24): " >&2
-                                read vlan_custom_network
+                                echo >&2
+                                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                                    printf "%s  Enter network range in CIDR notation (e.g., 192.168.1.0/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                                else
+                                    printf "  Enter network range in CIDR notation (e.g., 192.168.1.0/24): \n" >&2
+                                fi
+                                read -r vlan_custom_network
 
                                 if [ -n "$vlan_custom_network" ] && echo "$vlan_custom_network" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
                                     vlan_discovery_network="$vlan_custom_network"
@@ -1313,7 +1363,7 @@ if [ -x "$discovery_script" ]; then
                       grep -v '^127\.' | grep -v '^169\.254\.' | sort -u)
             
             # Suggest scan network (user must confirm)
-            echo
+            echo >&2
             echo "Network Discovery Configuration:" >&2
             echo "1. Use interface network: $main_interface_network" >&2
 
@@ -1332,13 +1382,21 @@ if [ -x "$discovery_script" ]; then
             else
                 echo "2. Enter custom network range" >&2
             fi
-            echo
-            if [ -n "$main_ips" ]; then
-                echo "Select discovery network (1-3): " >&2
+            echo >&2
+            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                if [ -n "$main_ips" ]; then
+                    printf "%sSelect discovery network (1-3): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                else
+                    printf "%sSelect discovery network (1,2): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                fi
             else
-                echo "Select discovery network (1,2): " >&2
+                if [ -n "$main_ips" ]; then
+                    printf "Select discovery network (1-3): \n" >&2
+                else
+                    printf "Select discovery network (1,2): \n" >&2
+                fi
             fi
-            read network_choice
+            read -r network_choice
             
             case "$network_choice" in
                 1)
@@ -1351,8 +1409,13 @@ if [ -x "$discovery_script" ]; then
                         # Show traffic networks for selection
                         echo "Available networks from traffic:"
                         echo "$traffic_networks" | head -5 | nl -v1 -w2 -s') '
-                        echo "Select network (1-$(echo "$traffic_networks" | head -5 | wc -l)): " >&2
-                        read traffic_choice
+                        echo >&2
+                        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                            printf "%sSelect network (1-%s): %s\n" "$PROMPT_COLOR" "$(echo "$traffic_networks" | head -5 | wc -l)" "$COLOR_RESET" >&2
+                        else
+                            printf "Select network (1-%s): \n" "$(echo "$traffic_networks" | head -5 | wc -l)" >&2
+                        fi
+                        read -r traffic_choice
                         
                         discovery_network=$(echo "$traffic_networks" | sed -n "${traffic_choice}p")
                         if [ -n "$discovery_network" ]; then
@@ -1364,9 +1427,14 @@ if [ -x "$discovery_script" ]; then
                             echo "    Discovery network: $discovery_network (fallback)" >> "$WORKFLOW_REPORT"
                         fi
                     else
-                        echo "Enter network range in CIDR notation (e.g., 192.168.1.0/24): " >&2
-                        read custom_network
-                        
+                        echo >&2
+                        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                            printf "%sEnter network range in CIDR notation (e.g., 192.168.1.0/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                        else
+                            printf "Enter network range in CIDR notation (e.g., 192.168.1.0/24): \n" >&2
+                        fi
+                        read -r custom_network
+
                         if [ -n "$custom_network" ] && echo "$custom_network" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
                             discovery_network="$custom_network"
                             echo "✓ Using custom network: $discovery_network"
@@ -1379,8 +1447,13 @@ if [ -x "$discovery_script" ]; then
                     fi
                     ;;
                 3)
-                    echo "Enter network range in CIDR notation (e.g., 192.168.1.0/24): " >&2
-                    read custom_network
+                    echo >&2
+                    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                        printf "%sEnter network range in CIDR notation (e.g., 192.168.1.0/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                    else
+                        printf "Enter network range in CIDR notation (e.g., 192.168.1.0/24): \n" >&2
+                    fi
+                    read -r custom_network
                     
                     if [ -n "$custom_network" ] && echo "$custom_network" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
                         discovery_network="$custom_network"
@@ -1410,7 +1483,7 @@ if [ -x "$discovery_script" ]; then
         fi
         
         # Run discovery on selected network
-        echo
+        echo >&2
         echo "Starting network discovery on $discovery_network..."
         
         # Create session-based discovery structure for main network
@@ -1489,7 +1562,7 @@ if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
 elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "STAGE 5: ADVANCED ANALYSIS"
 else
-    echo
+    echo >&2
     echo "=== Stage 5: Advanced Analysis ==="
 fi
 echo "--- STAGE 5: ADVANCED ANALYSIS ---" >> "$WORKFLOW_REPORT"

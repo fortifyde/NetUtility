@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -488,7 +489,7 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 
 	// Check if this looks like a prompt waiting for input
 	// BUT only auto-focus if this is output from script, not from user input
-	if ov.detectInputPrompt(line.Content) && line.Source != "input" {
+	if ov.detectInputPrompt(stripANSI(line.Content)) && line.Source != "input" {
 		ov.waitingInput = true
 		ov.app.QueueUpdateDraw(func() {
 			ov.app.SetFocus(ov.inputField)
@@ -500,6 +501,12 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 	ov.app.QueueUpdateDraw(func() {
 		ov.updateDisplay()
 	})
+}
+
+var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+func stripANSI(s string) string {
+	return ansiEscape.ReplaceAllString(s, "")
 }
 
 // detectInputPrompt analyzes output to determine if script is waiting for input

@@ -442,8 +442,13 @@ prompt_and_validate() {
     
     attempts=0
     while [ $attempts -lt $max_attempts ]; do
-        printf "%s: " "$prompt_text" >&2
-        read user_input
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s%s: %s\n" "$PROMPT_COLOR" "$prompt_text" "$COLOR_RESET" >&2
+        else
+            printf "%s: \n" "$prompt_text" >&2
+        fi
+        read -r user_input
         
         if $validation_function "$user_input"; then
             echo "$user_input"
@@ -558,12 +563,21 @@ get_validated_input() {
     
     while true; do
         # Show prompt with default value if provided
-        if [ -n "$default_value" ]; then
-            printf "%s (default: %s): " "$prompt" "$default_value"
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            if [ -n "$default_value" ]; then
+                printf "%s%s (default: %s): %s\n" "$PROMPT_COLOR" "$prompt" "$default_value" "$COLOR_RESET" >&2
+            else
+                printf "%s%s: %s\n" "$PROMPT_COLOR" "$prompt" "$COLOR_RESET" >&2
+            fi
         else
-            printf "%s: " "$prompt"
+            if [ -n "$default_value" ]; then
+                printf "%s (default: %s): \n" "$prompt" "$default_value" >&2
+            else
+                printf "%s: \n" "$prompt" >&2
+            fi
         fi
-        
+
         # Read user input
         read -r user_input
         

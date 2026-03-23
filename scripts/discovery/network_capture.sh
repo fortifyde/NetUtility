@@ -2,9 +2,10 @@
 
 # Source shared utility functions
 . "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
 echo "=== Network Packet Capture ==="
-echo
+echo >&2
 
 interface=$(select_interface "Select interface for capture" "capture")
 if [ -z "$interface" ]; then
@@ -75,8 +76,13 @@ echo "4. 1 hour"
 echo "5. Custom duration"
 echo "6. Manual stop (Ctrl+C)"
 
-echo "Select option (1-6): " >&2
-read option
+echo >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sSelect option (1-6): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Select option (1-6): \n" >&2
+fi
+read -r option
 
 case $option in
     1)
@@ -96,8 +102,13 @@ case $option in
         duration_text="1 hour"
         ;;
     5)
-        echo "Enter duration in seconds: " >&2
-        read duration
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter duration in seconds: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter duration in seconds: \n" >&2
+        fi
+        read -r duration
         case "$duration" in
             *[!0-9]*|'')
                 error_message "Invalid duration"
@@ -180,16 +191,16 @@ if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
     chown "$SUDO_UID:$SUDO_GID" "$CAPTURE_FILE" 2>/dev/null || true
 fi
 
-echo
+echo >&2
 success_message "Capture completed!"
 echo "Capture file: $CAPTURE_FILE"
 echo "File size: $(du -h "$CAPTURE_FILE" | cut -f1)"
 
-echo
+echo >&2
 echo "Capture statistics:"
 capinfos "$CAPTURE_FILE" 2>/dev/null || echo "Could not get capture statistics"
 
-echo
+echo >&2
 echo "Extracting VLAN information..."
 VLAN_FILE="$CAPTURE_DIR/vlans_${interface}_${TIMESTAMP}.txt"
 
@@ -200,7 +211,7 @@ if [ -s "$VLAN_FILE" ]; then
     cat "$VLAN_FILE"
     echo "VLAN IDs saved to: $VLAN_FILE"
     
-    echo
+    echo >&2
     if confirm_action "Create VLAN subinterfaces for detected VLANs?"; then
         while read -r vlan_id; do
             case "$vlan_id" in
@@ -224,7 +235,7 @@ else
     echo "No VLAN traffic detected"
 fi
 
-echo
+echo >&2
 echo "Basic traffic analysis:"
 echo "--- Top protocols ---"
 tshark -r "$CAPTURE_FILE" -q -z io,phs 2>/dev/null | head -20
@@ -232,9 +243,9 @@ tshark -r "$CAPTURE_FILE" -q -z io,phs 2>/dev/null | head -20
 echo "--- Top conversations ---"
 tshark -r "$CAPTURE_FILE" -q -z conv,ip 2>/dev/null | head -10
 
-echo
+echo >&2
 echo "=== Security Analysis: Unsafe Protocol Detection ==="
-echo
+echo >&2
 
 # Perform integrated unsafe protocols analysis
 SECURITY_REPORT_FILE="$CAPTURE_DIR/security_analysis_${interface}_${TIMESTAMP}.txt"
@@ -354,17 +365,17 @@ fi
 
 echo "✓ Security analysis completed!"
 echo "Security report saved to: $SECURITY_REPORT_FILE"
-echo
+echo >&2
 echo "Security Summary:"
 echo "- Unsafe protocol packets: $total_unsafe"
 echo "- Windows security-related packets: $total_windows_security"
 
 if [ "$total_unsafe" -gt 0 ] || [ "$total_windows_security" -gt 0 ]; then
-    echo
+    echo >&2
     echo "⚠️  Security issues detected! Review the full report for details."
 fi
 
-echo
+echo >&2
 echo "Packet capture analysis complete!"
 echo "Files created:"
 echo "  Capture: $CAPTURE_FILE"

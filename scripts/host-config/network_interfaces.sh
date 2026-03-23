@@ -2,14 +2,15 @@
 
 # Source shared utility functions
 . "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
 echo "=== Network Interface Management ==="
-echo
+echo >&2
 
 # Load and display interfaces
 get_interfaces
 display_interfaces
-echo
+echo >&2
 
 echo "Available actions:" >&2
 echo "1. Bring interface UP" >&2
@@ -19,7 +20,12 @@ echo "4. Bring all VLAN interfaces DOWN" >&2
 echo "5. Show interface statistics" >&2
 echo "6. Exit" >&2
 
-echo "Select action (1-6): " >&2
+echo >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sSelect action (1-6): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Select action (1-6): \n" >&2
+fi
 read -r action
 
 case $action in

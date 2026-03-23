@@ -10,6 +10,7 @@ set -e
 # Source logging utilities
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/../common/logging.sh"
+. "$SCRIPT_DIR/../common/colors.sh" 2>/dev/null || true
 
 # Color output (with fallback for non-color terminals)
 if [ -t 1 ]; then
@@ -152,10 +153,19 @@ prompt() {
     prompt_text="$1"
     default_value="$2"
 
-    if [ -n "$default_value" ]; then
-        echo "$prompt_text [$default_value]: " >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        if [ -n "$default_value" ]; then
+            printf "%s%s [%s]: %s\n" "$PROMPT_COLOR" "$prompt_text" "$default_value" "$COLOR_RESET" >&2
+        else
+            printf "%s%s: %s\n" "$PROMPT_COLOR" "$prompt_text" "$COLOR_RESET" >&2
+        fi
     else
-        echo "$prompt_text: " >&2
+        if [ -n "$default_value" ]; then
+            printf "%s [%s]: \n" "$prompt_text" "$default_value" >&2
+        else
+            printf "%s: \n" "$prompt_text" >&2
+        fi
     fi
 
     read -r response
@@ -171,7 +181,12 @@ prompt() {
 prompt_password() {
     prompt_text="$1"
 
-    echo "$prompt_text: " >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%s%s: %s\n" "$PROMPT_COLOR" "$prompt_text" "$COLOR_RESET" >&2
+    else
+        printf "%s: \n" "$prompt_text" >&2
+    fi
     read -r password
     echo "" >&2
 

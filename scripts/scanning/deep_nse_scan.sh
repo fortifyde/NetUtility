@@ -3,21 +3,22 @@
 # Source shared utility functions
 # shellcheck source=../common/utils.sh
 . "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
 echo "=== Deep Port Scan with NSE Vulnerability Detection ==="
-echo
+echo >&2
 echo "⚠️  WARNING: This script uses NSE vulnerability scripts (vuln category)"
 echo "⚠️  These scripts may:"
 echo "    - Attempt exploit verification"
 echo "    - Cause service disruptions or crashes"
 echo "    - Trigger intrusion detection systems"
 echo "    - Generate significant network traffic"
-echo
+echo >&2
 echo "⚠️  Only run this scan:"
 echo "    - On systems you own or have explicit authorization to test"
 echo "    - During authorized penetration testing"
 echo "    - In isolated test environments"
-echo
+echo >&2
 
 RESULTS_DIR="${NETUTIL_WORKDIR:-$HOME}/port_and_security_scans"
 mkdir -p "$RESULTS_DIR"
@@ -42,7 +43,12 @@ echo "1. Quick scan (Top 1000 ports)"
 echo "2. Comprehensive scan (All 65535 ports)"
 echo "3. Custom port range"
 
-echo "Select scan intensity (1-3): " >&2
+echo >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sSelect scan intensity (1-3): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Select scan intensity (1-3): \n" >&2
+fi
 read -r intensity
 
 case $intensity in
@@ -55,7 +61,12 @@ case $intensity in
         scan_type="comprehensive"
         ;;
     3)
-        echo "Enter port range (e.g., 1-1000 or 80,443,8080): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter port range (e.g., 1-1000 or 80,443,8080): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter port range (e.g., 1-1000 or 80,443,8080): \n" >&2
+        fi
         read -r custom_ports
         ports="-p $custom_ports"
         scan_type="custom"
@@ -73,7 +84,7 @@ REPORT_FILE="$RESULTS_DIR/vulnerability_report_${TIMESTAMP}.txt"
 
 echo "Starting deep port scan with NSE vulnerability detection..."
 echo "Results will be saved to: $RESULTS_DIR"
-echo
+echo >&2
 
 {
     echo "=== Deep Port Scan with NSE Vulnerability Detection Report ==="
@@ -82,7 +93,7 @@ echo
     echo "Scan type: $scan_type"
     echo "Ports: $ports"
     echo "Note: Using vuln category NSE scripts (excludes brute-force and DoS)"
-    echo
+    echo >&2
 } > "$REPORT_FILE"
 
 echo "Phase 1: Deep port scan with service detection..."
@@ -101,17 +112,17 @@ echo "Phase 3: Service enumeration..."
 
 {
     echo "--- SERVICE DETECTION ---"
-    echo
+    echo >&2
     grep -A 50 "PORT.*STATE.*SERVICE" "$SCAN_RESULTS"
-    echo
+    echo >&2
     echo "--- OS DETECTION ---"
-    echo
+    echo >&2
     grep -A 10 "OS details" "$SCAN_RESULTS"
-    echo
+    echo >&2
     echo "--- VULNERABILITY SCAN RESULTS ---"
-    echo
+    echo >&2
     cat "$NSE_RESULTS"
-    echo
+    echo >&2
 } >> "$REPORT_FILE"
 
 echo "Phase 4: Targeted NSE scripts based on detected services..."
@@ -165,7 +176,7 @@ echo "Phase 6: Comprehensive vulnerability analysis..."
 
 {
     echo "--- VULNERABILITY CLASSIFICATION ---"
-    echo
+    echo >&2
 
     echo "1. SSL/TLS Vulnerabilities:"
     if grep -q "ssl-heartbleed" "$NSE_RESULTS"; then
@@ -186,7 +197,7 @@ echo "Phase 6: Comprehensive vulnerability analysis..."
         echo "    Mitigation: Update OpenSSL to 1.0.1h or later"
     fi
 
-    echo
+    echo >&2
 
     echo "2. SMB Vulnerabilities:"
     if grep -q "smb-vuln-ms17-010" "$NSE_RESULTS"; then
@@ -201,7 +212,7 @@ echo "Phase 6: Comprehensive vulnerability analysis..."
         echo "    Mitigation: Apply MS08-067 patch"
     fi
 
-    echo
+    echo >&2
 
     echo "3. Web Application Vulnerabilities:"
     if grep -q "http-vuln" "$NSE_RESULTS"; then
@@ -210,7 +221,7 @@ echo "Phase 6: Comprehensive vulnerability analysis..."
         echo "    Mitigation: Update web applications, implement WAF"
     fi
 
-    echo
+    echo >&2
 
     echo "4. Service-Specific Vulnerabilities:"
     if grep -q "ssh-" "$NSE_RESULTS"; then
@@ -227,7 +238,7 @@ echo "Phase 6: Comprehensive vulnerability analysis..."
         echo "    Mitigation: Disable anonymous FTP, use SFTP"
     fi
 
-    echo
+    echo >&2
 } >> "$REPORT_FILE"
 
 critical_count=$(grep -ic "critical\|heartbleed\|ms17-010\|ms08-067" "$NSE_RESULTS" || true)
@@ -237,14 +248,14 @@ low_count=$(grep -ic "low" "$NSE_RESULTS" || true)
 
 {
     echo "--- RISK ASSESSMENT ---"
-    echo
+    echo >&2
 
     echo "Risk Level Distribution:"
     echo "  Critical: $critical_count"
     echo "  High: $high_count"
     echo "  Medium: $medium_count"
     echo "  Low: $low_count"
-    echo
+    echo >&2
 
     if [ "$critical_count" -gt 0 ]; then
         echo "CRITICAL RISK LEVEL: Immediate action required"
@@ -256,10 +267,10 @@ low_count=$(grep -ic "low" "$NSE_RESULTS" || true)
         echo "LOW RISK LEVEL: Address during next maintenance window"
     fi
 
-    echo
+    echo >&2
 
     echo "--- ATTACK VECTORS ---"
-    echo
+    echo >&2
 
     echo "Potential attack vectors based on findings:"
 
@@ -283,16 +294,16 @@ low_count=$(grep -ic "low" "$NSE_RESULTS" || true)
         echo "  - SSH brute force attempts (if weak authentication)"
     fi
 
-    echo
+    echo >&2
 } >> "$REPORT_FILE"
 
 echo "Vulnerability scan complete!"
-echo
+echo >&2
 echo "Files created:"
 echo "  Port scan results: $SCAN_RESULTS"
 echo "  NSE vuln scan results: $NSE_RESULTS"
 echo "  Comprehensive report: $REPORT_FILE"
-echo
+echo >&2
 echo "Summary:"
 echo "  Critical vulnerabilities: $critical_count"
 echo "  High vulnerabilities: $high_count"
@@ -300,10 +311,10 @@ echo "  Medium vulnerabilities: $medium_count"
 echo "  Low vulnerabilities: $low_count"
 
 if [ "$critical_count" -gt 0 ]; then
-    echo
+    echo >&2
     echo "⚠️  CRITICAL VULNERABILITIES DETECTED!"
 fi
 
-echo
+echo >&2
 echo "--- VULNERABILITY REPORT ---"
 cat "$REPORT_FILE"

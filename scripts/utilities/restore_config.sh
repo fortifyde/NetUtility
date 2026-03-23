@@ -16,6 +16,7 @@ else
     echo "ERROR: Cannot find common utilities" >&2
     exit 1
 fi
+. "${COMMON_DIR}/colors.sh" 2>/dev/null || true
 
 # Configuration
 BACKUP_DIR="${NETUTIL_WORKDIR:-$HOME}/netutil_backups"
@@ -90,7 +91,12 @@ echo
 
 # Get selection from user
 while true; do
-    echo "Select backup to restore (1-$backup_count) or 'q' to quit: " >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sSelect backup to restore (1-%s) or 'q' to quit: %s\n" "$PROMPT_COLOR" "$backup_count" "$COLOR_RESET" >&2
+    else
+        printf "Select backup to restore (1-%s) or 'q' to quit: \n" "$backup_count" >&2
+    fi
     read -r selection
 
     if [ "$selection" = "q" ] || [ "$selection" = "Q" ]; then
@@ -147,7 +153,7 @@ else
     cat "$TEMP_EXTRACT_DIR/metadata.txt" | while read -r line; do
         echo "    $line"
     done
-    echo
+    echo >&2
 fi
 
 # Make restore script executable
@@ -183,7 +189,12 @@ echo "All network interfaces will be reconfigured according to the backup."
 echo
 
 while true; do
-    echo "Do you want to proceed with restoration? (yes/no): " >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sDo you want to proceed with restoration? (yes/no): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "Do you want to proceed with restoration? (yes/no): \n" >&2
+    fi
     read -r confirmation
 
     case "$confirmation" in
@@ -278,10 +289,10 @@ echo
 
 if [ "$restoration_success" = "true" ]; then
     echo "✓ Network configuration restoration completed successfully!"
-    echo
+    echo >&2
 
     echo "Current network state:"
-    echo
+    echo >&2
 
     # Show interface summary
     interface_count=$(ip link show | grep -c "^[0-9]*:" || true)
@@ -297,38 +308,38 @@ if [ "$restoration_success" = "true" ]; then
     route_count=$(ip route show | wc -l)
     echo "  Routes: $route_count"
 
-    echo
+    echo >&2
     echo "Verification commands:"
     echo "  ip addr show         # List all IP addresses"
     echo "  ip link show         # List all interfaces"
     echo "  ip route show        # List all routes"
     echo "  cat /etc/resolv.conf # Check DNS configuration"
-    echo
+    echo >&2
 
     echo "Rollback information:"
     echo "  If you need to revert this restoration, your previous"
     echo "  configuration was saved to:"
     echo "  $ROLLBACK_DIR/$ROLLBACK_NAME.tar.gz"
-    echo
+    echo >&2
     echo "  To rollback, run restore_config.sh and select the rollback file."
-    echo
+    echo >&2
 
 else
     echo "✗ Network configuration restoration encountered errors!"
-    echo
+    echo >&2
     echo "Some configuration steps may have failed. Review the output above."
-    echo
+    echo >&2
     echo "Rollback option:"
     echo "  Your previous configuration was saved before restoration:"
     echo "  $ROLLBACK_DIR/$ROLLBACK_NAME.tar.gz"
-    echo
+    echo >&2
     echo "  To restore your previous configuration, run:"
     echo "    cd $ROLLBACK_DIR"
     echo "    tar -xzf $ROLLBACK_NAME.tar.gz"
     echo "    # Then manually review the before_*.txt files"
-    echo
+    echo >&2
     echo "  Or run restore_config.sh and select the rollback file."
-    echo
+    echo >&2
 fi
 
 # ============================================================================
