@@ -735,9 +735,119 @@ echo "  Created: $vlan_interface" >> "$WORKFLOW_REPORT"
                     log_error "Failed to create VLAN interface $vlan_interface"
                 fi
             else
-echo "VLAN interface $vlan_interface already exists" >&2
-echo "  Exists: $vlan_interface" >> "$WORKFLOW_REPORT"
-                interfaces_configured=$((interfaces_configured + 1))
+                existing_ip=$(ip addr show "$vlan_interface" 2>/dev/null | grep "inet " | head -1 | awk '{print $2}')
+                if [ -n "$existing_ip" ]; then
+                    echo "  ✓ Already configured with IP: $existing_ip" >&2
+                    echo "  Exists: $vlan_interface ($existing_ip)" >> "$WORKFLOW_REPORT"
+                    interfaces_configured=$((interfaces_configured + 1))
+                else
+                    echo "  ⚠ Interface exists but has no IP address — assigning now..." >&2
+                    echo "  Exists: $vlan_interface (no IP)" >> "$WORKFLOW_REPORT"
+                    interfaces_configured=$((interfaces_configured + 1))
+
+                    vlan_ips=$(tshark -r "$capture_file" -Y "vlan.id == $vlan_id" -T fields -e ip.src -e ip.dst 2>/dev/null | \
+                              tr '\t' '\n' | grep -v "^$" | filter_valid_unicast_ips | sort -u)
+
+                    if [ -n "$vlan_ips" ]; then
+                        first_ip=$(echo "$vlan_ips" | head -1)
+                        network_base=$(echo "$first_ip" | cut -d'.' -f1-3)
+                        fourth_octets=$(echo "$vlan_ips" | cut -d'.' -f4 | sort -n)
+                        min_octet=$(echo "$fourth_octets" | head -1)
+                        max_octet=$(echo "$fourth_octets" | tail -1)
+
+                        if [ "$max_octet" -gt 200 ] || [ "$min_octet" -lt 50 ]; then
+                            suggested_cidr="/24"
+                            suggested_ip="${network_base}.253${suggested_cidr}"
+                        else
+                            suggested_cidr="/24"
+                            if [ "$max_octet" -lt 100 ]; then
+                                suggested_ip="${network_base}.$((max_octet + 50))${suggested_cidr}"
+                            else
+                                suggested_ip="${network_base}.$((min_octet - 10))${suggested_cidr}"
+                            fi
+                        fi
+
+                        if command -v ipcalc >/dev/null 2>&1; then
+                            calc_network=$(ipcalc -n "$first_ip$suggested_cidr" 2>/dev/null | cut -d= -f2 2>/dev/null)
+                            if [ -n "$calc_network" ]; then
+                                network_base=$(echo "$calc_network" | cut -d'.' -f1-3)
+                                suggested_ip="${network_base}.253${suggested_cidr}"
+                                echo "  Calculated network: $calc_network"
+                            fi
+                        fi
+
+                        echo "  Discovered IPs: $(echo "$vlan_ips" | head -3 | tr '\n' ' ')"
+                        echo "  Estimated network: $network_base.0$suggested_cidr"
+                        echo "  Suggested IP: $suggested_ip"
+                        echo >&2
+
+                        chosen_ip=$(prompt_ip_choice "$suggested_ip" "$network_base" "$vlan_interface")
+
+                        if [ -n "$chosen_ip" ]; then
+                            echo "  Assigning IP: $chosen_ip"
+                            if ip addr add "$chosen_ip" dev "$vlan_interface" 2>/dev/null; then
+                                echo "✓ IP address $chosen_ip assigned to $vlan_interface"
+                                echo "    IP assigned: $chosen_ip" >> "$WORKFLOW_REPORT"
+                                log_config_change "IP assigned to VLAN interface" "$vlan_interface: $chosen_ip"
+                            else
+                                echo "⚠ Failed to assign IP $chosen_ip to $vlan_interface"
+                                log_warn "Failed to assign IP $chosen_ip to $vlan_interface"
+                            fi
+                        else
+                            echo "⚠ No valid IP provided, skipping IP assignment for $vlan_interface"
+                            log_warn "No valid IP provided for $vlan_interface"
+                        fi
+                    else
+                        echo "  No valid unicast IP addresses found for VLAN $vlan_id during capture" >&2
+                        echo "  Manual IP configuration required for $vlan_interface" >&2
+                        echo >&2
+
+                        ip_assigned=0
+                        retry_count=0
+                        max_retries=3
+
+                        while [ $ip_assigned -eq 0 ] && [ $retry_count -lt $max_retries ]; do
+                            retry_count=$((retry_count + 1))
+                            echo >&2
+                            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                                printf "%s  Enter IP address for %s (with CIDR, e.g., 192.168.1.100/24): %s\n" "$PROMPT_COLOR" "$vlan_interface" "$COLOR_RESET" >&2
+                            else
+                                printf "  Enter IP address for %s (with CIDR, e.g., 192.168.1.100/24): \n" "$vlan_interface" >&2
+                            fi
+                            read -r custom_ip
+
+                            if [ -n "$custom_ip" ] && echo "$custom_ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+                                echo "  Assigning IP: $custom_ip" >&2
+                                if ip addr add "$custom_ip" dev "$vlan_interface" 2>/dev/null; then
+                                    echo "✓ IP address $custom_ip assigned to $vlan_interface" >&2
+                                    echo "    IP assigned: $custom_ip" >> "$WORKFLOW_REPORT"
+                                    log_config_change "IP assigned to VLAN interface" "$vlan_interface: $custom_ip"
+                                    ip_assigned=1
+                                else
+                                    echo "✗ Failed to assign IP address $custom_ip to $vlan_interface" >&2
+                                    echo "    Error: IP may already be in use or interface issue" >&2
+                                    log_error "Failed to assign IP address $custom_ip to $vlan_interface"
+                                    if [ $retry_count -lt $max_retries ]; then
+                                        echo "    Please try a different IP address (attempt $retry_count of $max_retries)..." >&2
+                                    fi
+                                fi
+                            else
+                                echo "✗ Invalid IP address format: '$custom_ip'" >&2
+                                echo "    Format should be: x.x.x.x/xx (e.g., 192.168.1.100/24)" >&2
+                                log_error "Invalid IP address format provided: $custom_ip"
+                                if [ $retry_count -lt $max_retries ]; then
+                                    echo "    Please try again (attempt $retry_count of $max_retries)..." >&2
+                                fi
+                            fi
+                        done
+
+                        if [ $ip_assigned -eq 0 ]; then
+                            echo "⚠ Warning: Failed to assign IP address to $vlan_interface after $max_retries attempts" >&2
+                            echo "    VLAN interface exists but has no IP configuration" >&2
+                            log_warn "No IP address assigned to $vlan_interface after $max_retries attempts"
+                        fi
+                    fi
+                fi
             fi
         fi
     done 3< "$TEMP_DIR/selected_vlans.txt"
@@ -890,6 +1000,68 @@ echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
 echo "Interfaces configured: $interfaces_configured" >> "$WORKFLOW_REPORT"
 echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
+
+# Print a per-VLAN at-a-glance table for the final summary
+print_vlan_discovery_overview() {
+    sel_file="$1"
+    net_file="$2"
+    disc_dir="$3"
+
+    [ -f "$sel_file" ] || return 0
+
+    printf "  %-6s  %-20s  %-8s  %-6s  %s\n" \
+        "VLAN" "Network" "Status" "Hosts" "Services" >&2
+    echo "  ──────────────────────────────────────────────────────────────" >&2
+
+    while read -r vlan_id; do
+        [ -n "$vlan_id" ] || continue
+
+        vlan_net=""
+        if [ -f "$net_file" ]; then
+            vlan_net=$(grep "^$vlan_id " "$net_file" | awk '{print $2}')
+        fi
+        [ -n "$vlan_net" ] || vlan_net="(no network)"
+
+        vlan_dir="$disc_dir/vlan_$vlan_id"
+        host_count=0
+        status="⊘ SKIP"
+        if [ -d "$vlan_dir" ]; then
+            if [ -f "$vlan_dir/all_discovered_hosts.txt" ]; then
+                host_count=$(wc -l < "$vlan_dir/all_discovered_hosts.txt" 2>/dev/null || echo 0)
+                status="✓ OK"
+            else
+                status="✗ FAIL"
+            fi
+        fi
+
+        svc_summary=""
+        for svc in ssh http smb ftp snmp rdp dns; do
+            svc_file="$vlan_dir/service_targets/${svc}_targets.txt"
+            if [ -f "$svc_file" ]; then
+                cnt=$(wc -l < "$svc_file" 2>/dev/null || echo 0)
+                [ "$cnt" -gt 0 ] && svc_summary="$svc_summary ${svc}:${cnt}"
+            fi
+        done
+        svc_summary="${svc_summary# }"
+        [ -n "$svc_summary" ] || svc_summary="-"
+        [ "$host_count" -gt 0 ] || host_count="-"
+
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            case "$status" in
+                "✓ OK")   status_col="${COLOR_GREEN}${status}${COLOR_RESET}" ;;
+                "✗ FAIL") status_col="${COLOR_RED}${status}${COLOR_RESET}" ;;
+                *)         status_col="${COLOR_YELLOW}${status}${COLOR_RESET}" ;;
+            esac
+            printf "  %-6s  %-20s  %-8s  %-6s  %s\n" \
+                "$vlan_id" "$vlan_net" "$status_col" "$host_count" "$svc_summary" >&2
+        else
+            printf "  %-6s  %-20s  %-8s  %-6s  %s\n" \
+                "$vlan_id" "$vlan_net" "$status" "$host_count" "$svc_summary" >&2
+        fi
+    done < "$sel_file"
+
+    echo "  ──────────────────────────────────────────────────────────────" >&2
+}
 
 # Session-level consolidation and reporting functions
 create_session_consolidation_reports() {
@@ -1186,8 +1358,37 @@ if [ -x "$discovery_script" ]; then
                         echo "  Recorded: VLAN $vlan_id → $vlan_discovery_network" >&2
 
                     else
-                        echo "  ⚠ No network range found for VLAN interface $vlan_interface" >&2
-                        echo "  VLAN $vlan_id will be skipped during discovery" >&2
+                        echo "  ⚠ No IP configured on $vlan_interface — cannot auto-detect network" >&2
+                        echo >&2
+                        echo "  1. Enter network range manually (CIDR, e.g. 192.168.10.0/24)" >&2
+                        echo "  2. Skip VLAN $vlan_id" >&2
+                        echo >&2
+                        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                            printf "%s  Choice [1-2]: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                        else
+                            printf "  Choice [1-2]: \n" >&2
+                        fi
+                        read -r fallback_choice
+                        case "$fallback_choice" in
+                            1)
+                                echo >&2
+                                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                                    printf "%s  Enter network range in CIDR notation (e.g., 192.168.10.0/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                                else
+                                    printf "  Enter network range in CIDR notation (e.g., 192.168.10.0/24): \n" >&2
+                                fi
+                                read -r fallback_cidr
+                                if [ -n "$fallback_cidr" ] && echo "$fallback_cidr" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
+                                    echo "$vlan_id $fallback_cidr" >> "$VLAN_NETWORKS_FILE"
+                                    echo "  ✓ Recorded: VLAN $vlan_id → $fallback_cidr" >&2
+                                else
+                                    echo "  ✗ Invalid CIDR format, skipping VLAN $vlan_id" >&2
+                                fi
+                                ;;
+                            *)
+                                echo "  Skipping VLAN $vlan_id" >&2
+                                ;;
+                        esac
                     fi
                 else
                     echo "  ⚠ VLAN interface $vlan_interface not found or not configured" >&2
@@ -1622,35 +1823,27 @@ if [ "$interfaces_configured" -gt 0 ]; then
 fi
 
 # Final summary
-echo
-echo "=== Auto-Discovery Workflow Summary ==="
-echo "✓ Stage 1: Promiscuous capture completed ($capture_duration min)"
-echo "✓ Stage 2: Traffic analysis completed ($vlan_count VLANs discovered, $ip_count IPs)"
-echo "✓ Stage 3: Interface configuration completed (${selected_vlan_count:-0} VLANs selected, $interfaces_configured interfaces configured)"
-echo "✓ Stage 4: Network discovery completed"
-if [ "$interfaces_configured" -gt 0 ]; then
-    echo "   - VLAN-specific discovery results in: $DISCOVERY_DIR/"
-    echo "   - Each VLAN has its own categorized host results"
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "AUTO-DISCOVERY COMPLETE" >&2
 else
-    echo "   - Standard single-network discovery completed"
+    echo >&2
+    echo "=== Auto-Discovery Complete ===" >&2
 fi
-echo "✓ Stage 5: Advanced analysis completed"
-echo
-echo "Auto-discovery results organized by category:"
-echo "  Reports: $REPORT_SESSION_DIR/"
-echo "  Capture: $capture_file"
-echo "  Discovery: $DISCOVERY_DIR/"
-echo "  Analysis: $WORKDIR/analysis/"
-echo
-echo "Comprehensive report: $WORKFLOW_REPORT"
+if [ -f "$TEMP_DIR/selected_vlans.txt" ]; then
+    echo
+    echo "VLAN Discovery Overview:"
+    print_vlan_discovery_overview \
+        "$TEMP_DIR/selected_vlans.txt" \
+        "$VLAN_NETWORKS_FILE" \
+        "$SESSION_DISCOVERY_DIR"
+fi
 
 # Update latest symlinks for capture and reports
 update_latest_links "captures" "$capture_file"
 update_latest_links "reports" "$REPORT_SESSION_DIR"
 
-# List created files and directory structure
 echo
-echo "Results organized in new structure:"
+echo "Results:"
 echo "  📁 $WORKDIR/"
 echo "    ├── 📊 reports/$SESSION_NAME/ (consolidated reports)"
 echo "    │   ├── auto_discovery_report.txt"
@@ -1666,7 +1859,7 @@ echo "    ├── 🔍 discovery/ (network discovery results)"
 if [ "$interfaces_configured" -gt 0 ]; then
     find "$DISCOVERY_DIR" -name "${SESSION_NAME}_vlan_*" -type d 2>/dev/null | while read -r vlan_dir; do
         vlan_name=$(basename "$vlan_dir" | sed "s/${SESSION_NAME}_//")
-        echo "    │   └── ${SESSION_NAME}_$vlan_name/ (VLAN-specific results)"
+        echo "    │   └── ${SESSION_NAME}_$vlan_name/"
     done
 fi
 echo "    └── 🔗 latest/ (symlinks to most recent results)"
@@ -1675,12 +1868,6 @@ echo "        ├── analysis -> (latest analysis results)"
 echo "        ├── captures -> (latest capture file)"
 echo "        └── reports -> (latest reports session)"
 echo
-echo "💡 Use 'latest/' directory for quick access to most recent results!"
 
 log_info "Auto-discovery workflow completed successfully"
 log_script_end "auto_discover.sh" 0
-
-echo
-echo "Auto-discovery workflow complete!"
-echo "The system is now configured with selected VLANs and ready for targeted network analysis."
-echo "All results are organized by category and easily accessible via the 'latest/' directory."

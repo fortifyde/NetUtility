@@ -171,14 +171,3 @@ emit_progress() {
     [ "$NETUTIL_FORCE_COLOR" = "1" ] || return 0
     printf '##NETUTIL:PROGRESS## [%s/%s] %s\n' "$2" "$3" "$1"
 }
-
-# Emit a summary marker at script completion
-# Usage: emit_summary "key=value" "key=value" ...
-emit_summary() {
-    [ "$NETUTIL_FORCE_COLOR" = "1" ] || return 0
-    printf '##NETUTIL:SUMMARY##'
-    for _es_pair in "$@"; do
-        printf ' %s' "$_es_pair"
-    done
-    printf '\n'
-}

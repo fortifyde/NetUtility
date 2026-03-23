@@ -3155,13 +3155,6 @@ cp "$PHASE2_DIR/all_hosts.txt" "$SESSION_DIR/all_discovered_hosts.txt"
 echo "Final reporting complete" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-emit_summary \
-    "hosts=$(wc -l < "$PHASE2_DIR/all_hosts.txt" 2>/dev/null || echo 0)" \
-    "windows=$(wc -l < "$SESSION_DIR/categorized/windows_hosts.txt" 2>/dev/null || echo 0)" \
-    "linux=$(wc -l < "$SESSION_DIR/categorized/linux_hosts.txt" 2>/dev/null || echo 0)" \
-    "network=$(wc -l < "$SESSION_DIR/categorized/network_devices.txt" 2>/dev/null || echo 0)" \
-    "report=$REPORT_FILE"
-
 # Update latest symlinks
 update_latest_links "discovery" "$SESSION_DIR"
 

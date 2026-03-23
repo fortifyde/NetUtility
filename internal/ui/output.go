@@ -28,9 +28,8 @@ type OutputViewer struct {
 	executor     *executor.StreamingExecutor
 	result       *executor.StreamingResult
 	outputLines  []executor.OutputLine
-	scriptPath   string   // Store script path for title updates
-	progressText string   // Current phase from ##NETUTIL:PROGRESS## markers
-	summaryLines []string // Accumulated ##NETUTIL:SUMMARY## data
+	scriptPath   string // Store script path for title updates
+	progressText string // Current phase from ##NETUTIL:PROGRESS## markers
 
 	// Display settings
 	showTimestamp bool
@@ -374,27 +373,6 @@ func (ov *OutputViewer) processOutput() {
 				statusColor = "red"
 			}
 
-			// Add summary card if markers were emitted
-			ov.mu.RLock()
-			summaryLines := ov.summaryLines
-			ov.mu.RUnlock()
-			if len(summaryLines) > 0 {
-				ov.addOutputLine(executor.OutputLine{Content: "────────────────────────────────────────────────────────────────", Timestamp: time.Now(), Source: "system"})
-				ov.addOutputLine(executor.OutputLine{Content: "[cyan]Discovery Summary[white]", Timestamp: time.Now(), Source: "system"})
-				for _, field := range summaryLines {
-					for _, pair := range strings.Fields(field) {
-						kv := strings.SplitN(pair, "=", 2)
-						if len(kv) == 2 {
-							ov.addOutputLine(executor.OutputLine{
-								Content:   fmt.Sprintf("  [white]%-10s[white] %s", kv[0]+":", kv[1]),
-								Timestamp: time.Now(),
-								Source:    "system",
-							})
-						}
-					}
-				}
-			}
-
 			// Add visual separator and completion message
 			ov.addOutputLine(executor.OutputLine{
 				Content:   "────────────────────────────────────────────────────────────────",
@@ -433,13 +411,6 @@ func (ov *OutputViewer) processOutput() {
 				ov.app.QueueUpdateDraw(func() {
 					ov.statusLine.SetText(fmt.Sprintf("[cyan]%s[white] | Tab=Switch | Ctrl+J=Jobs | Ctrl+B=Background | Esc=Close", text))
 				})
-				continue
-			}
-			if strings.HasPrefix(line.Content, "##NETUTIL:SUMMARY## ") {
-				fields := strings.TrimPrefix(line.Content, "##NETUTIL:SUMMARY## ")
-				ov.mu.Lock()
-				ov.summaryLines = append(ov.summaryLines, fields)
-				ov.mu.Unlock()
 				continue
 			}
 			ov.addOutputLine(line)
