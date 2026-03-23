@@ -264,17 +264,25 @@ get_terminal_setup() {
 }
 
 # Execute command on device via SSH
+# Optional 5th arg: terminal_cmd prepended in the same session to disable paging
 exec_ssh_command() {
     device_ip="$1"
     username="$2"
     password="$3"
     command="$4"
+    terminal_cmd="${5:-}"
+
+    if [ -n "$terminal_cmd" ]; then
+        full_cmd="$(printf '%s\n%s' "$terminal_cmd" "$command")"
+    else
+        full_cmd="$command"
+    fi
 
     sshpass -p "$password" ssh -o ConnectTimeout=10 \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o LogLevel=ERROR \
-        "$username@$device_ip" "$command" 2>/dev/null | clean_output
+        "$username@$device_ip" "$full_cmd" 2>/dev/null | clean_output
 }
 
 # Load command file for vendor
@@ -362,14 +370,8 @@ process_device() {
         return 0
     fi
 
-    # Setup terminal
-    terminal_cmd=$(get_terminal_setup "$vendor")
-    if [ -n "$terminal_cmd" ]; then
-        print_step "Configuring terminal for $device_ip..."
-        exec_ssh_command "$device_ip" "$username" "$password" "$terminal_cmd" >/dev/null
-    fi
-
     # Load vendor commands
+    terminal_cmd=$(get_terminal_setup "$vendor")
     commands=$(load_vendor_commands "$vendor")
 
     if [ -z "$commands" ]; then
@@ -383,59 +385,78 @@ process_device() {
     echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')" >> "$compliance_file"
     echo "" >> "$compliance_file"
 
+    # Pass 1: per-file config commands (@-markers), each in its own session with terminal setup
     echo "$commands" | while IFS= read -r line; do
-        # Skip empty lines
         [ -z "$line" ] && continue
-
-        # Check for special markers
         case "$line" in
             @VERSION*)
-                cmd=$(echo "$line" | sed 's/@VERSION //')
-                print_step "Executing: $cmd (already saved to version.txt)"
                 continue
-                ;;
-            @RUNNING_CONFIG*)
-                cmd=$(echo "$line" | sed 's/@RUNNING_CONFIG //')
-                output_file="${device_dir}/running_config.txt"
-                marker="RUNNING_CONFIG"
                 ;;
             @RUNNING_CONFIG_ALL*)
                 cmd=$(echo "$line" | sed 's/@RUNNING_CONFIG_ALL //')
-                output_file="${device_dir}/running_config_all.txt"
-                marker="RUNNING_CONFIG_ALL"
+                print_step "Executing: $cmd on $device_ip"
+                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" 2>&1)
+                if [ -n "$output" ]; then
+                    echo "$output" > "${device_dir}/running_config_all.txt"
+                    print_success "Saved: running_config_all.txt"
+                    echo "SUCCESS: $cmd" >> "$log_file"
+                else
+                    print_warning "Failed or empty output: $cmd"
+                    echo "FAILED: $cmd" >> "$log_file"
+                fi
+                ;;
+            @RUNNING_CONFIG*)
+                cmd=$(echo "$line" | sed 's/@RUNNING_CONFIG //')
+                print_step "Executing: $cmd on $device_ip"
+                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" 2>&1)
+                if [ -n "$output" ]; then
+                    echo "$output" > "${device_dir}/running_config.txt"
+                    print_success "Saved: running_config.txt"
+                    echo "SUCCESS: $cmd" >> "$log_file"
+                else
+                    print_warning "Failed or empty output: $cmd"
+                    echo "FAILED: $cmd" >> "$log_file"
+                fi
                 ;;
             @STARTUP_CONFIG*)
                 cmd=$(echo "$line" | sed 's/@STARTUP_CONFIG //')
-                output_file="${device_dir}/startup_config.txt"
-                marker="STARTUP_CONFIG"
-                ;;
-            *)
-                cmd="$line"
-                output_file="$compliance_file"
-                marker="COMPLIANCE"
+                print_step "Executing: $cmd on $device_ip"
+                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" 2>&1)
+                if [ -n "$output" ]; then
+                    echo "$output" > "${device_dir}/startup_config.txt"
+                    print_success "Saved: startup_config.txt"
+                    echo "SUCCESS: $cmd" >> "$log_file"
+                else
+                    print_warning "Failed or empty output: $cmd"
+                    echo "FAILED: $cmd" >> "$log_file"
+                fi
                 ;;
         esac
-
-        print_step "Executing: $cmd on $device_ip"
-
-        # Execute command
-        output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" 2>&1)
-
-        if [ $? -eq 0 ] && [ -n "$output" ]; then
-            if [ "$marker" = "COMPLIANCE" ]; then
-                echo "=== Command: $cmd ===" >> "$compliance_file"
-                echo "$output" >> "$compliance_file"
-                echo "" >> "$compliance_file"
-            else
-                echo "$output" > "$output_file"
-                print_success "Saved: $(basename "$output_file")"
-            fi
-            echo "SUCCESS: $cmd" >> "$log_file"
-        else
-            print_warning "Failed or empty output: $cmd"
-            echo "FAILED: $cmd" >> "$log_file"
-        fi
     done
+
+    # Pass 2: collect compliance commands and run as a single bundled session
+    compliance_cmds_file=$(mktemp)
+    echo "$commands" | while IFS= read -r line; do
+        [ -z "$line" ] && continue
+        case "$line" in
+            @*) continue ;;
+            *)  echo "$line" >> "$compliance_cmds_file" ;;
+        esac
+    done
+
+    compliance_bundle=$(cat "$compliance_cmds_file")
+    rm -f "$compliance_cmds_file"
+
+    if [ -n "$compliance_bundle" ]; then
+        print_step "Executing compliance commands on $device_ip (bundled session)..."
+        output=$(exec_ssh_command "$device_ip" "$username" "$password" "$compliance_bundle" "$terminal_cmd" 2>&1)
+        if [ -n "$output" ]; then
+            echo "$output" >> "$compliance_file"
+            print_success "Saved: compliance_commands.txt"
+        else
+            print_warning "Failed or empty output for compliance commands"
+        fi
+    fi
 
     print_success "Completed extraction for $device_ip"
     return 0
