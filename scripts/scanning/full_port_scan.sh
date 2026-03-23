@@ -7,17 +7,18 @@
 # Source shared utility functions
 # shellcheck source=../common/utils.sh
 . "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
 echo "=========================================="
 echo "Full Port Scan"
 echo "=========================================="
-echo
+echo >&2
 echo "This script performs comprehensive port scanning with:"
 echo "  - Configurable scan intensity (quick/full/custom)"
 echo "  - Service version detection"
 echo "  - Multiple output formats (normal/XML/greppable)"
 echo "  - Organized session-based output"
-echo
+echo >&2
 
 # Setup results directory
 RESULTS_BASE="${NETUTIL_WORKDIR:-$HOME}/port_and_security_scans"
@@ -36,16 +37,21 @@ if [ -z "$targets" ]; then
 fi
 
 success_message "Selected target: $targets"
-echo
+echo >&2
 
 # Scan intensity selection
 echo "Scan intensity:"
 echo "1. Quick scan (Top 1000 ports)"
 echo "2. Full scan (All 65535 ports)"
 echo "3. Custom port range"
-echo
+echo >&2
 
-echo "Select scan intensity (1-3): " >&2
+echo >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sSelect scan intensity (1-3): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Select scan intensity (1-3): \n" >&2
+fi
 read -r intensity
 
 case $intensity in
@@ -58,7 +64,12 @@ case $intensity in
         scan_type="full"
         ;;
     3)
-        echo "Enter port range (e.g., 1-1000 or 80,443,8080): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter port range (e.g., 1-1000 or 80,443,8080): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter port range (e.g., 1-1000 or 80,443,8080): \n" >&2
+        fi
         read -r custom_ports
         if [ -z "$custom_ports" ]; then
             error_message "No port range specified"
@@ -75,7 +86,7 @@ case $intensity in
 esac
 
 success_message "Scan type: $scan_type"
-echo
+echo >&2
 
 # Define output file paths
 SCAN_BASE="$SESSION_DIR/scan_results"
@@ -83,10 +94,10 @@ REPORT_FILE="$SESSION_DIR/port_scan_report.txt"
 
 # Display scan information
 echo "Session directory: $SESSION_DIR"
-echo
+echo >&2
 echo "Starting port scan..."
 echo "Command: nmap -sS -sV -T4 $ports $targets -oA $SCAN_BASE"
-echo
+echo >&2
 
 # Execute nmap scan with all output formats
 # shellcheck disable=SC2086
@@ -96,7 +107,7 @@ if ! nmap -sS -sV -T4 $ports $targets -oA "$SCAN_BASE"; then
 fi
 
 success_message "Port scan completed"
-echo
+echo >&2
 
 # Generate comprehensive report
 echo "Generating comprehensive report..."
@@ -105,18 +116,18 @@ echo "Generating comprehensive report..."
     echo "=========================================="
     echo "Full Port Scan Report"
     echo "=========================================="
-    echo
+    echo >&2
     echo "Scan Information:"
     echo "  Scan time: $(date)"
     echo "  Targets: $targets"
     echo "  Scan type: $scan_type"
     echo "  Ports: $ports"
     echo "  Session directory: $SESSION_DIR"
-    echo
+    echo >&2
     echo "=========================================="
     echo "Open Ports Summary"
     echo "=========================================="
-    echo
+    echo >&2
 
     # Extract and display open ports
     if [ -f "$SCAN_BASE.nmap" ]; then
@@ -125,58 +136,58 @@ echo "Generating comprehensive report..."
         echo "No scan results found"
     fi
 
-    echo
+    echo >&2
     echo "=========================================="
     echo "Service Detection Summary"
     echo "=========================================="
-    echo
+    echo >&2
 
     # Extract service information
     if [ -f "$SCAN_BASE.nmap" ]; then
         grep -A 1 "PORT.*STATE.*SERVICE" "$SCAN_BASE.nmap" | tail -n +2
     fi
 
-    echo
+    echo >&2
     echo "=========================================="
     echo "Output Files"
     echo "=========================================="
-    echo
+    echo >&2
     echo "All scan outputs are located in: $SESSION_DIR"
-    echo
+    echo >&2
     echo "  scan_results.nmap    - Normal format (human-readable)"
     echo "  scan_results.xml     - XML format (for tools)"
     echo "  scan_results.gnmap   - Greppable format (for parsing)"
     echo "  port_scan_report.txt - This summary report"
-    echo
+    echo >&2
 
 } > "$REPORT_FILE"
 
 success_message "Report generated"
-echo
+echo >&2
 
 # Display results summary
 echo "=========================================="
 echo "Scan Complete"
 echo "=========================================="
-echo
+echo >&2
 
 # Show open ports count
 open_ports_count=$(grep -c "open" "$SCAN_BASE.nmap" 2>/dev/null || echo "0")
 echo "Open ports found: $open_ports_count"
-echo
+echo >&2
 
 echo "Files created:"
 echo "  Report:           $REPORT_FILE"
 echo "  Normal output:    $SCAN_BASE.nmap"
 echo "  XML output:       $SCAN_BASE.xml"
 echo "  Greppable output: $SCAN_BASE.gnmap"
-echo
+echo >&2
 
 # Display top services if any found
 if [ "$open_ports_count" -gt 0 ]; then
     echo "Top discovered services:"
     grep "^[0-9]" "$SCAN_BASE.nmap" | grep "open" | head -10
-    echo
+    echo >&2
 fi
 
 success_message "Full port scan session completed: $SESSION_DIR"

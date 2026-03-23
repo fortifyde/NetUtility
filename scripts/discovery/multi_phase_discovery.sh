@@ -15,7 +15,7 @@ if command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "MULTI-PHASE NETWORK DISCOVERY"
 else
     echo "=== Multi-Phase Network Discovery ==="
-    echo
+    echo >&2
 fi
 
 # Log script start
@@ -97,7 +97,12 @@ else
     else
         # Network detected - prompt user for confirmation
         echo "Detected network: $network_range" >&2
-        echo "Scan this network? (Y/n/custom): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sScan this network? (Y/n/custom): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Scan this network? (Y/n/custom): \n" >&2
+        fi
         read -r confirm
         case "$confirm" in
             n|N|no|NO)
@@ -126,11 +131,21 @@ dns_preflight_check() {
         dns_configured=true
         return
     fi
-    printf "No DNS nameserver configured. Would you like to add one now? (y/N) " >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sNo DNS nameserver configured. Would you like to add one now? (y/N): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "No DNS nameserver configured. Would you like to add one now? (y/N): \n" >&2
+    fi
     read -r dns_answer
     case "$dns_answer" in
         y|Y|yes|YES)
-            printf "Enter nameserver IP: " >&2
+            echo >&2
+            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                printf "%sEnter nameserver IP: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            else
+                printf "Enter nameserver IP: \n" >&2
+            fi
             read -r nameserver_ip
             if ! echo "$nameserver_ip" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
                 echo "Invalid IP format. Skipping DNS configuration." >&2
@@ -712,7 +727,7 @@ categorize_host_advanced() {
         echo "Detected Vendor: $vendor"
         echo "TTL: $ttl"
         echo "Nmap OS Detection: $nmap_os"
-        echo
+        echo >&2
         echo "--- SCORING DECISIONS ---"
     } >> "$debug_file"
 
@@ -2402,7 +2417,7 @@ elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 1: ENHANCED NETWORK DISCOVERY"
     color_info "Layer 2 discovery..."
 else
-    echo
+    echo >&2
     echo "Phase 1: Enhanced Network Discovery - Layer 2 discovery"
 fi
 
@@ -2492,7 +2507,7 @@ elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 2: COMPREHENSIVE HOST DISCOVERY"
     color_info "Multi-protocol discovery..."
 else
-    echo
+    echo >&2
     echo "Phase 2: Comprehensive Host Discovery - Multi-protocol discovery..."
 fi
 
@@ -2594,7 +2609,7 @@ elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 3: DNS REVERSE LOOKUP"
     color_info "Resolving hostnames..."
 else
-    echo
+    echo >&2
     echo "Phase 3: DNS Reverse Lookup - Resolving hostnames..."
 fi
 echo "IP Address\tHostname" >> "$REPORT_FILE"
@@ -2636,7 +2651,7 @@ elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 4: WINDOWS-SPECIFIC DISCOVERY"
     color_info "SMB and NetBIOS enumeration..."
 else
-    echo
+    echo >&2
     echo "Phase 4: Windows-Specific Discovery - SMB and NetBIOS enumeration..."
 fi
 
@@ -2709,7 +2724,7 @@ elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 5: PROGRESSIVE PORT SCAN"
     color_info "Multi-layered port discovery..."
 else
-    echo
+    echo >&2
     echo "Phase 5: Progressive Port Scan - Multi-layered port discovery..."
 fi
 if command -v nmap >/dev/null 2>&1; then
@@ -2772,7 +2787,7 @@ elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 6: SERVICE ENUMERATION"
     color_info "Detailed service analysis..."
 else
-    echo
+    echo >&2
     echo "Phase 6: Service Enumeration - Detailed service analysis..."
 fi
 if command -v nmap >/dev/null 2>&1; then
@@ -2883,7 +2898,7 @@ elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 7: HOST CATEGORIZATION"
     color_info "Analyzing discovered hosts..."
 else
-    echo
+    echo >&2
     echo "Phase 7: Host Categorization - Analyzing discovered hosts..."
 fi
 
@@ -2998,7 +3013,7 @@ elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "PHASE 8: EVIDENCE PROCESSING"
     color_info "Consolidating scan data and generating comprehensive service inventory..."
 else
-    echo
+    echo >&2
     echo "Phase 8: Evidence Processing - Consolidating scan data and generating comprehensive service inventory..."
 fi
 
@@ -3159,10 +3174,10 @@ if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
     printf "%s%s%s\n" "$COLOR_RESET" "Results: $windows_count Windows | $linux_count Linux | $network_count network devices" "$COLOR_RESET"
     printf "%s%s%s\n" "$COLOR_RESET" "Files saved to: $SESSION_DIR" "$COLOR_RESET"
 else
-    echo
+    echo >&2
     echo "Multi-phase discovery complete!"
     echo "Results saved to: $SESSION_DIR"
-    echo
+    echo >&2
     echo "Enhanced Discovery Summary:"
     echo "  Network scanned: $network_range"
     echo "  Total hosts discovered: $all_hosts_count"
@@ -3176,7 +3191,7 @@ else
         echo "  Potential vulnerabilities: $vuln_count"
     fi
 
-    echo
+    echo >&2
     echo "Key Files Created:"
     echo "  discovery_report.txt (detailed technical report)"
     echo "  comprehensive_service_inventory.csv (complete service catalog)"
@@ -3193,9 +3208,9 @@ else
     if [ -f "$SESSION_DIR/netbios_names.txt" ]; then
         echo "  netbios_names.txt (NetBIOS computer names)"
     fi
-    echo
+    echo >&2
     echo "Opening detailed report..."
-    echo
+    echo >&2
     cat "$REPORT_FILE"
 fi
 

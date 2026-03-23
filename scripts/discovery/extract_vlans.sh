@@ -3,6 +3,7 @@
 # Source shared utility functions
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/logging.sh"
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
 echo "=== VLAN Extraction from Capture Files ==="
 echo
@@ -64,13 +65,13 @@ if [ -s "$VLAN_FILE" ]; then
     echo "--- Protocol Distribution in VLAN Traffic ---" >> "$VLAN_DETAIL_FILE"
     tshark -r "$capture_file" -Y "vlan" -q -z io,phs 2>/dev/null >> "$VLAN_DETAIL_FILE"
     
-    echo
+    echo >&2
     echo "VLAN analysis complete!"
     echo "Files created:"
     echo "  VLAN IDs: $VLAN_FILE"
     echo "  Detailed report: $VLAN_DETAIL_FILE"
     
-    echo
+    echo >&2
     if confirm_action "Create VLAN subinterfaces?"; then
         parent_interface=$(select_interface "Select parent interface for VLAN creation")
         if [ -z "$parent_interface" ]; then
@@ -83,14 +84,14 @@ if [ -s "$VLAN_FILE" ]; then
         log_info "Selected parent interface for VLAN creation: $parent_interface"
         
         # Ask about IP address assignment
-        echo
+        echo >&2
         assign_ips=false
         if confirm_action "Automatically assign IP addresses to VLAN interfaces?"; then
             assign_ips=true
             log_info "Automatic IP assignment enabled for VLAN interfaces"
         fi
         
-        echo
+        echo >&2
         echo "Creating VLAN interfaces..."
         vlan_count=0
         
@@ -145,8 +146,13 @@ if [ -s "$VLAN_FILE" ]; then
                                     # No valid unicast IPs found - prompt for manual entry
                                     echo "  No valid unicast IP addresses found in VLAN $vlan_id traffic"
                                     echo "  (Only multicast/broadcast addresses detected)"
-                                    echo
-                                    echo "  Enter IP address for $vlan_interface (with CIDR, e.g., 192.168.1.100/24): " >&2
+                                    echo >&2
+                                    echo >&2
+                                    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                                        printf "%s  Enter IP address for %s (with CIDR, e.g., 192.168.1.100/24): %s\n" "$PROMPT_COLOR" "$vlan_interface" "$COLOR_RESET" >&2
+                                    else
+                                        printf "  Enter IP address for %s (with CIDR, e.g., 192.168.1.100/24): \n" "$vlan_interface" >&2
+                                    fi
                                     read -r custom_ip
 
                                     if [ -n "$custom_ip" ] && echo "$custom_ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
@@ -171,17 +177,17 @@ if [ -s "$VLAN_FILE" ]; then
                         warning_message "VLAN interface $vlan_interface already exists"
                         log_info "VLAN interface $vlan_interface already exists"
                     fi
-                    echo
+                    echo >&2
                     ;;
             esac
         done < "$VLAN_FILE"
         
-        echo
+        echo >&2
         echo "VLAN interface creation summary:"
         echo "  VLANs created: $vlan_count"
         log_info "VLAN interface creation completed: $vlan_count interfaces created"
         
-        echo
+        echo >&2
         echo "Current VLAN interfaces:"
         ip link show | grep "@" | while read -r line; do
             interface=$(echo "$line" | cut -d':' -f2 | tr -d ' ' | cut -d'@' -f1)

@@ -3,22 +3,23 @@
 # Source shared utility functions
 # shellcheck source=../common/utils.sh
 . "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
 echo "=== Safe NSE Service Enumeration Scan ==="
-echo
+echo >&2
 echo "ℹ️  This script uses SAFE NSE scripts for service enumeration"
 echo "ℹ️  These scripts:"
 echo "    - Gather service information without exploitation"
 echo "    - Are non-intrusive and safe for production systems"
 echo "    - Do NOT attempt vulnerability verification"
 echo "    - Generate minimal network traffic"
-echo
+echo >&2
 echo "✓  Safe for use in:"
 echo "    - Production environments (with authorization)"
 echo "    - Network inventory and documentation"
 echo "    - Service discovery and mapping"
 echo "    - Baseline security assessments"
-echo
+echo >&2
 
 RESULTS_DIR="${NETUTIL_WORKDIR:-$HOME}/port_and_security_scans"
 mkdir -p "$RESULTS_DIR"
@@ -38,7 +39,12 @@ echo "1. Quick scan (Top 1000 ports)"
 echo "2. Comprehensive scan (All 65535 ports)"
 echo "3. Custom port range"
 
-echo "Select scan intensity (1-3): " >&2
+echo >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sSelect scan intensity (1-3): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Select scan intensity (1-3): \n" >&2
+fi
 read -r intensity
 
 case $intensity in
@@ -51,7 +57,12 @@ case $intensity in
         scan_type="comprehensive"
         ;;
     3)
-        echo "Enter port range (e.g., 1-1000 or 80,443,8080): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter port range (e.g., 1-1000 or 80,443,8080): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter port range (e.g., 1-1000 or 80,443,8080): \n" >&2
+        fi
         read -r custom_ports
         ports="-p $custom_ports"
         scan_type="custom"
@@ -69,7 +80,7 @@ REPORT_FILE="$RESULTS_DIR/service_report_${TIMESTAMP}.txt"
 
 echo "Starting safe service enumeration scan..."
 echo "Results will be saved to: $RESULTS_DIR"
-echo
+echo >&2
 
 {
     echo "=== Safe NSE Service Enumeration Report ==="
@@ -78,7 +89,7 @@ echo
     echo "Scan type: $scan_type"
     echo "Ports: $ports"
     echo "Note: Using safe NSE scripts (non-intrusive service enumeration)"
-    echo
+    echo >&2
 } > "$REPORT_FILE"
 
 echo "Phase 1: Deep port scan with service detection..."
@@ -97,17 +108,17 @@ echo "Phase 3: Service information extraction..."
 
 {
     echo "--- SERVICE DETECTION ---"
-    echo
+    echo >&2
     grep -A 50 "PORT.*STATE.*SERVICE" "$SCAN_RESULTS"
-    echo
+    echo >&2
     echo "--- OS DETECTION ---"
-    echo
+    echo >&2
     grep -A 10 "OS details" "$SCAN_RESULTS"
-    echo
+    echo >&2
     echo "--- NSE ENUMERATION RESULTS ---"
-    echo
+    echo >&2
     cat "$NSE_RESULTS"
-    echo
+    echo >&2
 } >> "$REPORT_FILE"
 
 echo "Phase 4: Targeted safe NSE scripts based on detected services..."
@@ -163,73 +174,73 @@ service_count=$(grep -c "open" "$SCAN_RESULTS" 2>/dev/null || echo "0")
 
 {
     echo "--- SERVICE INVENTORY ---"
-    echo
+    echo >&2
 
     echo "Discovered Services:"
     echo "  Total open ports: $service_count"
-    echo
+    echo >&2
 
     if echo "$detected_services" | grep -q "http\|https"; then
         echo "Web Services:"
         grep -E "80/tcp|443/tcp|8080/tcp|8443/tcp" "$SCAN_RESULTS" | grep "open" 2>/dev/null || echo "  None detected"
-        echo
+        echo >&2
     fi
 
     if echo "$detected_services" | grep -q "ssh\|telnet"; then
         echo "Remote Access Services:"
         grep -E "22/tcp|23/tcp|3389/tcp" "$SCAN_RESULTS" | grep "open" 2>/dev/null || echo "  None detected"
-        echo
+        echo >&2
     fi
 
     if echo "$detected_services" | grep -q "smb"; then
         echo "File Sharing Services:"
         grep -E "139/tcp|445/tcp|21/tcp" "$SCAN_RESULTS" | grep "open" 2>/dev/null || echo "  None detected"
-        echo
+        echo >&2
     fi
 
     if echo "$detected_services" | grep -q "mysql\|postgres\|mssql"; then
         echo "Database Services:"
         grep -E "3306/tcp|5432/tcp|1433/tcp" "$SCAN_RESULTS" | grep "open" 2>/dev/null || echo "  None detected"
-        echo
+        echo >&2
     fi
 
     echo "--- PROTOCOL ANALYSIS ---"
-    echo
+    echo >&2
 
     if grep -q "ssl-enum-ciphers" "$NSE_RESULTS"; then
         echo "SSL/TLS Configuration:"
         grep -A 10 "TLSv" "$NSE_RESULTS" | head -20 2>/dev/null || echo "  No SSL/TLS services detected"
-        echo
+        echo >&2
     fi
 
     if grep -q "ssh2-enum-algos" "$NSE_RESULTS"; then
         echo "SSH Algorithm Support:"
         grep -A 5 "encryption_algorithms" "$NSE_RESULTS" | head -10 2>/dev/null || echo "  SSH details not available"
-        echo
+        echo >&2
     fi
 
     if grep -q "smb-protocols" "$NSE_RESULTS"; then
         echo "SMB Protocol Versions:"
         grep -A 3 "Protocol" "$NSE_RESULTS" | head -10 2>/dev/null || echo "  SMB protocol info not available"
-        echo
+        echo >&2
     fi
 
     echo "--- CERTIFICATE INFORMATION ---"
-    echo
+    echo >&2
 
     if grep -q "ssl-cert" "$NSE_RESULTS"; then
         echo "SSL/TLS Certificates:"
         grep -A 15 "Subject:" "$NSE_RESULTS" | head -25 2>/dev/null || echo "  No certificate information available"
-        echo
+        echo >&2
     fi
 
     echo "--- AUTHENTICATION METHODS ---"
-    echo
+    echo >&2
 
     if grep -q "ssh-auth-methods" "$NSE_RESULTS"; then
         echo "SSH Authentication:"
         grep -A 3 "ssh-auth-methods" "$NSE_RESULTS" 2>/dev/null || echo "  SSH auth methods not detected"
-        echo
+        echo >&2
     fi
 
     if grep -q "ftp-anon" "$NSE_RESULTS"; then
@@ -239,22 +250,22 @@ service_count=$(grep -c "open" "$SCAN_RESULTS" 2>/dev/null || echo "0")
         else
             echo "  Anonymous FTP access is disabled"
         fi
-        echo
+        echo >&2
     fi
 
-    echo
+    echo >&2
 } >> "$REPORT_FILE"
 
 echo "Service enumeration scan complete!"
-echo
+echo >&2
 echo "Files created:"
 echo "  Port scan results: $SCAN_RESULTS"
 echo "  NSE enumeration results: $NSE_RESULTS"
 echo "  Service report: $REPORT_FILE"
-echo
+echo >&2
 echo "Summary:"
 echo "  Total services discovered: $service_count"
 
-echo
+echo >&2
 echo "--- SERVICE REPORT ---"
 cat "$REPORT_FILE"

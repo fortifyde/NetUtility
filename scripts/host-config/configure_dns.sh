@@ -1,19 +1,21 @@
 #!/bin/sh
 
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+
 echo "=== DNS Configuration ==="
-echo
+echo >&2
 
 echo "Current DNS configuration:"
 echo "--- /etc/resolv.conf ---"
 cat /etc/resolv.conf
 
-echo
+echo >&2
 echo "--- systemd-resolved status ---"
 systemctl is-active systemd-resolved >/dev/null 2>&1 && {
     systemd-resolve --status 2>/dev/null || resolvectl status 2>/dev/null
 } || echo "systemd-resolved not active"
 
-echo
+echo >&2
 echo "DNS configuration options:"
 echo "1. Add nameserver"
 echo "2. Remove nameserver"
@@ -22,12 +24,22 @@ echo "4. Backup current configuration"
 echo "5. Restore from backup"
 echo "6. Exit"
 
-echo "Select option (1-6): " >&2
+echo >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sSelect option (1-6): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Select option (1-6): \n" >&2
+fi
 read -r option
 
 case $option in
     1)
-        echo "Enter nameserver IP: " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter nameserver IP: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter nameserver IP: \n" >&2
+        fi
         read -r nameserver
         if ! echo "$nameserver" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
@@ -42,7 +54,12 @@ case $option in
         fi
         ;;
     2)
-        echo "Enter nameserver IP to remove: " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter nameserver IP to remove: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter nameserver IP to remove: \n" >&2
+        fi
         read -r nameserver
         if ! echo "$nameserver" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
@@ -57,7 +74,12 @@ case $option in
         fi
         ;;
     3)
-        echo "Enter search domain (e.g., example.com): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter search domain (e.g., example.com): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter search domain (e.g., example.com): \n" >&2
+        fi
         read -r domain
         if ! echo "$domain" | grep -E '^[a-zA-Z0-9.-]+$' >/dev/null; then
             echo "Error: Invalid domain format"
@@ -83,7 +105,12 @@ case $option in
             exit 1
         }
         
-        echo "Enter backup file path: " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter backup file path: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter backup file path: \n" >&2
+        fi
         read -r backup_file
         if [ -f "$backup_file" ]; then
             cp "$backup_file" /etc/resolv.conf
@@ -103,11 +130,11 @@ case $option in
         ;;
 esac
 
-echo
+echo >&2
 echo "Updated DNS configuration:"
 cat /etc/resolv.conf
 
-echo
+echo >&2
 ns=$(awk '/^nameserver/{print $2; exit}' /etc/resolv.conf)
 if [ -n "$ns" ]; then
     echo "Testing DNS resolution (querying $ns):"

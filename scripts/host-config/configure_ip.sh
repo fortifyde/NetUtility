@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/../common/logging.sh"
 . "$SCRIPT_DIR/../common/utils.sh"
 . "$SCRIPT_DIR/../common/validation.sh"
+. "$SCRIPT_DIR/../common/colors.sh" 2>/dev/null || true
 
 # =============================================================================
 # SCRIPT CONFIGURATION
@@ -154,7 +155,7 @@ handle_error() {
 # Function to show current IP configuration
 show_current_config() {
     echo "=== Current IP Configuration ==="
-    echo
+    echo >&2
     
     if [ -n "$1" ]; then
         # Show specific interface
@@ -165,7 +166,7 @@ show_current_config() {
         log_command "ip addr show" "$SCRIPT_NAME"
         ip addr show
     fi
-    echo
+    echo >&2
 }
 
 # Function to safely add IP address
@@ -258,10 +259,14 @@ flush_ip_addresses() {
     fi
     
     # Simple confirmation
-    echo
-    echo "Are you sure you want to flush all IP addresses from $interface? (y/N): " >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%s%s%s\n" "$PROMPT_COLOR" "Are you sure you want to flush all IP addresses from $interface? (y/N): " "$COLOR_RESET" >&2
+    else
+        printf "Are you sure you want to flush all IP addresses from %s? (y/N): \n" "$interface" >&2
+    fi
     read -r response
-    echo
+    echo >&2
     case "$response" in
         [Yy]|[Yy][Ee][Ss])
             log_config_change "flush_ip" "Flushing all IPs from $interface"
@@ -298,7 +303,12 @@ get_ip_with_cidr() {
     max_attempts=3
 
     while [ $attempts -lt $max_attempts ]; do
-        echo "$prompt: " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s%s%s\n" "$PROMPT_COLOR" "$prompt: " "$COLOR_RESET" >&2
+        else
+            printf "%s: \n" "$prompt" >&2
+        fi
         read -r ip_input
 
         if [ -n "$ip_input" ] && validate_ip_range "$ip_input"; then
@@ -319,7 +329,7 @@ get_ip_with_cidr() {
 # Function to run interactive mode
 run_interactive_mode() {
     echo "=== IP Address Configuration ==="
-    echo
+    echo >&2
     
     # Show current configuration
     show_current_config
@@ -338,7 +348,7 @@ run_interactive_mode() {
     fi
     
     success_message "Selected interface: $SELECTED_INTERFACE"
-    echo
+    echo >&2
     echo "Current configuration for $SELECTED_INTERFACE:"
     show_current_config "$SELECTED_INTERFACE"
     
@@ -347,11 +357,15 @@ run_interactive_mode() {
     echo "1. Add IP address"
     echo "2. Flush all IP addresses"
     echo "3. Exit"
-    echo
+    echo >&2
     
     # Get user choice with immediate prompt visibility
     while true; do
-        echo "Select option (1-3): " >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s%s%s\n" "$PROMPT_COLOR" "Select option (1-3): " "$COLOR_RESET" >&2
+        else
+            echo "Select option (1-3): " >&2
+        fi
         read -r choice
 
         case "$choice" in

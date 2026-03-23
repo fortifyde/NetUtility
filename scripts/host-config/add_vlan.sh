@@ -2,14 +2,15 @@
 
 # Source shared utility functions
 . "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
 echo "=== VLAN Interface Management ==="
-echo
+echo >&2
 
 echo "Current VLAN interfaces:"
 ip link show | grep "@" | sed 's/^[0-9]*: *\([^@]*\)@.*/  \1/' || echo "  No VLAN interfaces found"
 
-echo
+echo >&2
 parent_interface=$(select_interface "Select parent interface" "vlan" "true")
 if [ -z "$parent_interface" ]; then
     error_message "No interface selected"
@@ -25,12 +26,22 @@ echo "3. Remove VLAN interface" >&2
 echo "4. List VLAN interfaces" >&2
 echo "5. Exit" >&2
 
-echo "Select option (1-5): " >&2
+echo >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sSelect option (1-5): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Select option (1-5): \n" >&2
+fi
 read -r option
 
 case $option in
     1)
-        echo "Enter VLAN ID (1-4094): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter VLAN ID (1-4094): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter VLAN ID (1-4094): \n" >&2
+        fi
         read -r vlan_id
         case "$vlan_id" in
             *[!0-9]*|'')
@@ -59,7 +70,12 @@ case $option in
         success_message "VLAN interface $vlan_interface created and brought up"
         
         if confirm_action "Configure IP address for $vlan_interface?"; then
-            echo "Enter IP address with CIDR (e.g., 192.168.100.1/24): " >&2
+            echo >&2
+            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                printf "%sEnter IP address with CIDR (e.g., 192.168.100.1/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            else
+                printf "Enter IP address with CIDR (e.g., 192.168.100.1/24): \n" >&2
+            fi
             read -r ip_addr
             case "$ip_addr" in
                 [0-9]*.[0-9]*.[0-9]*.[0-9]*/[0-9]*)
@@ -79,7 +95,12 @@ case $option in
         ;;
     2)
         echo "Multiple VLAN creation mode" >&2
-        echo "Enter VLAN IDs (comma-separated, space-separated, or range like 100-105): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter VLAN IDs (comma-separated, space-separated, or range like 100-105): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter VLAN IDs (comma-separated, space-separated, or range like 100-105): \n" >&2
+        fi
         read -r vlan_input
         
         # Parse VLAN input into individual VLAN IDs
@@ -153,14 +174,19 @@ case $option in
         fi
         
         echo "VLANs to create: $validated_vlans" >&2
-        echo
+        echo >&2
         
         # Ask for IP configuration mode
         echo "IP configuration options:" >&2
         echo "1. Configure IP for each VLAN individually" >&2
         echo "2. Skip IP configuration" >&2
         
-        echo "Select IP configuration mode (1-2): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sSelect IP configuration mode (1-2): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Select IP configuration mode (1-2): \n" >&2
+        fi
         read -r ip_mode
         
         successful_vlans=""
@@ -187,7 +213,12 @@ case $option in
                 # Handle IP configuration based on mode
                 case "$ip_mode" in
                     1)
-                        echo "Enter IP address with CIDR for $vlan_interface (or press Enter to skip): " >&2
+                        echo >&2
+                        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                            printf "%sEnter IP address with CIDR for %s (or press Enter to skip): %s\n" "$PROMPT_COLOR" "$vlan_interface" "$COLOR_RESET" >&2
+                        else
+                            printf "Enter IP address with CIDR for %s (or press Enter to skip): \n" "$vlan_interface" >&2
+                        fi
                         read -r ip_addr
                         
                         if [ -n "$ip_addr" ]; then
@@ -219,14 +250,14 @@ case $option in
                 echo "✗ Failed to create VLAN interface $vlan_interface" >&2
                 failed_vlans="$failed_vlans $vlan_id(create_failed)"
             fi
-            echo
+            echo >&2
         done
         
         # Summary
         echo "=== VLAN Creation Summary ===" >&2
         if [ -n "$successful_vlans" ]; then
             echo "Successfully created VLANs:$successful_vlans" >&2
-            echo
+            echo >&2
             echo "Details of created interfaces:" >&2
             for vlan_id in $successful_vlans; do
                 vlan_interface="${parent_interface}.${vlan_id}"
@@ -278,14 +309,24 @@ case $option in
         echo "3. Remove ALL VLAN interfaces" >&2
         echo "4. Return to main menu" >&2
         
-        echo "Select removal option (1-4): " >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sSelect removal option (1-4): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Select removal option (1-4): \n" >&2
+        fi
         read -r removal_option
         
         case $removal_option in
             1)
                 # Original single VLAN removal (backward compatible)
-                echo "Select VLAN interface to remove (1-$max_vlan_num): " >&2
-                read -r vlan_num >&2
+                echo >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%sSelect VLAN interface to remove (1-%s): %s\n" "$PROMPT_COLOR" "$max_vlan_num" "$COLOR_RESET" >&2
+                else
+                    printf "Select VLAN interface to remove (1-%s): \n" "$max_vlan_num" >&2
+                fi
+                read -r vlan_num
                 
                 case "$vlan_num" in
                     *[!0-9]*|'')
@@ -319,7 +360,12 @@ case $option in
                 ;;
             2)
                 # Multiple VLAN removal
-                echo "Enter VLAN IDs to remove (comma-separated, space-separated, or range like 100-105): " >&2
+                echo >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%sEnter VLAN IDs to remove (comma-separated, space-separated, or range like 100-105): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                else
+                    printf "Enter VLAN IDs to remove (comma-separated, space-separated, or range like 100-105): \n" >&2
+                fi
                 read -r vlan_input
                 
                 # Parse VLAN input into individual VLAN IDs
@@ -397,7 +443,7 @@ case $option in
                 fi
                 
                 echo "VLANs to remove: $validated_vlans" >&2
-                echo
+                echo >&2
                 
                 successful_removals=""
                 failed_removals=""
@@ -443,12 +489,17 @@ case $option in
                 echo >&2
                 
                 echo "This action cannot be undone!" >&2
-                echo "To confirm, type 'REMOVE ALL' (exactly as shown): " >&2
+                echo >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%sTo confirm, type 'REMOVE ALL' (exactly as shown): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                else
+                    printf "To confirm, type 'REMOVE ALL' (exactly as shown): \n" >&2
+                fi
                 read -r confirmation
                 
                 if [ "$confirmation" = "REMOVE ALL" ]; then
                     echo "Removing all VLAN interfaces..." >&2
-                    echo
+                    echo >&2
                     
                     successful_removals=""
                     failed_removals=""
@@ -465,7 +516,7 @@ case $option in
                         fi
                     done < /tmp/netutil_vlan_interfaces.$$
                     
-                    echo
+                    echo >&2
                     echo "=== All VLAN Removal Summary ===" >&2
                     if [ -n "$successful_removals" ]; then
                         echo "Successfully removed: $successful_removals" >&2

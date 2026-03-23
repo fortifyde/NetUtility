@@ -26,6 +26,8 @@ if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
     COLOR_BLUE=$(printf '\033[34m')
     COLOR_MAGENTA=$(printf '\033[35m')
     COLOR_CYAN=$(printf '\033[36m')
+    COLOR_PLUM=$(printf '\033[38;2;221;160;221m')
+    PROMPT_COLOR="$COLOR_PLUM"
 elif [ "$HAS_COLORS" = "true" ]; then
     # tput for real terminals
     COLOR_RESET=$(tput sgr0)
@@ -37,6 +39,8 @@ elif [ "$HAS_COLORS" = "true" ]; then
     COLOR_BLUE=$(tput setaf 4)
     COLOR_MAGENTA=$(tput setaf 5)
     COLOR_CYAN=$(tput setaf 6)
+    COLOR_PLUM=""
+    PROMPT_COLOR=""
 else
     COLOR_RESET=""
     COLOR_BOLD=""
@@ -47,6 +51,8 @@ else
     COLOR_BLUE=""
     COLOR_MAGENTA=""
     COLOR_CYAN=""
+    COLOR_PLUM=""
+    PROMPT_COLOR=""
 fi
 
 # Color wrapper functions

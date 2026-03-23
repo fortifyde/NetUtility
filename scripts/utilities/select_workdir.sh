@@ -1,15 +1,22 @@
 #!/bin/sh
 
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+
 echo "=== Working Directory Selection ==="
 echo "Current working directory: $(pwd)"
 echo "Home directory: $HOME"
-echo
+echo >&2
 
 echo "Available directories:"
 ls -la /home/
 
-echo
-echo "Enter the full path to your desired working directory (or press Enter for current directory):" >&2
+echo >&2
+echo >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sEnter the full path to your desired working directory (or press Enter for current directory): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Enter the full path to your desired working directory (or press Enter for current directory): \n" >&2
+fi
 read -r workdir
 
 # Use current directory as default if no input provided

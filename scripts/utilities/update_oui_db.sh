@@ -4,9 +4,10 @@
 # Downloads and updates the IEEE OUI database for MAC address vendor identification
 
 . "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 
 echo "=== OUI Database Update ==="
-echo
+echo >&2
 
 # Configuration
 OUI_URL="http://standards-oui.ieee.org/oui/oui.txt"
@@ -33,13 +34,18 @@ if [ -f "$DATA_DIR/$OUI_FILE" ]; then
 else
     echo "  No existing database found"
 fi
-echo
+echo >&2
 
 # Confirm update
 echo "This will download the latest OUI database from IEEE Standards Association." >&2
 echo "The database is typically 3-6 MB and contains ~30,000+ vendor entries." >&2
 echo >&2
-echo "Do you want to proceed with the update? [y/N]: " >&2
+echo >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sDo you want to proceed with the update? [y/N]: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Do you want to proceed with the update? [y/N]: \n" >&2
+fi
 read -r response
 
 case "$response" in
@@ -52,7 +58,7 @@ case "$response" in
         ;;
 esac
 
-echo
+echo >&2
 
 # Download the new database
 echo "Downloading OUI database from IEEE..."
@@ -77,7 +83,7 @@ else
 fi
 
 # Validate downloaded file
-echo
+echo >&2
 echo "Validating downloaded file..."
 
 if [ ! -s "$TEMP_FILE" ]; then
@@ -108,7 +114,12 @@ echo "  Lines: $new_line_count"
 
 if [ "$new_line_count" -lt 10000 ]; then
     echo "WARNING: Downloaded file has fewer lines than expected" >&2
-    echo "Do you want to continue anyway? [y/N]: " >&2
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sDo you want to continue anyway? [y/N]: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    else
+        printf "Do you want to continue anyway? [y/N]: \n" >&2
+    fi
     read -r response
     case "$response" in
         [yY]|[yY][eE][sS])
@@ -123,7 +134,7 @@ fi
 
 # Backup existing database if it exists
 if [ -f "$DATA_DIR/$OUI_FILE" ]; then
-    echo
+    echo >&2
     echo "Creating backup of existing database..."
     if cp "$DATA_DIR/$OUI_FILE" "$DATA_DIR/$BACKUP_FILE"; then
         echo "Backup saved as: $DATA_DIR/$BACKUP_FILE"
@@ -133,7 +144,7 @@ if [ -f "$DATA_DIR/$OUI_FILE" ]; then
 fi
 
 # Install new database
-echo
+echo >&2
 echo "Installing new OUI database..."
 
 # Update the main database file
@@ -148,7 +159,7 @@ echo "Note: The Go binary ouihelper will use the embedded database until rebuilt
 echo "To use the updated database immediately, rebuild the project with 'go build -o ouihelper cmd/ouihelper/main.go'."
 
 # Show summary
-echo
+echo >&2
 echo "=== Update Complete ==="
 echo "New database statistics:"
 echo "  Location: $DATA_DIR/$OUI_FILE"
@@ -160,11 +171,11 @@ if [ -f "$DATA_DIR/$BACKUP_FILE" ]; then
     echo "  Backup: $DATA_DIR/$BACKUP_FILE"
 fi
 
-echo
+echo >&2
 echo "The OUI database has been successfully updated."
 
 # Clean up old backups (keep only last 5)
-echo
+echo >&2
 echo "Cleaning up old backups..."
 backup_count=$(find "$DATA_DIR" -name "oui_backup_*.txt" | wc -l)
 if [ "$backup_count" -gt 5 ]; then
@@ -174,5 +185,5 @@ if [ "$backup_count" -gt 5 ]; then
     done
 fi
 
-echo
+echo >&2
 echo "Update completed successfully!"
