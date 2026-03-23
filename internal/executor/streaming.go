@@ -153,34 +153,25 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 		e.readOutput(stderr, "stderr", result)
 	}()
 
-	// Wait for command completion
-	cmdDone := make(chan error, 1)
-	go func() {
-		cmdDone <- cmd.Wait()
-	}()
+	// Wait for readers first — they terminate at EOF (write end closed on process exit,
+	// or on kill via exec.CommandContext context cancellation).
+	wg.Wait()
 
-	// Handle completion or cancellation
-	select {
-	case err := <-cmdDone:
-		result.Error = err
-		result.Success = err == nil
-		if err != nil {
-			if exitError, ok := err.(*exec.ExitError); ok {
-				result.ExitCode = exitError.ExitCode()
-			}
-		}
-	case <-e.ctx.Done():
-		// Context was cancelled
-		if cmd.Process != nil {
-			cmd.Process.Kill()
-		}
+	// Now safe to call cmd.Wait(): read ends are no longer in use.
+	exitErr := cmd.Wait()
+	if e.ctx.Err() != nil {
 		result.Error = e.ctx.Err()
 		result.Success = false
 		result.ExitCode = -1
+	} else {
+		result.Error = exitErr
+		result.Success = exitErr == nil
+		if exitErr != nil {
+			if exitError, ok := exitErr.(*exec.ExitError); ok {
+				result.ExitCode = exitError.ExitCode()
+			}
+		}
 	}
-
-	// Wait for output readers to finish
-	wg.Wait()
 
 	// Close stdin
 	if e.stdin != nil {
