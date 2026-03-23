@@ -691,20 +691,49 @@ main() {
     print_info "Processing $total_devices device(s) in $MODE mode with concurrency: $CONCURRENCY"
     echo "" >&2
 
-    # Process devices
+    # Process devices concurrently
+    results_dir=$(mktemp -d)
+    active_pids=""
+    active_count=0
+
     for ip in $device_list; do
         [ -z "$ip" ] && continue
-
         PROCESSED_COUNT=$((PROCESSED_COUNT + 1))
+        result_file="${results_dir}/${ip}.result"
 
-        if process_device "$ip" "$COMMON_USER" "$COMMON_PASS"; then
-            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
-        else
-            FAILURE_COUNT=$((FAILURE_COUNT + 1))
+        (
+            if process_device "$ip" "$COMMON_USER" "$COMMON_PASS"; then
+                echo "success" > "$result_file"
+            else
+                echo "failure" > "$result_file"
+            fi
+        ) &
+        pid=$!
+        active_pids="${active_pids}${pid} "
+        active_count=$((active_count + 1))
+
+        if [ "$active_count" -ge "$CONCURRENCY" ]; then
+            oldest_pid=$(echo "$active_pids" | cut -d' ' -f1)
+            wait "$oldest_pid" 2>/dev/null || true
+            active_pids=$(echo "$active_pids" | cut -d' ' -f2-)
+            active_count=$((active_count - 1))
         fi
-
-        echo "" >&2
     done
+
+    # Wait for remaining jobs
+    for pid in $active_pids; do
+        [ -n "$pid" ] && { wait "$pid" 2>/dev/null || true; }
+    done
+
+    # Aggregate results
+    for result_file in "${results_dir}"/*.result; do
+        [ -f "$result_file" ] || continue
+        if [ "$(cat "$result_file")" = "success" ]; then
+            SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+        fi
+    done
+    FAILURE_COUNT=$((PROCESSED_COUNT - SUCCESS_COUNT))
+    rm -rf "$results_dir"
 
     # Generate summary
     echo "" >&2
