@@ -46,6 +46,23 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 # Create reports session directory
 mkdir -p "$REPORT_SESSION_DIR"
 
+# Convert dotted-decimal IP to a 32-bit integer
+ip_to_int() {
+    _a="${1%%.*}"; _r="${1#*.}"
+    _b="${_r%%.*}"; _r="${_r#*.}"
+    _c="${_r%%.*}"; _d="${_r#*.}"
+    printf '%d\n' $(( (_a * 16777216) + (_b * 65536) + (_c * 256) + _d ))
+}
+
+# Convert a 32-bit integer to dotted-decimal IP
+int_to_ip() {
+    printf '%d.%d.%d.%d\n' \
+        $(( $1 / 16777216 )) \
+        $(( ($1 / 65536) % 256 )) \
+        $(( ($1 / 256) % 256 )) \
+        $(( $1 % 256 ))
+}
+
 # Function to prompt user for IP address choice with validation
 prompt_ip_choice() {
     suggested_ip="$1"
@@ -640,13 +657,19 @@ echo "  Created: $vlan_interface" >> "$WORKFLOW_REPORT"
                         
                         # Use ipcalc if available to calculate proper network
                         if command -v ipcalc >/dev/null 2>&1; then
-                            # Try to determine actual network from first IP
-                            calc_network=$(ipcalc -n "$first_ip$suggested_cidr" 2>/dev/null | cut -d= -f2 2>/dev/null)
+                            _ipcalc_out=$(ipcalc "$first_ip$suggested_cidr" 2>/dev/null)
+                            calc_network=$(printf '%s\n' "$_ipcalc_out" | \
+                                sed -n 's/^NETWORK=\([0-9.]*\).*/\1/p;s/^Network:[[:space:]]*\([0-9.]*\)\/.*/\1/p' | \
+                                head -1)
+                            calc_broadcast=$(printf '%s\n' "$_ipcalc_out" | \
+                                sed -n 's/^BROADCAST=\([0-9.]*\).*/\1/p;s/^Broadcast:[[:space:]]*\([0-9.]*\).*/\1/p' | \
+                                head -1)
                             if [ -n "$calc_network" ]; then
                                 network_base=$(echo "$calc_network" | cut -d'.' -f1-3)
-                                # Recalculate suggested IP with proper network base
-                                suggested_ip="${network_base}.253${suggested_cidr}"
                                 echo "  Calculated network: $calc_network"
+                            fi
+                            if [ -n "$calc_broadcast" ]; then
+                                suggested_ip="$(int_to_ip $(( $(ip_to_int "$calc_broadcast") - 2 )))${suggested_cidr}"
                             fi
                         fi
                         
@@ -768,11 +791,19 @@ echo "  Created: $vlan_interface" >> "$WORKFLOW_REPORT"
                         fi
 
                         if command -v ipcalc >/dev/null 2>&1; then
-                            calc_network=$(ipcalc -n "$first_ip$suggested_cidr" 2>/dev/null | cut -d= -f2 2>/dev/null)
+                            _ipcalc_out=$(ipcalc "$first_ip$suggested_cidr" 2>/dev/null)
+                            calc_network=$(printf '%s\n' "$_ipcalc_out" | \
+                                sed -n 's/^NETWORK=\([0-9.]*\).*/\1/p;s/^Network:[[:space:]]*\([0-9.]*\)\/.*/\1/p' | \
+                                head -1)
+                            calc_broadcast=$(printf '%s\n' "$_ipcalc_out" | \
+                                sed -n 's/^BROADCAST=\([0-9.]*\).*/\1/p;s/^Broadcast:[[:space:]]*\([0-9.]*\).*/\1/p' | \
+                                head -1)
                             if [ -n "$calc_network" ]; then
                                 network_base=$(echo "$calc_network" | cut -d'.' -f1-3)
-                                suggested_ip="${network_base}.253${suggested_cidr}"
                                 echo "  Calculated network: $calc_network"
+                            fi
+                            if [ -n "$calc_broadcast" ]; then
+                                suggested_ip="$(int_to_ip $(( $(ip_to_int "$calc_broadcast") - 2 )))${suggested_cidr}"
                             fi
                         fi
 
@@ -915,7 +946,24 @@ echo "    No IP configured - assignment required" >> "$WORKFLOW_REPORT"
                     suggested_ip="${network_base}.${new_octet}${suggested_cidr}"
                 fi
             fi
-            
+
+            if command -v ipcalc >/dev/null 2>&1; then
+                _ipcalc_out=$(ipcalc "$first_ip$suggested_cidr" 2>/dev/null)
+                calc_network=$(printf '%s\n' "$_ipcalc_out" | \
+                    sed -n 's/^NETWORK=\([0-9.]*\).*/\1/p;s/^Network:[[:space:]]*\([0-9.]*\)\/.*/\1/p' | \
+                    head -1)
+                calc_broadcast=$(printf '%s\n' "$_ipcalc_out" | \
+                    sed -n 's/^BROADCAST=\([0-9.]*\).*/\1/p;s/^Broadcast:[[:space:]]*\([0-9.]*\).*/\1/p' | \
+                    head -1)
+                if [ -n "$calc_network" ]; then
+                    network_base=$(echo "$calc_network" | cut -d'.' -f1-3)
+                    echo "  Calculated network: $calc_network" >&2
+                fi
+                if [ -n "$calc_broadcast" ]; then
+                    suggested_ip="$(int_to_ip $(( $(ip_to_int "$calc_broadcast") - 2 )))${suggested_cidr}"
+                fi
+            fi
+
 echo "  Traffic analysis results:" >&2
 echo "    Discovered IPs: $(echo "$main_ips" | head -3 | tr '\n' ' ')" >&2
 echo "    Suggested IP: $suggested_ip" >&2
