@@ -3137,7 +3137,6 @@ echo "      - Total hosts: $phase1_total (ARP:$arp_count, topology:$topology_cou
 echo "  ✓ Phase 2: Comprehensive Host Discovery" >> "$REPORT_FILE"
 echo "      - ICMP, TCP bypass, UDP probes, masscan, early OS/device classification" >> "$REPORT_FILE"
 echo "      - Total hosts: $all_hosts_count (ICMP:$ping_count, TCP:$tcp_count, UDP:$udp_count, masscan:$masscan_count)" >> "$REPORT_FILE"
-echo "      - Classifications: $os_classified_count OS detected, $device_classified_count device types" >> "$REPORT_FILE"
 echo "  ✓ Phase 3: DNS Lookup (completed)" >> "$REPORT_FILE"
 echo "  ✓ Phase 4: Windows-Specific Discovery ($smb_count SMB hosts)" >> "$REPORT_FILE"
 echo "  ✓ Phase 5: Progressive Port Scan (multi-stage)" >> "$REPORT_FILE"
