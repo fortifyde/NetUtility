@@ -23,8 +23,12 @@
 # Disable SC1091: Source files are checked separately
 # shellcheck disable=SC3059,SC2162,SC2129,SC2034,SC2086,SC2012,SC2188,SC2235,SC3037,SC2126,SC1091
 
-echo "=== Auto-Discovery Workflow ===" >&2
-echo >&2
+if command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "AUTO-DISCOVERY WORKFLOW"
+else
+    echo "=== Auto-Discovery Workflow ===" >&2
+    echo >&2
+fi
 
 # Log script start
 log_script_start "auto_discover.sh" "$@"
@@ -210,17 +214,19 @@ echo "Target interface: $target_interface" >> "$WORKFLOW_REPORT"
 echo "Capture duration: $capture_duration minutes" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
-# Phase 1: Promiscuous Packet Capture
-if command -v print_phase_header >/dev/null 2>&1; then
-    print_phase_header "PHASE 1: PACKET CAPTURE"
+# Stage 1: Promiscuous Packet Capture
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 1/5: PACKET CAPTURE — Promiscuous capture" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "STAGE 1: PACKET CAPTURE"
 else
     echo
-    echo "=== Phase 1: Packet Capture ===" >&2
+    echo "=== Stage 1: Packet Capture ===" >&2
 fi
-echo "--- PHASE 1: PROMISCUOUS CAPTURE ---" >> "$WORKFLOW_REPORT"
+echo "--- STAGE 1: PACKET CAPTURE ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
-log_info "Starting Phase 1: Promiscuous packet capture"
+log_info "Starting Stage 1: Promiscuous packet capture"
 
 # Enable promiscuous mode
 echo "Enabling promiscuous mode on $target_interface..." >&2
@@ -328,17 +334,19 @@ fi
 echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
-# Phase 2: Traffic Analysis
-if command -v print_phase_header >/dev/null 2>&1; then
-    print_phase_header "PHASE 2: TRAFFIC ANALYSIS"
+# Stage 2: Traffic Analysis
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 2/5: TRAFFIC ANALYSIS — VLAN and network extraction" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "STAGE 2: TRAFFIC ANALYSIS"
 else
     echo
-    echo "=== Phase 2: Traffic Analysis ===" >&2
+    echo "=== Stage 2: Traffic Analysis ===" >&2
 fi
-echo "--- PHASE 2: TRAFFIC ANALYSIS ---" >> "$WORKFLOW_REPORT"
+echo "--- STAGE 2: TRAFFIC ANALYSIS ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
-log_info "Starting Phase 2: Traffic analysis"
+log_info "Starting Stage 2: Traffic analysis"
 
 echo "Analyzing captured traffic for VLANs and network information..." >&2
 
@@ -532,17 +540,19 @@ echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
 echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
-# Phase 3: Interface Configuration
-if command -v print_phase_header >/dev/null 2>&1; then
-    print_phase_header "PHASE 3: INTERFACE CONFIGURATION"
+# Stage 3: Interface Configuration
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 3/5: INTERFACE CONFIGURATION — VLAN interface setup" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "STAGE 3: INTERFACE CONFIGURATION"
 else
     echo >&2
-    echo "=== Phase 3: Interface Configuration ===" >&2
+    echo "=== Stage 3: Interface Configuration ===" >&2
 fi
-echo "--- PHASE 3: INTERFACE CONFIGURATION ---" >> "$WORKFLOW_REPORT"
+echo "--- STAGE 3: INTERFACE CONFIGURATION ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
-log_info "Starting Phase 3: Interface configuration"
+log_info "Starting Stage 3: Interface configuration"
 
 interfaces_configured=0
 
@@ -1014,17 +1024,19 @@ echo "  Consolidated report: $CONSOLIDATED_REPORT" >&2
 echo "  Team coordination: $SESSION_TEAM_HANDOFF_DIR/SESSION_TEAM_COORDINATION.txt" >&2
 }
 
-# Phase 4: Network Discovery
-if command -v print_phase_header >/dev/null 2>&1; then
-    print_phase_header "PHASE 4: NETWORK DISCOVERY"
+# Stage 4: Network Discovery
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4/5: NETWORK DISCOVERY — Multi-phase scan execution" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "STAGE 4: NETWORK DISCOVERY"
 else
     echo
-    echo "=== Phase 4: Network Discovery ==="
+    echo "=== Stage 4: Network Discovery ==="
 fi
-echo "--- PHASE 4: NETWORK DISCOVERY ---" >> "$WORKFLOW_REPORT"
+echo "--- STAGE 4: NETWORK DISCOVERY ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
-log_info "Starting Phase 4: Network discovery"
+log_info "Starting Stage 4: Network discovery"
 
 echo "Running network discovery on configured interfaces..." >&2
 discovery_script="$(dirname "$0")/../discovery/multi_phase_discovery.sh"
@@ -1052,14 +1064,16 @@ if [ -x "$discovery_script" ]; then
             echo ""
         } > "$SESSION_METADATA"
         
-        # Phase 4a: Network Collection
+        # Stage 4a: Network Collection
         # Collect all VLAN networks upfront before starting discoveries
-        if command -v print_phase_header >/dev/null 2>&1; then
-            print_phase_header "PHASE 4a: NETWORK COLLECTION" >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4a: NETWORK COLLECTION — Collecting discovery networks for all VLANs" "$COLOR_RESET"
+        elif command -v print_phase_header >/dev/null 2>&1; then
+            print_phase_header "STAGE 4a: NETWORK COLLECTION" >&2
             color_info "Collecting discovery networks for all VLANs..." >&2
         else
             echo >&2
-            echo "=== Phase 4a: Network Collection ===" >&2
+            echo "=== Stage 4a: Network Collection ===" >&2
             echo "Collecting discovery networks for all VLANs..." >&2
             echo >&2
         fi
@@ -1168,14 +1182,16 @@ if [ -x "$discovery_script" ]; then
             log_warn "No VLANs configured for discovery"
         fi
 
-        # Phase 4b: Network Discovery Execution
+        # Stage 4b: Network Discovery Execution
         # Execute discoveries using pre-collected network ranges
-        if command -v print_phase_header >/dev/null 2>&1; then
-            print_phase_header "PHASE 4b: NETWORK DISCOVERY EXECUTION" >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4b: NETWORK DISCOVERY EXECUTION — Running network discovery on configured VLANs" "$COLOR_RESET"
+        elif command -v print_phase_header >/dev/null 2>&1; then
+            print_phase_header "STAGE 4b: NETWORK DISCOVERY EXECUTION" >&2
             color_info "Running network discovery on configured VLANs..." >&2
         else
             echo >&2
-            echo "=== Phase 4b: Network Discovery Execution ===" >&2
+            echo "=== Stage 4b: Network Discovery Execution ===" >&2
             echo "Running network discovery on configured VLANs..." >&2
             echo >&2
         fi
@@ -1467,17 +1483,19 @@ fi
 echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
-# Phase 5: Advanced Analysis
-if command -v print_phase_header >/dev/null 2>&1; then
-    print_phase_header "PHASE 5: ADVANCED ANALYSIS"
+# Stage 5: Advanced Analysis
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 5/5: ADVANCED ANALYSIS — Packet analysis and reporting" "$COLOR_RESET"
+elif command -v print_phase_header >/dev/null 2>&1; then
+    print_phase_header "STAGE 5: ADVANCED ANALYSIS"
 else
     echo
-    echo "=== Phase 5: Advanced Analysis ==="
+    echo "=== Stage 5: Advanced Analysis ==="
 fi
-echo "--- PHASE 5: ADVANCED ANALYSIS ---" >> "$WORKFLOW_REPORT"
+echo "--- STAGE 5: ADVANCED ANALYSIS ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
-log_info "Starting Phase 5: Advanced analysis"
+log_info "Starting Stage 5: Advanced analysis"
 
 echo "Running advanced packet analysis..."
 analysis_script="$(dirname "$0")/../discovery/advanced_packet_analysis.sh"
@@ -1533,17 +1551,17 @@ fi
 # Final summary
 echo
 echo "=== Auto-Discovery Workflow Summary ==="
-echo "✓ Phase 1: Promiscuous capture completed ($capture_duration min)"
-echo "✓ Phase 2: Traffic analysis completed ($vlan_count VLANs discovered, $ip_count IPs)"
-echo "✓ Phase 3: Interface configuration completed (${selected_vlan_count:-0} VLANs selected, $interfaces_configured interfaces configured)"
-echo "✓ Phase 4: Network discovery completed"
+echo "✓ Stage 1: Promiscuous capture completed ($capture_duration min)"
+echo "✓ Stage 2: Traffic analysis completed ($vlan_count VLANs discovered, $ip_count IPs)"
+echo "✓ Stage 3: Interface configuration completed (${selected_vlan_count:-0} VLANs selected, $interfaces_configured interfaces configured)"
+echo "✓ Stage 4: Network discovery completed"
 if [ "$interfaces_configured" -gt 0 ]; then
     echo "   - VLAN-specific discovery results in: $DISCOVERY_DIR/"
     echo "   - Each VLAN has its own categorized host results"
 else
     echo "   - Standard single-network discovery completed"
 fi
-echo "✓ Phase 5: Advanced analysis completed"
+echo "✓ Stage 5: Advanced analysis completed"
 echo
 echo "Auto-discovery results organized by category:"
 echo "  Reports: $REPORT_SESSION_DIR/"
