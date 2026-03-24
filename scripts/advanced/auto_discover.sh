@@ -1731,16 +1731,12 @@ if [ -x "$discovery_script" ]; then
             exit 1
         fi
         
-        # Run discovery on selected network
-        echo >&2
-        echo "Starting network discovery on $discovery_network..."
-        
         # Create session-based discovery structure for main network
         DISCOVERY_DIR="$WORKDIR/discovery"
         SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery_${TIMESTAMP}"
         MAIN_NETWORK_DIR="$SESSION_DISCOVERY_DIR/main_network"
         mkdir -p "$MAIN_NETWORK_DIR"
-        
+
         # Create session metadata
         SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
         {
@@ -1753,16 +1749,33 @@ if [ -x "$discovery_script" ]; then
             echo "Session directory: $SESSION_DISCOVERY_DIR"
             echo ""
         } > "$SESSION_METADATA"
-        
+
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4: NETWORK DISCOVERY EXECUTION — Running network discovery on main interface" "$COLOR_RESET"
+        elif command -v print_phase_header >/dev/null 2>&1; then
+            print_phase_header "STAGE 4: NETWORK DISCOVERY EXECUTION" >&2
+            color_info "Running network discovery on $discovery_network..." >&2
+        else
+            echo >&2
+            echo "=== Stage 4: Network Discovery Execution ===" >&2
+            echo "Running network discovery on $discovery_network..." >&2
+            echo >&2
+        fi
+
+        emit_progress "Main network ($discovery_network)" "1" "1"
+
         # Set environment variables for multiphase script context
         export MANUAL_NETWORK_RANGE="$discovery_network"
         export AUTO_DISCOVERY_SESSION="true"
         export AUTO_DISCOVERY_MAIN_NETWORK="true"
         export AUTO_DISCOVERY_MAIN_DIR="$MAIN_NETWORK_DIR"
         export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
-        
-        "$discovery_script" "$target_interface" "1" > "$MAIN_NETWORK_DIR/discovery_output.txt" 2>&1
-        discovery_exit_code=$?
+
+        _disc_status=$(mktemp)
+        { "$discovery_script" "$target_interface" "1"; echo $? > "$_disc_status"; } 2>&1 | \
+            tee "$MAIN_NETWORK_DIR/discovery_output.txt"
+        discovery_exit_code=$(cat "$_disc_status" 2>/dev/null || echo 1)
+        rm -f "$_disc_status"
         
         # Clean up environment variables
         unset MANUAL_NETWORK_RANGE AUTO_DISCOVERY_SESSION AUTO_DISCOVERY_MAIN_NETWORK
