@@ -43,6 +43,7 @@ type OutputViewer struct {
 	following    bool // Auto-scroll to bottom
 	waitingInput bool // Script is waiting for user input
 	completed    bool // Script has finished execution
+	passwordMode bool // Input field is in masked password mode
 	mu           sync.RWMutex
 
 	// Channels
@@ -239,28 +240,41 @@ func (ov *OutputViewer) setupInputField() {
 
 // sendInputToScript sends user input to the running script
 func (ov *OutputViewer) sendInputToScript(input string) {
-	if ov.executor != nil {
-		err := ov.executor.SendInput(input)
-		if err != nil {
-			ov.addOutputLine(executor.OutputLine{
-				Content:   fmt.Sprintf("Error sending input: %v", err),
-				Timestamp: time.Now(),
-				Source:    "system",
-			})
-		} else {
-			// Show the sent input in the output
-			ov.addOutputLine(executor.OutputLine{
-				Content:   fmt.Sprintf("> %s", input),
-				Timestamp: time.Now(),
-				Source:    "input",
-			})
+	ov.mu.Lock()
+	isPassword := ov.passwordMode
+	ov.passwordMode = false
+	exec := ov.executor
+	ov.mu.Unlock()
 
-			// Update status to show input was sent (asynchronously)
-			ov.app.QueueUpdateDraw(func() {
-				ov.statusLine.SetText("[green]Input sent[::-] - Waiting for response | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
-			})
-		}
+	if exec == nil {
+		return
 	}
+
+	err := exec.SendInput(input)
+	if err != nil {
+		ov.addOutputLine(executor.OutputLine{
+			Content:   fmt.Sprintf("Error sending input: %v", err),
+			Timestamp: time.Now(),
+			Source:    "system",
+		})
+		return
+	}
+
+	if !isPassword {
+		// Only echo non-sensitive input back to the output window
+		ov.addOutputLine(executor.OutputLine{
+			Content:   fmt.Sprintf("> %s", input),
+			Timestamp: time.Now(),
+			Source:    "input",
+		})
+	}
+
+	ov.app.QueueUpdateDraw(func() {
+		if isPassword {
+			ov.inputField.SetMaskCharacter(0)
+		}
+		ov.statusLine.SetText("[green]Input sent[::-] - Waiting for response | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
+	})
 }
 
 // StartScript starts executing a script with real-time output
@@ -460,11 +474,22 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 
 	// Check if this looks like a prompt waiting for input
 	// BUT only auto-focus if this is output from script, not from user input
-	if ov.detectInputPrompt(stripANSI(line.Content)) && line.Source != "input" {
+	stripped := stripANSI(line.Content)
+	if ov.detectInputPrompt(stripped) && line.Source != "input" {
 		ov.waitingInput = true
 		ov.app.QueueUpdateDraw(func() {
 			ov.app.SetFocus(ov.inputField)
 			ov.statusLine.SetText("[yellow]Waiting for input[::-] - Enter selection + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
+		})
+	}
+
+	// Check if this is a password prompt — mask input and suppress echo
+	if ov.detectPasswordPrompt(stripped) && line.Source != "input" {
+		ov.passwordMode = true
+		ov.app.QueueUpdateDraw(func() {
+			ov.inputField.SetMaskCharacter('*')
+			ov.app.SetFocus(ov.inputField)
+			ov.statusLine.SetText("[yellow]Password input[::-] - Type password + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
 		})
 	}
 
@@ -529,6 +554,24 @@ func (ov *OutputViewer) detectInputPrompt(content string) bool {
 		}
 	}
 
+	return false
+}
+
+// detectPasswordPrompt returns true if the output line is asking for a password.
+func (ov *OutputViewer) detectPasswordPrompt(content string) bool {
+	lower := strings.ToLower(content)
+	patterns := []string{
+		"password:",
+		"password ",
+		"confirm password",
+		"enter password",
+		"passphrase:",
+	}
+	for _, p := range patterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
+	}
 	return false
 }
 
