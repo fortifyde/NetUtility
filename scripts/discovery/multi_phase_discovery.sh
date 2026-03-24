@@ -1358,27 +1358,29 @@ perform_udp_discovery() {
 perform_masscan_discovery() {
     target_networks="$1"
     output_file="$2"
+    scan_interface="${3:-}"
 
     echo "  Attempting high-speed discovery with masscan..." >> "$REPORT_FILE"
-    
+
     if ! command -v masscan >/dev/null 2>&1; then
         echo "    masscan not available, skipping high-speed discovery" >> "$REPORT_FILE"
         return
     fi
-    
+
     for network in $target_networks; do
         if [ -n "$network" ]; then
             echo "    Masscan sweep on $network..." >> "$REPORT_FILE"
 
             network_sanitized=$(echo "$network" | tr '/' '_')
             masscan_output="$PHASE2_DIR/raw_scans/masscan_discovery_${network_sanitized}_$$.txt"
-            
-            # High-speed scan of top ports
-            if masscan -p80,443,22,21,25,53,135,139,445 "$network" \
-                  --rate=1000 --open -oG "$masscan_output" >/dev/null 2>&1; then
 
-                # Extract hosts with open ports (IP is in 4th column of grepable output)
-                masscan_hosts=$(grep "open" "$masscan_output" 2>/dev/null | awk '{print $4}' | sort -u)
+            # High-speed scan of top ports; -oL list format: "open tcp PORT IP EPOCH"
+            if masscan -p80,443,22,21,25,53,135,139,445 "$network" \
+                  --rate=1000 --open -oL "$masscan_output" \
+                  ${scan_interface:+-e "$scan_interface"} >/dev/null 2>&1; then
+
+                # Extract hosts: $4 is the IP in -oL list format
+                masscan_hosts=$(grep "^open" "$masscan_output" 2>/dev/null | awk '{print $4}' | sort -u)
                 
                 if [ -n "$masscan_hosts" ]; then
                     echo "      Masscan discovered hosts:" >> "$REPORT_FILE"
@@ -2569,7 +2571,7 @@ echo >> "$REPORT_FILE"
 # Sub-phase 2.4: High-Speed Discovery (if masscan available)
 echo "  Sub-phase 2.4: High-speed discovery (masscan)..." >> "$REPORT_FILE"
 printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.4: High-speed scan (masscan)" "$COLOR_RESET"
-perform_masscan_discovery "$target_networks" "$PHASE2_DIR/masscan_hosts.txt"
+perform_masscan_discovery "$target_networks" "$PHASE2_DIR/masscan_hosts.txt" "$selected_interface"
 masscan_count=$(wc -l < "$PHASE2_DIR/masscan_hosts.txt")
 echo "  Sub-phase 2.4 complete: Found $masscan_count hosts via masscan." >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
