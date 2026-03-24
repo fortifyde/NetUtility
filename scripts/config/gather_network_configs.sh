@@ -273,16 +273,17 @@ exec_ssh_command() {
     terminal_cmd="${5:-}"
 
     if [ -n "$terminal_cmd" ]; then
-        full_cmd="$(printf '%s\n%s' "$terminal_cmd" "$command")"
+        full_cmd="$(printf '%s\n%s\nexit' "$terminal_cmd" "$command")"
     else
-        full_cmd="$command"
+        full_cmd="$(printf '%s\nexit' "$command")"
     fi
 
-    sshpass -p "$password" ssh -o ConnectTimeout=10 \
+    printf '%s\n' "$full_cmd" | sshpass -p "$password" ssh -T \
+        -o ConnectTimeout=10 \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o LogLevel=ERROR \
-        "$username@$device_ip" "$full_cmd" 2>/dev/null | clean_output
+        "$username@$device_ip" 2>/dev/null | clean_output
 }
 
 # Load command file for vendor
