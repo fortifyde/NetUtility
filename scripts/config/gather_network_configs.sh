@@ -46,6 +46,9 @@ CRED_MODE="common"
 CRED_FILE=""
 COMMON_USER=""
 COMMON_PASS=""
+COMMON_ENABLE=""
+LEGACY_SSH_MODE=0
+SSH_OPTS_FILE=""
 PROCESSED_COUNT=0
 SUCCESS_COUNT=0
 FAILURE_COUNT=0
@@ -172,6 +175,29 @@ clean_output() {
     grep -v '^[A-Za-z0-9._-]*[#>]$' || true
 }
 
+# Runs sshpass + ssh, inserting -F for legacy algorithm config when set
+run_sshpass() {
+    _rsp_pass="$1"
+    shift
+    if [ -n "$SSH_OPTS_FILE" ]; then
+        sshpass -p "$_rsp_pass" ssh -F "$SSH_OPTS_FILE" "$@"
+    else
+        sshpass -p "$_rsp_pass" ssh "$@"
+    fi
+}
+
+# Creates a temp SSH config enabling legacy algorithms for old devices
+setup_ssh_opts() {
+    [ "$LEGACY_SSH_MODE" != "1" ] && return 0
+    SSH_OPTS_FILE=$(mktemp)
+    cat > "$SSH_OPTS_FILE" << 'SSHEOF'
+KexAlgorithms +diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1
+HostKeyAlgorithms +ssh-rsa,ssh-dss
+Ciphers +aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc
+MACs +hmac-sha1,hmac-md5
+SSHEOF
+}
+
 # Try version detection commands in order with fallback
 try_version_command() {
     device_ip="$1"
@@ -180,7 +206,7 @@ try_version_command() {
 
     # Try commands in priority order
     for cmd in "show version" "display version" "show system" "show system information"; do
-        output=$(sshpass -p "$password" ssh -o ConnectTimeout=5 \
+        output=$(run_sshpass "$password" -o ConnectTimeout=5 \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o LogLevel=ERROR \
@@ -265,20 +291,20 @@ get_terminal_setup() {
 
 # Execute command on device via SSH
 # Optional 5th arg: terminal_cmd prepended in the same session to disable paging
+# Optional 6th arg: enable_pass to enter privileged EXEC mode before running commands
 exec_ssh_command() {
     device_ip="$1"
     username="$2"
     password="$3"
     command="$4"
     terminal_cmd="${5:-}"
+    enable_pass="${6:-}"
 
-    if [ -n "$terminal_cmd" ]; then
-        full_cmd="$(printf '%s\n%s\nexit' "$terminal_cmd" "$command")"
-    else
-        full_cmd="$(printf '%s\nexit' "$command")"
-    fi
-
-    printf '%s\n' "$full_cmd" | sshpass -p "$password" ssh -T \
+    {
+        [ -n "$enable_pass" ] && printf 'enable\n%s\n' "$enable_pass"
+        [ -n "$terminal_cmd" ] && printf '%s\n' "$terminal_cmd"
+        printf '%s\nexit\n' "$command"
+    } | run_sshpass "$password" -T \
         -o ConnectTimeout=10 \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
@@ -305,6 +331,7 @@ process_device() {
     device_ip="$1"
     username="$2"
     password="$3"
+    enable_pass="${4:-}"
     device_dir="${SESSION_DIR}/device_${device_ip}"
 
     mkdir -p "$device_dir"
@@ -317,20 +344,40 @@ process_device() {
     echo "Username: $username" >> "$log_file"
     echo "" >> "$log_file"
 
-    # Test connectivity
+    # Test connectivity (auto-detects legacy SSH need on negotiation failure)
     print_step "Connecting to $device_ip..."
 
-    if ! sshpass -p "$password" ssh -o ConnectTimeout=5 \
+    _ssh_err=$(mktemp)
+    if ! run_sshpass "$password" -o ConnectTimeout=5 \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o LogLevel=ERROR \
-        "$username@$device_ip" "exit" 2>/dev/null; then
+        "$username@$device_ip" "exit" 2>"$_ssh_err"; then
 
-        print_error "Failed to connect to $device_ip"
-        echo "$device_ip,connection_failed,Failed to establish SSH connection" >> "$FAILURES_FILE"
-        echo "FAILURE: Connection failed" >> "$log_file"
-        return 1
+        if grep -qi "no matching\|unable to negotiate\|key exchange\|host key" "$_ssh_err"; then
+            print_info "Legacy SSH required for $device_ip, retrying..."
+            LEGACY_SSH_MODE=1
+            setup_ssh_opts
+            if ! run_sshpass "$password" -o ConnectTimeout=5 \
+                -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                -o LogLevel=ERROR \
+                "$username@$device_ip" "exit" 2>/dev/null; then
+                rm -f "$_ssh_err"
+                print_error "Failed to connect to $device_ip (legacy SSH)"
+                echo "$device_ip,connection_failed,Failed to establish SSH connection (legacy)" >> "$FAILURES_FILE"
+                echo "FAILURE: Connection failed (legacy SSH)" >> "$log_file"
+                return 1
+            fi
+        else
+            rm -f "$_ssh_err"
+            print_error "Failed to connect to $device_ip"
+            echo "$device_ip,connection_failed,Failed to establish SSH connection" >> "$FAILURES_FILE"
+            echo "FAILURE: Connection failed" >> "$log_file"
+            return 1
+        fi
     fi
+    rm -f "$_ssh_err"
 
     echo "SUCCESS: Connection established" >> "$log_file"
 
@@ -396,7 +443,7 @@ process_device() {
             @RUNNING_CONFIG_ALL*)
                 cmd=$(echo "$line" | sed 's/@RUNNING_CONFIG_ALL //')
                 print_step "Executing: $cmd on $device_ip"
-                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" 2>&1)
+                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" 2>&1)
                 if [ -n "$output" ]; then
                     echo "$output" > "${device_dir}/running_config_all.txt"
                     print_success "Saved: running_config_all.txt"
@@ -409,7 +456,7 @@ process_device() {
             @RUNNING_CONFIG*)
                 cmd=$(echo "$line" | sed 's/@RUNNING_CONFIG //')
                 print_step "Executing: $cmd on $device_ip"
-                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" 2>&1)
+                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" 2>&1)
                 if [ -n "$output" ]; then
                     echo "$output" > "${device_dir}/running_config.txt"
                     print_success "Saved: running_config.txt"
@@ -422,7 +469,7 @@ process_device() {
             @STARTUP_CONFIG*)
                 cmd=$(echo "$line" | sed 's/@STARTUP_CONFIG //')
                 print_step "Executing: $cmd on $device_ip"
-                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" 2>&1)
+                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" 2>&1)
                 if [ -n "$output" ]; then
                     echo "$output" > "${device_dir}/startup_config.txt"
                     print_success "Saved: startup_config.txt"
@@ -578,6 +625,23 @@ offer_retry() {
             printf "Password: \n" >&2
         fi
         read -r new_pass
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnable (privileged) mode required? (y/n): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enable (privileged) mode required? (y/n): \n" >&2
+        fi
+        read -r need_enable
+        new_enable=""
+        if [ "$need_enable" = "y" ] || [ "$need_enable" = "Y" ]; then
+            echo >&2
+            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                printf "%sEnable password: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            else
+                printf "Enable password: \n" >&2
+            fi
+            read -r new_enable
+        fi
         echo "" >&2
 
         # Extract failed IPs
@@ -591,7 +655,7 @@ offer_retry() {
             [ -z "$ip" ] && continue
 
             print_step "Retrying $ip..."
-            if process_device "$ip" "$new_user" "$new_pass"; then
+            if process_device "$ip" "$new_user" "$new_pass" "$new_enable"; then
                 SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
                 FAILURE_COUNT=$((FAILURE_COUNT - 1))
             fi
@@ -675,6 +739,22 @@ main() {
             printf "Password: \n" >&2
         fi
         read -r COMMON_PASS
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnable (privileged) mode required? (y/n): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enable (privileged) mode required? (y/n): \n" >&2
+        fi
+        read -r need_enable
+        if [ "$need_enable" = "y" ] || [ "$need_enable" = "Y" ]; then
+            echo >&2
+            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                printf "%sEnable password: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            else
+                printf "Enable password: \n" >&2
+            fi
+            read -r COMMON_ENABLE
+        fi
         echo "" >&2
     fi
 
@@ -703,7 +783,11 @@ main() {
         result_file="${results_dir}/${ip}.result"
 
         (
-            if process_device "$ip" "$COMMON_USER" "$COMMON_PASS"; then
+            trap - EXIT INT TERM
+            LEGACY_SSH_MODE=0
+            SSH_OPTS_FILE=""
+            trap '[ -n "$SSH_OPTS_FILE" ] && rm -f "$SSH_OPTS_FILE"' EXIT
+            if process_device "$ip" "$COMMON_USER" "$COMMON_PASS" "$COMMON_ENABLE"; then
                 echo "success" > "$result_file"
             else
                 echo "failure" > "$result_file"
