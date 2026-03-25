@@ -192,7 +192,7 @@ setup_ssh_opts() {
     SSH_OPTS_FILE=$(mktemp)
     cat > "$SSH_OPTS_FILE" << 'SSHEOF'
 KexAlgorithms +diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1
-HostKeyAlgorithms +ssh-rsa,ssh-dss
+HostKeyAlgorithms +ssh-rsa
 Ciphers +aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc
 MACs +hmac-sha1,hmac-md5
 SSHEOF
@@ -351,8 +351,7 @@ process_device() {
     if ! run_sshpass "$password" -o ConnectTimeout=5 \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
-        -o LogLevel=ERROR \
-        "$username@$device_ip" "exit" 2>"$_ssh_err"; then
+        "$username@$device_ip" "exit" >"$_ssh_err" 2>&1; then
 
         if grep -qi "no matching\|unable to negotiate\|key exchange\|host key" "$_ssh_err"; then
             print_info "Legacy SSH required for $device_ip, retrying..."
@@ -362,7 +361,7 @@ process_device() {
                 -o StrictHostKeyChecking=no \
                 -o UserKnownHostsFile=/dev/null \
                 -o LogLevel=ERROR \
-                "$username@$device_ip" "exit" 2>/dev/null; then
+                "$username@$device_ip" "exit" >>"$log_file" 2>&1; then
                 rm -f "$_ssh_err"
                 print_error "Failed to connect to $device_ip (legacy SSH)"
                 echo "$device_ip,connection_failed,Failed to establish SSH connection (legacy)" >> "$FAILURES_FILE"
