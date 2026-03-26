@@ -166,19 +166,21 @@ init_session() {
 
 # Clean output - remove ANSI codes, pagination prompts, command echoes
 clean_output() {
-    # Remove all ANSI/VT100 escape sequences (colors, cursor movement, mode flags, etc.)
-    # The broader pattern [^A-Za-z]*[A-Za-z] covers sequences beyond just color codes,
-    # which is necessary when output comes from a PTY session.
     sed 's/\x1b\[[^A-Za-z]*[A-Za-z]//g' | \
-    # Remove carriage returns
     tr -d '\r' | \
-    # Remove pagination prompts
     grep -v -- '--More--' | grep -v -- '---- More ----' | \
-    # Remove "Press any key to continue" banner prompts
     grep -v -i 'press any key to continue' | \
-    # Remove bare prompt lines and echoed command lines from PTY sessions
     grep -v '^[A-Za-z0-9._-]*[#>]$' | \
     grep -v '^[A-Za-z0-9._-]*[#>] ' || true
+}
+
+# Like clean_output but keeps PTY command echoes (HOSTNAME# cmd) as command separators
+clean_output_compliance() {
+    sed 's/\x1b\[[^A-Za-z]*[A-Za-z]//g' | \
+    tr -d '\r' | \
+    grep -v -- '--More--' | grep -v -- '---- More ----' | \
+    grep -v -i 'press any key to continue' | \
+    grep -v '^[A-Za-z0-9._-]*[#>]$' || true
 }
 
 # Runs sshpass + ssh, inserting -F for legacy algorithm config when set
@@ -332,6 +334,7 @@ get_terminal_setup() {
 # Execute command on device via SSH
 # Optional 5th arg: terminal_cmd prepended in the same session to disable paging
 # Optional 6th arg: enable_pass to enter privileged EXEC mode before running commands
+# Optional 7th arg: "compliance" to use clean_output_compliance (keeps command echoes)
 exec_ssh_command() {
     device_ip="$1"
     username="$2"
@@ -342,6 +345,9 @@ exec_ssh_command() {
 
     _pty_flag="-T"
     [ "${SSH_REQUIRES_PTY:-0}" = "1" ] && _pty_flag="-tt"
+
+    _filter="clean_output"
+    [ "${7:-}" = "compliance" ] && _filter="clean_output_compliance"
 
     {
         printf '\n\n\n'
@@ -356,7 +362,7 @@ exec_ssh_command() {
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o LogLevel=ERROR \
-        "$username@$device_ip" 2>/dev/null | clean_output
+        "$username@$device_ip" 2>/dev/null | $_filter
 }
 
 # Load command file for vendor
@@ -548,7 +554,7 @@ process_device() {
 
     if [ -n "$compliance_bundle" ]; then
         print_step "Executing compliance commands on $device_ip (bundled session)..."
-        output=$(exec_ssh_command "$device_ip" "$username" "$password" "$compliance_bundle" "$terminal_cmd" 2>&1)
+        output=$(exec_ssh_command "$device_ip" "$username" "$password" "$compliance_bundle" "$terminal_cmd" "" "compliance" 2>&1)
         if [ -n "$output" ]; then
             echo "$output" >> "$compliance_file"
             print_success "Saved: compliance_commands.txt"
