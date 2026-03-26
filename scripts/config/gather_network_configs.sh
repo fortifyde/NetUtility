@@ -49,6 +49,7 @@ COMMON_PASS=""
 COMMON_ENABLE=""
 LEGACY_SSH_MODE=0
 SSH_OPTS_FILE=""
+SSH_REQUIRES_PTY=0
 PROCESSED_COUNT=0
 SUCCESS_COUNT=0
 FAILURE_COUNT=0
@@ -165,14 +166,19 @@ init_session() {
 
 # Clean output - remove ANSI codes, pagination prompts, command echoes
 clean_output() {
-    # Remove ANSI escape sequences
-    sed 's/\x1b\[[0-9;]*m//g' | \
+    # Remove all ANSI/VT100 escape sequences (colors, cursor movement, mode flags, etc.)
+    # The broader pattern [^A-Za-z]*[A-Za-z] covers sequences beyond just color codes,
+    # which is necessary when output comes from a PTY session.
+    sed 's/\x1b\[[^A-Za-z]*[A-Za-z]//g' | \
     # Remove carriage returns
     tr -d '\r' | \
     # Remove pagination prompts
     grep -v -- '--More--' | grep -v -- '---- More ----' | \
-    # Remove lines with only prompts
-    grep -v '^[A-Za-z0-9._-]*[#>]$' || true
+    # Remove "Press any key to continue" banner prompts
+    grep -v -i 'press any key to continue' | \
+    # Remove bare prompt lines and echoed command lines from PTY sessions
+    grep -v '^[A-Za-z0-9._-]*[#>]$' | \
+    grep -v '^[A-Za-z0-9._-]*[#>] ' || true
 }
 
 # Runs sshpass + ssh, inserting -F for legacy algorithm config when set
@@ -204,15 +210,39 @@ try_version_command() {
     username="$2"
     password="$3"
 
-    # Try commands in priority order
+    # Try exec channel first (Cisco IOS, Comware, Aruba CX, etc.).
+    # Pipe a leading newline so any "Press any key to continue" banner
+    # has a character to consume before the exec command runs.
     for cmd in "show version" "display version" "show system" "show system information"; do
-        output=$(run_sshpass "$password" -o ConnectTimeout=5 \
+        output=$(printf '\n' | run_sshpass "$password" \
+            -o ConnectTimeout=10 \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o LogLevel=ERROR \
             "$username@$device_ip" "$cmd" 2>/dev/null | clean_output)
 
-        if [ -n "$output" ] && [ "$(echo "$output" | wc -l)" -gt 2 ]; then
+        if echo "$output" | grep -qi "command execution is not supported"; then
+            break
+        fi
+        if [ -n "$output" ] && ! echo "$output" | grep -qi "invalid input\|unknown command\|% Invalid\|syntax error"; then
+            echo "$output"
+            return 0
+        fi
+    done
+
+    # Exec channel unsupported or all exec attempts failed.
+    # Fall back to interactive shell with PTY (required by e.g. HP Aruba ArubaOS-Switch).
+    # Signal to the caller via flag file so exec_ssh_command uses PTY for this device too.
+    [ -n "${4:-}" ] && echo "1" > "$4"
+    for cmd in "show version" "display version" "show system" "show system information"; do
+        output=$({ printf '\n%s\nexit\n' "$cmd"; sleep 3; } | run_sshpass "$password" -t \
+            -o ConnectTimeout=15 \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o LogLevel=ERROR \
+            "$username@$device_ip" 2>/dev/null | clean_output)
+
+        if [ -n "$output" ] && ! echo "$output" | grep -qi "invalid input\|unknown command\|% Invalid\|syntax error"; then
             echo "$output"
             return 0
         fi
@@ -243,21 +273,31 @@ detect_vendor() {
         return 0
     fi
 
-    # HP ProVision
-    if echo "$version_output" | grep -qi "ProVision\|HP J\|Image stamp"; then
-        echo "hp_provision"
-        return 0
-    fi
-
     # HP Aruba CX
     if echo "$version_output" | grep -qi "ArubaOS-CX"; then
         echo "aruba_cx"
         return 0
     fi
 
-    # HP Aruba Switch
+    # HP Aruba Switch (ArubaOS-Switch / ProVision-based)
+    # Matches explicit branding OR the two-letter firmware prefix unique to ArubaOS-Switch
+    # (YA=2530, WC=2930F/M, WB=2920, KB/KA=2620, RA=5400R, etc.) OR J-series model numbers
     if echo "$version_output" | grep -qi "ArubaOS-Switch\|Aruba"; then
         echo "aruba_switch"
+        return 0
+    fi
+    if echo "$version_output" | grep -q "[A-Z][A-Z]\.[0-9][0-9]\.[0-9]"; then
+        echo "aruba_switch"
+        return 0
+    fi
+    if echo "$version_output" | grep -q "J[0-9][0-9][0-9][0-9]"; then
+        echo "aruba_switch"
+        return 0
+    fi
+
+    # HP ProVision (older pre-Aruba firmware without two-letter version prefix)
+    if echo "$version_output" | grep -qi "ProVision\|Image stamp"; then
+        echo "hp_provision"
         return 0
     fi
 
@@ -300,11 +340,18 @@ exec_ssh_command() {
     terminal_cmd="${5:-}"
     enable_pass="${6:-}"
 
+    _pty_flag="-T"
+    [ "${SSH_REQUIRES_PTY:-0}" = "1" ] && _pty_flag="-tt"
+
     {
+        printf '\n\n\n'
         [ -n "$enable_pass" ] && printf 'enable\n%s\n' "$enable_pass"
         [ -n "$terminal_cmd" ] && printf '%s\n' "$terminal_cmd"
         printf '%s\nexit\n' "$command"
-    } | run_sshpass "$password" -T \
+        # PTY sessions (e.g. HP Aruba): sshpass forwards stdin EOF to SSH before the
+        # switch processes commands. Keep the pipe open so commands execute before EOF.
+        [ "$_pty_flag" = "-tt" ] && sleep 3
+    } | run_sshpass "$password" "$_pty_flag" \
         -o ConnectTimeout=10 \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
@@ -380,9 +427,14 @@ process_device() {
 
     echo "SUCCESS: Connection established" >> "$log_file"
 
-    # Get version output with fallbacks
+    # Get version output with fallbacks.
+    # Pass a temp file so try_version_command can signal when PTY is required.
     print_step "Detecting vendor for $device_ip..."
-    version_output=$(try_version_command "$device_ip" "$username" "$password")
+    _pty_flag=$(mktemp)
+    echo "0" > "$_pty_flag"
+    version_output=$(try_version_command "$device_ip" "$username" "$password" "$_pty_flag")
+    SSH_REQUIRES_PTY=$(cat "$_pty_flag")
+    rm -f "$_pty_flag"
 
     if [ -z "$version_output" ]; then
         print_error "Failed to get version info from $device_ip"
@@ -785,6 +837,7 @@ main() {
             trap - EXIT INT TERM
             LEGACY_SSH_MODE=0
             SSH_OPTS_FILE=""
+            SSH_REQUIRES_PTY=0
             trap '[ -n "$SSH_OPTS_FILE" ] && rm -f "$SSH_OPTS_FILE"' EXIT
             if process_device "$ip" "$COMMON_USER" "$COMMON_PASS" "$COMMON_ENABLE"; then
                 echo "success" > "$result_file"
