@@ -7,8 +7,10 @@
 
 # Configuration files
 @RUNNING_CONFIG show running-config
-@RUNNING_CONFIG_ALL show config
-@STARTUP_CONFIG show config status
+@STARTUP_CONFIG show config
+
+# Running vs startup diff
+show config status
 
 # System information
 show system
