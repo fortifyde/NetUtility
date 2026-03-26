@@ -145,19 +145,6 @@ func (jv *JobsViewer) setupKeyBindings() {
 		}
 	})
 
-	// Add mouse support to jobs table
-	jv.jobsList.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftClick {
-			// Get click position relative to table
-			_, y := event.Position()
-			// Approximate row calculation (y-1 to account for border, assuming each row is 1 line)
-			row := y
-			if row > 0 && row < jv.jobsList.GetRowCount() {
-				jv.jobsList.Select(row, 0)
-			}
-		}
-		return action, event
-	})
 }
 
 // updateJobsList refreshes the jobs table
@@ -308,7 +295,8 @@ func (jv *JobsViewer) getJobProgress(job *jobs.Job) string {
 	}
 }
 
-// viewJobOutput opens the output viewer for the selected job
+// viewJobOutput opens the output viewer for the selected job.
+// For running jobs it attaches live; for finished jobs it shows the stored output.
 func (jv *JobsViewer) viewJobOutput() {
 	if jv.selectedJob == "" {
 		return
@@ -320,21 +308,26 @@ func (jv *JobsViewer) viewJobOutput() {
 		return
 	}
 
-	if !job.IsRunning() {
-		jv.showError("Job is not running - no live output available")
-		return
+	outputViewer := NewOutputViewer(jv.app, jv.pages, jv.jobManager, func() {
+		jv.pages.RemovePage("job-output")
+		jv.app.SetFocus(jv.jobsList)
+	})
+
+	if job.IsRunning() {
+		if err := outputViewer.ConnectToJob(job); err != nil {
+			jv.showError(fmt.Sprintf("Failed to connect to job: %v", err))
+			return
+		}
+	} else {
+		// Show stored output for completed/failed/cancelled jobs
+		lines := job.GetOutputLines()
+		if len(lines) == 0 {
+			jv.showError("No output captured for this job")
+			return
+		}
+		outputViewer.ShowHistoricalOutput(job.Name, job.GetStatus(), lines)
 	}
 
-	// Create output viewer for the job
-	outputViewer := NewOutputViewer(jv.app, jv.pages, jv.jobManager, jv.returnToMainCallback)
-
-	// Connect to the existing job
-	if err := outputViewer.ConnectToJob(job); err != nil {
-		jv.showError(fmt.Sprintf("Failed to connect to job: %v", err))
-		return
-	}
-
-	// Add to pages and focus
 	jv.pages.AddPage("job-output", outputViewer, true, true)
 	jv.app.SetFocus(outputViewer)
 }
@@ -363,7 +356,7 @@ func (jv *JobsViewer) clearCompletedJobs() {
 
 // setMaxConcurrent sets the maximum number of concurrent jobs
 func (jv *JobsViewer) setMaxConcurrent(max int) {
-	// This would require adding a method to JobManager
+	jv.jobManager.SetMaxConcurrent(max)
 	jv.showInfo(fmt.Sprintf("Max concurrent jobs set to %d", max))
 }
 
@@ -393,13 +386,24 @@ func (jv *JobsViewer) startRefreshTimer() {
 	}()
 }
 
-// Close closes the jobs viewer
+// ShowJobsViewer creates and displays a new jobs viewer page.
+// For the main TUI use showJobsManager() which reuses a cached instance.
+func ShowJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager, returnToMainCallback func()) {
+	jv := NewJobsViewer(app, pages, jobManager, returnToMainCallback)
+	pages.AddPage("jobs", jv, true, true)
+	app.SetFocus(jv.jobsList)
+}
+
+// Close closes the jobs viewer and stops its refresh ticker.
 func (jv *JobsViewer) Close() {
 	if jv.refreshTicker != nil {
 		jv.refreshTicker.Stop()
 	}
 	close(jv.stopChan)
 	jv.pages.RemovePage("jobs")
+	if jv.returnToMainCallback != nil {
+		jv.returnToMainCallback()
+	}
 }
 
 // showError displays an error message
@@ -424,11 +428,4 @@ func (jv *JobsViewer) showInfo(message string) {
 		})
 
 	jv.pages.AddPage("info", modal, true, true)
-}
-
-// Helper function to create a jobs viewer page
-func ShowJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager, returnToMainCallback func()) {
-	jobsViewer := NewJobsViewer(app, pages, jobManager, returnToMainCallback)
-	pages.AddPage("jobs", jobsViewer, true, true)
-	app.SetFocus(jobsViewer.jobsList)
 }

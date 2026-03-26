@@ -131,22 +131,33 @@ func (jm *JobManager) monitorJob(job *Job) {
 	job.Executor.Wait()
 
 	job.mu.Lock()
-	job.EndTime = time.Now()
-	job.Duration = job.EndTime.Sub(job.StartTime)
+	// If CancelJob already set the status to cancelled, do not overwrite it
+	// and do not decrement runningCount (CancelJob already did that).
+	wasCancelled := job.Status == JobStatusCancelled
+	if !wasCancelled {
+		job.EndTime = time.Now()
+		job.Duration = job.EndTime.Sub(job.StartTime)
 
-	// Update status based on result
-	if job.Result != nil {
-		if job.Result.Success {
-			job.Status = JobStatusCompleted
+		// Update status based on result
+		if job.Result != nil {
+			if job.Result.Success {
+				job.Status = JobStatusCompleted
+			} else {
+				job.Status = JobStatusFailed
+				job.Error = job.Result.Error
+			}
 		} else {
 			job.Status = JobStatusFailed
-			job.Error = job.Result.Error
+			job.Error = fmt.Errorf("job execution failed - no result")
 		}
-	} else {
-		job.Status = JobStatusFailed
-		job.Error = fmt.Errorf("job execution failed - no result")
 	}
 	job.mu.Unlock()
+
+	if wasCancelled {
+		// runningCount was already decremented by CancelJob; just fill vacant slots.
+		jm.AutoStartJobs()
+		return
+	}
 
 	// Update manager state
 	jm.mu.Lock()
@@ -165,6 +176,9 @@ func (jm *JobManager) monitorJob(job *Job) {
 		default:
 		}
 	}
+
+	// Start any pending jobs that were waiting for this slot
+	jm.AutoStartJobs()
 }
 
 // CancelJob cancels a running job
@@ -204,6 +218,9 @@ func (jm *JobManager) CancelJob(jobID string) error {
 	jm.mu.Lock()
 	jm.runningCount--
 	jm.mu.Unlock()
+
+	// Start any pending jobs that were waiting for this slot
+	jm.AutoStartJobs()
 
 	return nil
 }
@@ -353,6 +370,18 @@ func (jm *JobManager) CanStartNewJob() bool {
 	return jm.runningCount < jm.maxConcurrent
 }
 
+// SetMaxConcurrent updates the maximum number of concurrent jobs.
+func (jm *JobManager) SetMaxConcurrent(n int) {
+	if n <= 0 {
+		return
+	}
+	jm.mu.Lock()
+	jm.maxConcurrent = n
+	jm.mu.Unlock()
+	// Fill any newly available slots
+	jm.AutoStartJobs()
+}
+
 // GetNextPendingJob returns the next pending job that can be started
 func (jm *JobManager) GetNextPendingJob() *Job {
 	jm.mu.RLock()
@@ -487,18 +516,14 @@ func (j *Job) IsCompleted() bool {
 	return status == JobStatusCompleted || status == JobStatusFailed || status == JobStatusCancelled
 }
 
-// GetOutputLines safely returns a copy of the output lines
-// This is thread-safe and protects against concurrent access from readOutput goroutine
+// GetOutputLines safely returns a copy of the output lines.
 func (j *Job) GetOutputLines() []executor.OutputLine {
 	j.mu.RLock()
-	defer j.mu.RUnlock()
+	result := j.Result
+	j.mu.RUnlock()
 
-	if j.Result == nil || len(j.Result.OutputLines) == 0 {
+	if result == nil {
 		return nil
 	}
-
-	// Return a copy to avoid race conditions
-	lines := make([]executor.OutputLine, len(j.Result.OutputLines))
-	copy(lines, j.Result.OutputLines)
-	return lines
+	return result.GetOutputLines()
 }

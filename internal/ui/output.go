@@ -361,6 +361,21 @@ func (ov *OutputViewer) ConnectToJob(job *jobs.Job) error {
 		ov.outputLines = make([]executor.OutputLine, 0)
 	}
 
+	// Drain channel backlog — every line in the channel is already captured in
+	// historicalLines (readOutput calls result.AppendLine before the channel send),
+	// so draining is safe and prevents duplicates when processOutput starts.
+drainLoop:
+	for {
+		select {
+		case _, ok := <-ov.outputChan:
+			if !ok {
+				break drainLoop
+			}
+		default:
+			break drainLoop
+		}
+	}
+
 	// Set initial title with job count
 	ov.updateTitle(job.ScriptPath, "Running")
 
@@ -459,12 +474,7 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 	ov.mu.Lock()
 	defer ov.mu.Unlock()
 
-	// Skip if paused
-	if ov.paused {
-		return
-	}
-
-	// Add to internal storage
+	// Always store — pausing only suppresses the redraw, not the data.
 	ov.outputLines = append(ov.outputLines, line)
 
 	// Limit number of lines
@@ -475,7 +485,7 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 	// Check if this looks like a prompt waiting for input
 	// BUT only auto-focus if this is output from script, not from user input
 	stripped := stripANSI(line.Content)
-	if ov.detectInputPrompt(stripped) && line.Source != "input" {
+	if !ov.paused && ov.detectInputPrompt(stripped) && line.Source != "input" {
 		ov.waitingInput = true
 		ov.app.QueueUpdateDraw(func() {
 			ov.app.SetFocus(ov.inputField)
@@ -484,7 +494,7 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 	}
 
 	// Check if this is a password prompt — mask input and suppress echo
-	if ov.detectPasswordPrompt(stripped) && line.Source != "input" {
+	if !ov.paused && ov.detectPasswordPrompt(stripped) && line.Source != "input" {
 		ov.passwordMode = true
 		ov.app.QueueUpdateDraw(func() {
 			ov.inputField.SetMaskCharacter('*')
@@ -493,10 +503,12 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 		})
 	}
 
-	// Update display
-	ov.app.QueueUpdateDraw(func() {
-		ov.updateDisplay()
-	})
+	// Only update the display when not paused
+	if !ov.paused {
+		ov.app.QueueUpdateDraw(func() {
+			ov.updateDisplay()
+		})
+	}
 }
 
 var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
@@ -505,13 +517,20 @@ func stripANSI(s string) string {
 	return ansiEscape.ReplaceAllString(s, "")
 }
 
-// detectInputPrompt analyzes output to determine if script is waiting for input
+// ipPattern matches IP-address-like strings (e.g. "192.168.1.1") to exclude
+// them from the colon-suffix heuristic.
+var ipPattern = regexp.MustCompile(`\d+\.\d+`)
+
+// detectInputPrompt analyzes output to determine if script is waiting for input.
+// Uses three tiers:
+//  1. Explicit phrase list — high confidence, no false positives.
+//  2. Confirm-bracket patterns — [Y/n], (y/N), etc.
+//  3. Colon-suffix heuristic — short lines ending in ": " that look like prompts.
 func (ov *OutputViewer) detectInputPrompt(content string) bool {
-	// Convert to lowercase for case-insensitive matching
 	lower := strings.ToLower(content)
 
-	// Common input prompt patterns
-	prompts := []string{
+	// Tier 1: explicit interactive-prompt phrases
+	phrases := []string{
 		"enter selection",
 		"choose option",
 		"select option",
@@ -522,36 +541,36 @@ func (ov *OutputViewer) detectInputPrompt(content string) bool {
 		"your choice",
 		"enter your",
 		"type your",
-		"input:",
-		"selection:",
-		"choice:",
-		"option:",
+		// Default-value pattern: scripts show "(1-3, default: eth0)" when prompting
+		"(default:",
+		", default:",
 	}
-
-	// Check for explicit prompt patterns
-	for _, prompt := range prompts {
-		if strings.Contains(lower, prompt) {
+	for _, p := range phrases {
+		if strings.Contains(lower, p) {
 			return true
 		}
 	}
 
-	// Check for numbered menu options (like "1. Option", "2. Option")
-	if strings.Contains(content, "1.") && strings.Contains(content, "2.") {
-		return true
+	// Tier 2: confirmation bracket patterns
+	confirmPatterns := []string{
+		"[y/n]", "[y/N]", "[Y/n]", "[n/y]", "[n/Y]", "[N/y]",
+		"(y/n)", "(y/N)", "(Y/n)", "(n/y)",
+	}
+	for _, p := range confirmPatterns {
+		if strings.Contains(content, p) {
+			return true
+		}
 	}
 
-	// Check if line looks like a menu option
+	// Tier 3: colon-suffix heuristic — short lines that look like "Prompt: "
+	// Exclude separator lines (===, ---) and lines with IP addresses.
 	trimmed := strings.TrimSpace(content)
-	if len(trimmed) > 3 && trimmed[1] == '.' && trimmed[0] >= '1' && trimmed[0] <= '9' {
+	if len(trimmed) <= 40 &&
+		(strings.HasSuffix(trimmed, ":") || strings.HasSuffix(trimmed, ": ")) &&
+		!strings.Contains(trimmed, "===") &&
+		!strings.Contains(trimmed, "---") &&
+		!ipPattern.MatchString(trimmed) {
 		return true
-	}
-
-	// Check for lines that end with colon (often prompts)
-	if strings.HasSuffix(trimmed, ":") && len(trimmed) < 50 {
-		// But avoid false positives like timestamps
-		if !strings.Contains(lower, "===") && !strings.Contains(lower, "---") {
-			return true
-		}
 	}
 
 	return false
@@ -642,6 +661,28 @@ func (ov *OutputViewer) formatLines(lines []executor.OutputLine) string {
 	return content.String()
 }
 
+// ShowHistoricalOutput populates the viewer with stored output from a finished job.
+func (ov *OutputViewer) ShowHistoricalOutput(jobName string, status jobs.JobStatus, lines []executor.OutputLine) {
+	ov.mu.Lock()
+	ov.outputLines = append(ov.outputLines, lines...)
+	if len(ov.outputLines) > ov.maxLines {
+		ov.outputLines = ov.outputLines[len(ov.outputLines)-ov.maxLines:]
+	}
+	ov.completed = true
+	ov.mu.Unlock()
+
+	statusColor := "green"
+	if status == jobs.JobStatusFailed {
+		statusColor = "red"
+	}
+
+	ov.SetTitle(fmt.Sprintf("Output - %s [%s]", jobName, string(status)))
+	ov.app.QueueUpdateDraw(func() {
+		ov.updateDisplay()
+		ov.statusLine.SetText(fmt.Sprintf("[%s]%s - read-only[::-] | Esc=Close | Enter=Close", statusColor, string(status)))
+	})
+}
+
 // Stop stops the script execution
 func (ov *OutputViewer) Stop() {
 	ov.mu.Lock()
@@ -666,22 +707,25 @@ func (ov *OutputViewer) Stop() {
 // TogglePause toggles pause/resume of output display
 func (ov *OutputViewer) TogglePause() {
 	ov.mu.Lock()
-	defer ov.mu.Unlock()
-
 	ov.paused = !ov.paused
+	resuming := !ov.paused
+	ov.mu.Unlock()
 
 	status := "Running"
-	if ov.paused {
+	if !resuming {
 		status = "Paused"
 	}
 
 	ov.app.QueueUpdateDraw(func() {
 		currentTitle := ov.GetTitle()
-		// Update title to show pause status
 		if strings.Contains(currentTitle, "[") {
 			parts := strings.Split(currentTitle, "[")
 			newTitle := fmt.Sprintf("%s[%s]", parts[0], status)
 			ov.SetTitle(newTitle)
+		}
+		// Flush buffered output that arrived while paused
+		if resuming {
+			ov.updateDisplay()
 		}
 	})
 }
@@ -716,54 +760,44 @@ func (ov *OutputViewer) ToggleSource() {
 	})
 }
 
-// StartSearch opens a search dialog
+// StartSearch opens a search input box.
 func (ov *OutputViewer) StartSearch() {
 	var searchInput *tview.InputField
 
+	close := func() {
+		ov.pages.RemovePage("search")
+		ov.app.SetFocus(ov)
+	}
+
 	searchInput = tview.NewInputField().
-		SetLabel("Search: ").
-		SetFieldWidth(30).
+		SetLabel("Search (Esc=clear, Enter=apply): ").
+		SetFieldWidth(0).
+		SetText(ov.searchQuery).
 		SetDoneFunc(func(key tcell.Key) {
-			if key == tcell.KeyEnter {
-				query := searchInput.GetText()
-				ov.SetSearchQuery(query)
-			}
-			ov.pages.RemovePage("search")
-			ov.app.SetFocus(ov)
-		})
-
-	// Add input capture for escape key only
-	searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyEscape:
-			ov.pages.RemovePage("search")
-			ov.app.SetFocus(ov)
-			return nil
-		}
-		// Let all other keys pass through
-		return event
-	})
-
-	modal := tview.NewModal().
-		SetText("Enter search query:").
-		AddButtons([]string{"Search", "Clear", "Cancel"}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			switch buttonLabel {
-			case "Search":
-				query := searchInput.GetText()
-				ov.SetSearchQuery(query)
-			case "Clear":
+			switch key {
+			case tcell.KeyEnter:
+				ov.SetSearchQuery(searchInput.GetText())
+				close()
+			case tcell.KeyEscape:
 				ov.SetSearchQuery("")
+				close()
 			}
-			ov.pages.RemovePage("search")
-			ov.app.SetFocus(ov)
 		})
 
-	flex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(modal, 3, 0, false).
-		AddItem(searchInput, 1, 0, true)
+	box := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).
+		AddItem(
+			tview.NewFlex().SetDirection(tview.FlexColumn).
+				AddItem(nil, 0, 1, false).
+				AddItem(searchInput, 50, 0, true).
+				AddItem(nil, 0, 1, false),
+			3, 0, true,
+		).
+		AddItem(nil, 0, 1, false)
 
-	ov.pages.AddPage("search", flex, true, true)
+	searchInput.SetBorder(true).SetTitle("Search Output")
+
+	ov.pages.AddPage("search", box, true, true)
 	ov.app.SetFocus(searchInput)
 }
 

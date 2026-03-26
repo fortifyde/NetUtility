@@ -11,7 +11,6 @@ import (
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 	"netutil/internal/correlation"
-	"netutil/internal/executor"
 	"netutil/internal/jobs"
 	"netutil/internal/metadata"
 )
@@ -33,10 +32,10 @@ type TUI struct {
 
 	// State management
 	currentCategory string
-	executor        *executor.Executor
 	registry        *metadata.ScriptRegistry
 	jobManager      *jobs.JobManager
 	correlator      *correlation.Correlator
+	jobsViewer      *JobsViewer // cached to prevent ticker goroutine leaks
 
 	mu sync.RWMutex
 }
@@ -63,7 +62,9 @@ func (t *TUI) getCategories() []Category {
 	return t.getHardcodedCategories()
 }
 
-// getCategoriesFromMetadata builds categories from the metadata registry
+// getCategoriesFromMetadata builds categories from the metadata registry.
+// Task.Script is set to the fully-resolved script path so executeTask needs
+// no further registry lookups.
 func (t *TUI) getCategoriesFromMetadata() []Category {
 	var categories []Category
 
@@ -80,13 +81,12 @@ func (t *TUI) getCategoriesFromMetadata() []Category {
 			tasks = append(tasks, Task{
 				Name:        script.Script.Name,
 				Description: script.Script.Description,
-				Script:      script.Script.File,
+				Script:      t.registry.GetScriptPath(script),
 			})
 		}
 
 		// Only add category if it has tasks
 		if len(tasks) > 0 {
-			// Format category name for display
 			displayName := t.formatCategoryName(categoryName)
 			categories = append(categories, Category{
 				Name:  displayName,
@@ -114,56 +114,59 @@ func (t *TUI) formatCategoryName(category string) string {
 	case "config":
 		return "Configuration Gathering"
 	default:
-		// Capitalize first letter
 		if len(category) > 0 {
-			return string(category[0]-32) + category[1:]
+			return strings.ToUpper(category[:1]) + category[1:]
 		}
 		return category
 	}
 }
 
-// getHardcodedCategories returns the original hardcoded categories as fallback
+// getHardcodedCategories returns the original hardcoded categories as fallback.
+// Script paths are relative to the working directory.
 func (t *TUI) getHardcodedCategories() []Category {
+	s := func(folder, file string) string {
+		return filepath.Join("scripts", folder, file)
+	}
 	return []Category{
 		{
 			Name: "System Configuration",
 			Tasks: []Task{
-				{Name: "Select Working Directory", Description: "Choose working directory for operations", Script: "select_workdir.sh"},
-				{Name: "Network Interfaces", Description: "View and toggle network interfaces", Script: "network_interfaces.sh"},
-				{Name: "Configure IP Addresses", Description: "Set IP addresses on interfaces", Script: "configure_ip.sh"},
-				{Name: "Add VLAN Interfaces", Description: "Create VLAN subinterfaces", Script: "add_vlan.sh"},
-				{Name: "Configure Routes", Description: "View and configure IP routes", Script: "configure_routes.sh"},
-				{Name: "Configure Nameservers", Description: "Set DNS nameservers", Script: "configure_dns.sh"},
-				{Name: "Backup Configuration", Description: "Backup current network configuration", Script: "backup_config.sh"},
-				{Name: "Restore Configuration", Description: "Restore network configuration from backup", Script: "restore_config.sh"},
+				{Name: "Select Working Directory", Description: "Choose working directory for operations", Script: s("system", "select_workdir.sh")},
+				{Name: "Network Interfaces", Description: "View and toggle network interfaces", Script: s("system", "network_interfaces.sh")},
+				{Name: "Configure IP Addresses", Description: "Set IP addresses on interfaces", Script: s("system", "configure_ip.sh")},
+				{Name: "Add VLAN Interfaces", Description: "Create VLAN subinterfaces", Script: s("system", "add_vlan.sh")},
+				{Name: "Configure Routes", Description: "View and configure IP routes", Script: s("system", "configure_routes.sh")},
+				{Name: "Configure Nameservers", Description: "Set DNS nameservers", Script: s("system", "configure_dns.sh")},
+				{Name: "Backup Configuration", Description: "Backup current network configuration", Script: s("system", "backup_config.sh")},
+				{Name: "Restore Configuration", Description: "Restore network configuration from backup", Script: s("system", "restore_config.sh")},
 			},
 		},
 		{
 			Name: "Network Reconnaissance",
 			Tasks: []Task{
-				{Name: "Network Capture", Description: "Capture network traffic with integrated security analysis and unsafe protocol detection", Script: "network_capture.sh"},
-				{Name: "Extract VLAN IDs", Description: "Extract VLAN IDs from capture files", Script: "extract_vlans.sh"},
-				{Name: "Multi-Phase Discovery", Description: "Comprehensive network discovery with host categorization", Script: "multi_phase_discovery.sh"},
-				{Name: "Host Categorization", Description: "Categorize discovered hosts by OS", Script: "categorize_hosts.sh"},
+				{Name: "Network Capture", Description: "Capture network traffic with integrated security analysis and unsafe protocol detection", Script: s("network", "network_capture.sh")},
+				{Name: "Extract VLAN IDs", Description: "Extract VLAN IDs from capture files", Script: s("network", "extract_vlans.sh")},
+				{Name: "Multi-Phase Discovery", Description: "Comprehensive network discovery with host categorization", Script: s("network", "multi_phase_discovery.sh")},
+				{Name: "Host Categorization", Description: "Categorize discovered hosts by OS", Script: s("network", "categorize_hosts.sh")},
 			},
 		},
 		{
 			Name: "Detailed Port Scan",
 			Tasks: []Task{
-				{Name: "Deep Scan with NSE", Description: "Full port scan with service detection and NSE vulnerability scripts", Script: "deep_nse_scan.sh"},
-				{Name: "Vulnerability Analysis", Description: "Analyze results for known vulnerabilities", Script: "vuln_analysis.sh"},
+				{Name: "Deep Scan with NSE", Description: "Full port scan with service detection and NSE vulnerability scripts", Script: s("scanning", "deep_nse_scan.sh")},
+				{Name: "Vulnerability Analysis", Description: "Analyze results for known vulnerabilities", Script: s("scanning", "vuln_analysis.sh")},
 			},
 		},
 		{
 			Name: "Advanced",
 			Tasks: []Task{
-				{Name: "Integrated Workflow", Description: "Comprehensive workflow: capture, analysis, interface config, and discovery", Script: "integrated_workflow.sh"},
+				{Name: "Integrated Workflow", Description: "Comprehensive workflow: capture, analysis, interface config, and discovery", Script: s("network", "integrated_workflow.sh")},
 			},
 		},
 		{
 			Name: "Network Config Gatherer",
 			Tasks: []Task{
-				{Name: "Device Configuration Gathering", Description: "SSH to device, detect vendor, and gather configuration", Script: "device_config.sh"},
+				{Name: "Device Configuration Gathering", Description: "SSH to device, detect vendor, and gather configuration", Script: s("config", "device_config.sh")},
 			},
 		},
 	}
@@ -191,7 +194,6 @@ func NewTUI(scriptsDir string) *TUI {
 		categoryPane: tview.NewList(),
 		taskPane:     tview.NewList(),
 		infoPane:     tview.NewTextView(),
-		executor:     executor.NewExecutor(),
 		registry:     registry,
 		jobManager:   jobs.NewJobManager(3),         // Allow 3 concurrent jobs
 		correlator:   correlation.NewCorrelator(""), // Will be set with workspace dir later
@@ -207,7 +209,7 @@ func (t *TUI) setupUI() {
 	headerText := fmt.Sprintf(`[cyan::b]%s[white::-] [green]%s[white]
 [gray]Network Assessment Toolkit[-]
 
-[yellow]Keys:[white] [cyan]Tab[white]=Switch [cyan]hjkl[white]=Navigate [cyan]/[white]=Search [cyan]J[white]=Jobs [cyan]C[white]=Correlate [cyan]Ctrl+Home[white]=Home [cyan]q[white]=Quit`, AppName, AppVersion)
+[yellow]Keys:[white] [cyan]Tab[white]=Switch [cyan]hjkl[white]=Navigate [cyan]/[white]=Search [cyan]J[white]=Jobs [cyan]C[white]=Correlate [cyan]D[white]=Dashboard [cyan]q[white]=Quit`, AppName, AppVersion)
 	t.headerPane.SetText(headerText)
 	t.headerPane.SetTextAlign(tview.AlignCenter)
 
@@ -231,45 +233,9 @@ func (t *TUI) setupUI() {
 		t.showCategory(mainText)
 	})
 
-	// Add mouse support diagnostic
-	t.categoryPane.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftClick {
-			// Manual handling for mouse clicks
-			_, y := event.Position()
-			// Convert screen coordinates to list item (approximate)
-			if y > 0 && y <= t.categoryPane.GetItemCount() {
-				itemIndex := y - 1
-				if itemIndex >= 0 && itemIndex < t.categoryPane.GetItemCount() {
-					t.categoryPane.SetCurrentItem(itemIndex)
-					mainText, _ := t.categoryPane.GetItemText(itemIndex)
-					t.showCategory(mainText)
-				}
-			}
-		}
-		return action, event
-	})
-
 	// Set task selection handler
 	t.taskPane.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
 		t.executeTask(mainText)
-	})
-
-	// Add mouse support to task pane
-	t.taskPane.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftClick {
-			// Manual handling for mouse clicks
-			_, y := event.Position()
-			// Convert screen coordinates to list item (approximate)
-			if y > 0 && y <= t.taskPane.GetItemCount() {
-				itemIndex := y - 1
-				if itemIndex >= 0 && itemIndex < t.taskPane.GetItemCount() {
-					t.taskPane.SetCurrentItem(itemIndex)
-					mainText, _ := t.taskPane.GetItemText(itemIndex)
-					t.executeTask(mainText)
-				}
-			}
-		}
-		return action, event
 	})
 
 	// Add j/k navigation support to category pane
@@ -363,11 +329,6 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 	if event.Key() == tcell.KeyCtrlD {
 		// Global Dashboard access
 		t.showDashboard()
-		return nil
-	}
-	if event.Key() == tcell.KeyCtrlR && event.Modifiers()&tcell.ModCtrl != 0 {
-		// Global Correlation viewer access (Ctrl+R to avoid conflict with 'r' refresh)
-		t.showCorrelationViewer()
 		return nil
 	}
 	if event.Key() == tcell.KeyHome && event.Modifiers()&tcell.ModCtrl != 0 {
@@ -489,61 +450,21 @@ func (t *TUI) showCategory(categoryName string) {
 }
 
 func (t *TUI) executeTask(taskName string) {
-	// Find the task script - use metadata registry if available
-	var scriptPath string
-	var foundScript bool
-
-	if t.registry != nil {
-		// Use metadata registry to get correct script path
-		for _, category := range t.getCategories() {
-			if category.Name == t.currentCategory {
-				for _, task := range category.Tasks {
-					if task.Name == taskName {
-						// Find the script metadata to get proper path
-						for _, categoryName := range t.registry.GetAllCategories() {
-							if t.formatCategoryName(categoryName) == t.currentCategory {
-								scripts := t.registry.GetScriptsByCategory(categoryName)
-								for _, script := range scripts {
-									if script.Script.Name == taskName {
-										scriptPath = t.registry.GetScriptPath(script)
-										foundScript = true
-										break
-									}
-								}
-								if foundScript {
-									break
-								}
-							}
-						}
-						break
-					}
-				}
-				break
-			}
+	// Task.Script always holds the resolved path (set by getCategoriesFromMetadata
+	// or getHardcodedCategories), so a single pass through the current category suffices.
+	for _, category := range t.getCategories() {
+		if category.Name != t.currentCategory {
+			continue
 		}
-	} else {
-		// Fallback to hardcoded path resolution
-		for _, category := range t.getCategories() {
-			if category.Name == t.currentCategory {
-				for _, task := range category.Tasks {
-					if task.Name == taskName {
-						scriptPath = filepath.Join("scripts", t.getScriptFolder(t.currentCategory), task.Script)
-						foundScript = true
-						break
-					}
-				}
-				break
+		for _, task := range category.Tasks {
+			if task.Name == taskName {
+				t.executeTaskWithStreaming(task.Script, taskName)
+				return
 			}
 		}
 	}
 
-	if !foundScript || scriptPath == "" {
-		t.showErrorModal("Script Not Found", fmt.Sprintf("Could not find script for task: %s", taskName))
-		return
-	}
-
-	// Execute with streaming output viewer instead of blocking
-	t.executeTaskWithStreaming(scriptPath, taskName)
+	t.showErrorModal("Script Not Found", fmt.Sprintf("Could not find script for task: %s", taskName))
 }
 
 // executeTaskWithStreaming executes a task using the JobManager for consistent tracking
@@ -556,13 +477,18 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 		return
 	}
 
-	// Always create and start job via JobManager for consistent tracking
-	jobID := fmt.Sprintf("job_%d", time.Now().Unix())
-	job := t.jobManager.CreateJob(jobID, taskName, absPath)
+	// Check capacity before creating a job to avoid orphaned pending entries
+	if !t.jobManager.CanStartNewJob() {
+		t.showExecutionOptions(absPath, taskName)
+		return
+	}
 
-	// Try to start the job
+	// Create and start job via JobManager for consistent tracking
+	jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
+	job := t.jobManager.CreateJob(jobID, taskName, absPath)
 	if err := t.jobManager.StartJob(job.ID); err != nil {
-		// Job couldn't start immediately - show options
+		// Unexpected failure — clean up the orphan and show options
+		t.jobManager.RemoveJob(job.ID)
 		t.showExecutionOptions(absPath, taskName)
 		return
 	}
@@ -600,7 +526,7 @@ func (t *TUI) showExecutionOptions(scriptPath, taskName string) {
 
 // queueJob queues a job for later execution
 func (t *TUI) queueJob(scriptPath, taskName string) {
-	jobID := fmt.Sprintf("job_%d", time.Now().Unix())
+	jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
 	job := t.jobManager.CreateJob(jobID, taskName, scriptPath)
 
 	// Try to start it immediately (in case a slot opened up)
@@ -615,7 +541,14 @@ func (t *TUI) queueJob(scriptPath, taskName string) {
 
 // showJobsManager displays the jobs management interface
 func (t *TUI) showJobsManager() {
-	ShowJobsViewer(t.app, t.pages, t.jobManager, t.returnToMain)
+	if t.jobsViewer == nil {
+		t.jobsViewer = NewJobsViewer(t.app, t.pages, t.jobManager, func() {
+			t.jobsViewer = nil
+			t.returnToMain()
+		})
+	}
+	t.pages.AddPage("jobs", t.jobsViewer, true, true)
+	t.app.SetFocus(t.jobsViewer.jobsList)
 }
 
 // showCorrelationViewer displays the correlation viewer interface
@@ -652,23 +585,6 @@ func (t *TUI) showErrorModal(title, message string) {
 	t.pages.AddPage("error", errorModal, true, true)
 }
 
-func (t *TUI) getScriptFolder(category string) string {
-	switch category {
-	case "System Configuration":
-		return "system"
-	case "Network Reconnaissance":
-		return "network"
-	case "Detailed Port Scan":
-		return "scanning"
-	case "Advanced":
-		return "network"
-	case "Network Config Gatherer":
-		return "config"
-	default:
-		return "unknown"
-	}
-}
-
 func (t *TUI) Run() error {
 	if err := t.app.Run(); err != nil {
 		return fmt.Errorf("TUI application failed: %w", err)
@@ -677,7 +593,6 @@ func (t *TUI) Run() error {
 }
 
 func (t *TUI) Stop() {
-	t.executor.Stop()
 	t.app.Stop()
 }
 
@@ -832,7 +747,7 @@ func (t *TUI) updateInfoPanel() {
 		if t.currentCategory != "" {
 			content.WriteString(fmt.Sprintf("[yellow]%s Tasks:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Execute Task [white]Tab/h[::-]=Back to Categories\n", t.currentCategory))
 			content.WriteString("[yellow]Execution:[::-] Live output viewer • Up to 3 concurrent jobs • [white]Ctrl+J[::-]=Jobs [white]Ctrl+B[::-]=Background\n")
-			content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+R[::-]=Correlations [white]Ctrl+Home[::-]=Home [white]/[::-]=Search [white]q[::-]=Quit")
+			content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]C[::-]=Correlations [white]Ctrl+Home[::-]=Home [white]/[::-]=Search [white]q[::-]=Quit")
 		} else {
 			content.WriteString("[yellow]Tasks Panel:[::-] [white]Tab/h[::-]=Select Category First [white]/[::-]=Search [white]?[::-]=Help\n")
 			content.WriteString("[yellow]Features:[::-] Real-time execution • Background job management • Result correlation\n")
@@ -842,7 +757,7 @@ func (t *TUI) updateInfoPanel() {
 		// Default/general help
 		content.WriteString("[yellow]Essential:[::-] [white]Tab[::-]=Switch Panels [white]Enter[::-]=Select [white]q[::-]=Quit [white]?[::-]=Full Help\n")
 		content.WriteString("[yellow]Navigate:[::-] [white]h[::-]=Categories [white]l[::-]=Tasks [white]j/k[::-]=Move Up/Down [white]/[::-]=Search\n")
-		content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+R[::-]=Correlations [white]Ctrl+Home[::-]=Home [white]r[::-]=Refresh")
+		content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]C[::-]=Correlations [white]Ctrl+Home[::-]=Home [white]r[::-]=Refresh")
 	}
 
 	t.infoPane.SetText(content.String())
@@ -851,7 +766,7 @@ func (t *TUI) updateInfoPanel() {
 // returnToMain returns to the main TUI from any other view
 func (t *TUI) returnToMain() {
 	// Remove any overlays and return to main page
-	pageNames := []string{"output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help"}
+	pageNames := []string{"output", "job-output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help"}
 
 	for _, pageName := range pageNames {
 		t.pages.RemovePage(pageName)

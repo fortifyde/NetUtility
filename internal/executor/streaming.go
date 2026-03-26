@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 )
@@ -33,13 +34,31 @@ type StreamingExecutor struct {
 
 // StreamingResult contains the final result of script execution
 type StreamingResult struct {
-	Success     bool
-	ExitCode    int
-	Error       error
+	Success   bool
+	ExitCode  int
+	Error     error
+	Duration  time.Duration
+	StartTime time.Time
+	EndTime   time.Time
+
+	mu          sync.Mutex
 	OutputLines []OutputLine
-	Duration    time.Duration
-	StartTime   time.Time
-	EndTime     time.Time
+}
+
+// AppendLine appends a line to OutputLines under the mutex.
+func (r *StreamingResult) AppendLine(line OutputLine) {
+	r.mu.Lock()
+	r.OutputLines = append(r.OutputLines, line)
+	r.mu.Unlock()
+}
+
+// GetOutputLines returns a snapshot copy of OutputLines.
+func (r *StreamingResult) GetOutputLines() []OutputLine {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]OutputLine, len(r.OutputLines))
+	copy(out, r.OutputLines)
+	return out
 }
 
 // NewStreamingExecutor creates a new streaming executor
@@ -188,6 +207,8 @@ func (e *StreamingExecutor) readOutput(pipe io.Reader, source string, result *St
 	buf := make([]byte, 0, 64*1024)
 	scanner.Buffer(buf, 1024*1024)
 
+	var dropped int
+
 	for scanner.Scan() {
 		line := OutputLine{
 			Content:   scanner.Text(),
@@ -195,16 +216,32 @@ func (e *StreamingExecutor) readOutput(pipe io.Reader, source string, result *St
 			Source:    source,
 		}
 
-		// Store in result
-		result.OutputLines = append(result.OutputLines, line)
+		// Store in result (thread-safe — two goroutines call readOutput concurrently)
+		result.AppendLine(line)
 
-		// Send to channel (non-blocking)
+		// If we previously dropped lines, emit a notice once the channel has room.
+		if dropped > 0 {
+			notice := OutputLine{
+				Content:   fmt.Sprintf("[%d lines dropped — output buffer was full]", dropped),
+				Timestamp: time.Now(),
+				Source:    "system",
+			}
+			select {
+			case e.outputChan <- notice:
+				dropped = 0
+			case <-e.ctx.Done():
+				return
+			default:
+			}
+		}
+
 		select {
 		case e.outputChan <- line:
 		case <-e.ctx.Done():
 			return
 		default:
-			// Channel is full, skip this line to avoid blocking
+			// Channel still full — count the drop; notice will be emitted next iteration.
+			dropped++
 		}
 	}
 
@@ -257,12 +294,12 @@ func (e *StreamingExecutor) Wait() {
 	<-e.doneChan
 }
 
-// GetOutputHistory returns all output lines captured so far
+// GetOutputHistory returns a snapshot of all output lines captured so far.
 func (e *StreamingExecutor) GetOutputHistory(result *StreamingResult) []OutputLine {
 	if result == nil {
 		return nil
 	}
-	return result.OutputLines
+	return result.GetOutputLines()
 }
 
 // FilterOutput filters output lines by source (stdout/stderr)
@@ -299,56 +336,14 @@ func TailOutput(lines []OutputLine, n int) []OutputLine {
 	return lines[len(lines)-n:]
 }
 
-// SearchOutput searches for lines containing the given text
+// SearchOutput searches for lines containing the given text (case-insensitive).
 func SearchOutput(lines []OutputLine, searchText string) []OutputLine {
+	lower := strings.ToLower(searchText)
 	var matches []OutputLine
 	for _, line := range lines {
-		if contains(line.Content, searchText) {
+		if strings.Contains(strings.ToLower(line.Content), lower) {
 			matches = append(matches, line)
 		}
 	}
 	return matches
-}
-
-// Helper function for case-insensitive string matching
-func contains(text, substr string) bool {
-	// Simple case-insensitive contains check
-	// In a real implementation, you might want to use strings.ToLower
-	// or a more sophisticated search algorithm
-	return len(text) >= len(substr) &&
-		findSubstring(text, substr) >= 0
-}
-
-// Simple substring search (case-insensitive)
-func findSubstring(text, substr string) int {
-	if len(substr) == 0 {
-		return 0
-	}
-	if len(text) < len(substr) {
-		return -1
-	}
-
-	// Convert to lowercase for comparison
-	textLower := toLowerCase(text)
-	substrLower := toLowerCase(substr)
-
-	for i := 0; i <= len(textLower)-len(substrLower); i++ {
-		if textLower[i:i+len(substrLower)] == substrLower {
-			return i
-		}
-	}
-	return -1
-}
-
-// Simple lowercase conversion
-func toLowerCase(s string) string {
-	result := make([]byte, len(s))
-	for i, c := range []byte(s) {
-		if c >= 'A' && c <= 'Z' {
-			result[i] = c + 32
-		} else {
-			result[i] = c
-		}
-	}
-	return string(result)
 }
