@@ -5,8 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
+	"sync/atomic"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -35,9 +34,11 @@ type TUI struct {
 	registry        *metadata.ScriptRegistry
 	jobManager      *jobs.JobManager
 	correlator      *correlation.Correlator
-	jobsViewer      *JobsViewer // cached to prevent ticker goroutine leaks
+	jobsViewer      *JobsViewer
+	dashboardViewer *Dashboard
+	corrViewer      *CorrelationViewer
 
-	mu sync.RWMutex
+	jobCounter atomic.Int64
 }
 
 type Category struct {
@@ -223,8 +224,9 @@ func (t *TUI) setupUI() {
 
 	// Populate categories
 	for i, category := range t.getCategories() {
-		t.categoryPane.AddItem(category.Name, "", rune('1'+i), func() {
-			t.showCategory(category.Name)
+		name := category.Name
+		t.categoryPane.AddItem(name, "", rune('1'+i), func() {
+			t.showCategory(name)
 		})
 	}
 
@@ -425,9 +427,6 @@ func (t *TUI) switchFocus() {
 }
 
 func (t *TUI) showCategory(categoryName string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	t.currentCategory = categoryName
 	t.taskPane.Clear()
 	t.taskPane.SetTitle(fmt.Sprintf("Tasks - %s", categoryName))
@@ -484,7 +483,7 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 	}
 
 	// Create and start job via JobManager for consistent tracking
-	jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
+	jobID := fmt.Sprintf("job_%d", t.jobCounter.Add(1))
 	job := t.jobManager.CreateJob(jobID, taskName, absPath)
 	if err := t.jobManager.StartJob(job.ID); err != nil {
 		// Unexpected failure — clean up the orphan and show options
@@ -496,7 +495,7 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 	// Job started successfully - show live output
 	outputViewer := NewOutputViewer(t.app, t.pages, t.jobManager, t.returnToMain)
 	t.pages.AddPage("output", outputViewer, true, true)
-	t.app.SetFocus(outputViewer)
+	outputViewer.FocusView()
 
 	// Connect OutputViewer to the running job
 	if err := outputViewer.ConnectToJob(job); err != nil {
@@ -526,7 +525,7 @@ func (t *TUI) showExecutionOptions(scriptPath, taskName string) {
 
 // queueJob queues a job for later execution
 func (t *TUI) queueJob(scriptPath, taskName string) {
-	jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
+	jobID := fmt.Sprintf("job_%d", t.jobCounter.Add(1))
 	job := t.jobManager.CreateJob(jobID, taskName, scriptPath)
 
 	// Try to start it immediately (in case a slot opened up)
@@ -553,12 +552,24 @@ func (t *TUI) showJobsManager() {
 
 // showCorrelationViewer displays the correlation viewer interface
 func (t *TUI) showCorrelationViewer() {
-	ShowCorrelationViewer(t.app, t.pages, t.correlator)
+	if t.corrViewer != nil {
+		t.corrViewer.Close()
+		t.corrViewer = nil
+	}
+	t.corrViewer = NewCorrelationViewer(t.app, t.pages, t.correlator, t.returnToMain)
+	t.pages.AddPage("correlation", t.corrViewer, true, true)
+	t.app.SetFocus(t.corrViewer.hostsList)
 }
 
 // showDashboard displays the dashboard interface
 func (t *TUI) showDashboard() {
-	ShowDashboard(t.app, t.pages, t.jobManager, t.correlator, nil)
+	if t.dashboardViewer != nil {
+		t.dashboardViewer.Close()
+		t.dashboardViewer = nil
+	}
+	t.dashboardViewer = NewDashboard(t.app, t.pages, t.jobManager, t.correlator, nil, t.returnToMain)
+	t.pages.AddPage("dashboard", t.dashboardViewer, true, true)
+	t.app.SetFocus(t.dashboardViewer.hostsTable)
 }
 
 // showInfoModal displays an info message to the user
@@ -713,15 +724,16 @@ func (t *TUI) refreshCategories() {
 	// Reload metadata if available
 	if t.registry != nil {
 		if err := t.registry.LoadMetadata(); err != nil {
-			// Log error but continue with cached data
+			fmt.Fprintf(os.Stderr, "Warning: Failed to reload script metadata: %v\n", err)
 		}
 	}
 
 	// Clear and repopulate categories
 	t.categoryPane.Clear()
 	for i, category := range t.getCategories() {
-		t.categoryPane.AddItem(category.Name, "", rune('1'+i), func() {
-			t.showCategory(category.Name)
+		name := category.Name
+		t.categoryPane.AddItem(name, "", rune('1'+i), func() {
+			t.showCategory(name)
 		})
 	}
 

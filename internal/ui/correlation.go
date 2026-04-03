@@ -26,21 +26,23 @@ type CorrelationViewer struct {
 	controlsText *tview.TextView
 
 	// State
-	selectedHost  string
-	currentView   string // "hosts", "details", "timeline"
-	refreshTicker *time.Ticker
-	stopChan      chan struct{}
+	selectedHost         string
+	currentView          string // "hosts", "details", "timeline"
+	refreshTicker        *time.Ticker
+	stopChan             chan struct{}
+	returnToMainCallback func()
 }
 
 // NewCorrelationViewer creates a new correlation viewer
-func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator) *CorrelationViewer {
+func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func()) *CorrelationViewer {
 	cv := &CorrelationViewer{
-		Flex:        tview.NewFlex(),
-		app:         app,
-		pages:       pages,
-		correlator:  correlator,
-		currentView: "hosts",
-		stopChan:    make(chan struct{}),
+		Flex:                 tview.NewFlex(),
+		app:                  app,
+		pages:                pages,
+		correlator:           correlator,
+		currentView:          "hosts",
+		stopChan:             make(chan struct{}),
+		returnToMainCallback: returnToMainCallback,
 	}
 
 	cv.setupUI()
@@ -151,19 +153,6 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 		}
 	})
 
-	// Add mouse support to hosts table
-	cv.hostsList.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftClick {
-			// Get click position relative to table
-			_, y := event.Position()
-			// Approximate row calculation
-			row := y
-			if row > 0 && row < cv.hostsList.GetRowCount() {
-				cv.hostsList.Select(row, 0)
-			}
-		}
-		return action, event
-	})
 }
 
 // updateHostsList refreshes the hosts table
@@ -525,9 +514,18 @@ func (cv *CorrelationViewer) startRefreshTimer() {
 func (cv *CorrelationViewer) Close() {
 	if cv.refreshTicker != nil {
 		cv.refreshTicker.Stop()
+		cv.refreshTicker = nil
+	}
+	select {
+	case <-cv.stopChan:
+		return
+	default:
 	}
 	close(cv.stopChan)
 	cv.pages.RemovePage("correlation")
+	if cv.returnToMainCallback != nil {
+		cv.returnToMainCallback()
+	}
 }
 
 // showInfo displays an info message
@@ -542,9 +540,10 @@ func (cv *CorrelationViewer) showInfo(message string) {
 	cv.pages.AddPage("info", modal, true, true)
 }
 
-// Helper function to create a correlation viewer page
-func ShowCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator) {
-	correlationViewer := NewCorrelationViewer(app, pages, correlator)
+// ShowCorrelationViewer creates and displays a correlation viewer page.
+// For the main TUI use showCorrelationViewer() which passes a proper returnToMain callback.
+func ShowCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func()) {
+	correlationViewer := NewCorrelationViewer(app, pages, correlator, returnToMainCallback)
 	pages.AddPage("correlation", correlationViewer, true, true)
 	app.SetFocus(correlationViewer.hostsList)
 }

@@ -329,7 +329,7 @@ func (jv *JobsViewer) viewJobOutput() {
 	}
 
 	jv.pages.AddPage("job-output", outputViewer, true, true)
-	jv.app.SetFocus(outputViewer)
+	outputViewer.FocusView()
 }
 
 // cancelSelectedJob cancels the currently selected job
@@ -398,6 +398,12 @@ func ShowJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs
 func (jv *JobsViewer) Close() {
 	if jv.refreshTicker != nil {
 		jv.refreshTicker.Stop()
+		jv.refreshTicker = nil
+	}
+	select {
+	case <-jv.stopChan:
+		return
+	default:
 	}
 	close(jv.stopChan)
 	jv.pages.RemovePage("jobs")
