@@ -32,8 +32,9 @@ type Dashboard struct {
 	controlsText *tview.TextView
 
 	// State
-	refreshTicker *time.Ticker
-	stopChan      chan struct{}
+	refreshTicker        *time.Ticker
+	stopChan             chan struct{}
+	returnToMainCallback func()
 }
 
 // DashboardStats contains aggregated statistics
@@ -64,16 +65,17 @@ type ActivityItem struct {
 
 // NewDashboard creates a new dashboard
 func NewDashboard(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager,
-	correlator *correlation.Correlator, workflowEngine *workflow.WorkflowEngine) *Dashboard {
+	correlator *correlation.Correlator, workflowEngine *workflow.WorkflowEngine, returnToMainCallback func()) *Dashboard {
 
 	d := &Dashboard{
-		Flex:           tview.NewFlex(),
-		app:            app,
-		pages:          pages,
-		jobManager:     jobManager,
-		correlator:     correlator,
-		workflowEngine: workflowEngine,
-		stopChan:       make(chan struct{}),
+		Flex:                 tview.NewFlex(),
+		app:                  app,
+		pages:                pages,
+		jobManager:           jobManager,
+		correlator:           correlator,
+		workflowEngine:       workflowEngine,
+		stopChan:             make(chan struct{}),
+		returnToMainCallback: returnToMainCallback,
 	}
 
 	d.setupUI()
@@ -157,10 +159,14 @@ func (d *Dashboard) setupKeyBindings() {
 				d.refresh()
 				return nil
 			case 'j':
-				ShowJobsViewer(d.app, d.pages, d.jobManager, nil)
+				ShowJobsViewer(d.app, d.pages, d.jobManager, func() {
+					d.app.SetFocus(d.hostsTable)
+				})
 				return nil
 			case 'c':
-				ShowCorrelationViewer(d.app, d.pages, d.correlator)
+				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
+					d.app.SetFocus(d.hostsTable)
+				})
 				return nil
 			case 'w':
 				d.showWorkflows()
@@ -168,20 +174,6 @@ func (d *Dashboard) setupKeyBindings() {
 			}
 		}
 		return event
-	})
-
-	// Add mouse support to hosts table
-	d.hostsTable.SetMouseCapture(func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-		if action == tview.MouseLeftClick {
-			// Get click position relative to table
-			_, y := event.Position()
-			// Approximate row calculation
-			row := y
-			if row > 0 && row < d.hostsTable.GetRowCount() {
-				d.hostsTable.Select(row, 0)
-			}
-		}
-		return action, event
 	})
 
 	// Activity list key bindings
@@ -648,7 +640,9 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, correlation *correlation
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			d.pages.RemovePage("host-details")
 			if buttonLabel == "View Correlation" {
-				ShowCorrelationViewer(d.app, d.pages, d.correlator)
+				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
+					d.app.SetFocus(d.hostsTable)
+				})
 			}
 		})
 
@@ -691,9 +685,18 @@ func (d *Dashboard) startRefreshTimer() {
 func (d *Dashboard) Close() {
 	if d.refreshTicker != nil {
 		d.refreshTicker.Stop()
+		d.refreshTicker = nil
+	}
+	select {
+	case <-d.stopChan:
+		return
+	default:
 	}
 	close(d.stopChan)
 	d.pages.RemovePage("dashboard")
+	if d.returnToMainCallback != nil {
+		d.returnToMainCallback()
+	}
 }
 
 // showInfo displays an info message
@@ -708,11 +711,12 @@ func (d *Dashboard) showInfo(message string) {
 	d.pages.AddPage("info", modal, true, true)
 }
 
-// Helper function to create a dashboard page
+// ShowDashboard creates and displays a dashboard page.
+// For the main TUI use showDashboard() which passes a proper returnToMain callback.
 func ShowDashboard(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager,
 	correlator *correlation.Correlator, workflowEngine *workflow.WorkflowEngine) {
 
-	dashboard := NewDashboard(app, pages, jobManager, correlator, workflowEngine)
+	dashboard := NewDashboard(app, pages, jobManager, correlator, workflowEngine, nil)
 	pages.AddPage("dashboard", dashboard, true, true)
 	app.SetFocus(dashboard.hostsTable)
 }
