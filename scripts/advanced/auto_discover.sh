@@ -1528,7 +1528,7 @@ if [ -x "$discovery_script" ]; then
         exec 9<>"$_sem_fifo"
         _i=0
         while [ "$_i" -lt "$vlan_cap" ]; do
-            printf 'x' >&9
+            printf 'x\n' >&9
             _i=$((_i + 1))
         done
 
@@ -1564,7 +1564,7 @@ if [ -x "$discovery_script" ]; then
                 export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
                 { "$discovery_script" "$vlan_interface" "1" 3<&- 9>&-; echo $? > "$_disc_status"; } 2>&1 | \
                     tee "$vlan_discovery_dir/discovery_output.txt" > /dev/null
-                printf 'x' >&9  # release token
+                printf 'x\n' >&9  # release token
             ) &
 
         done 3< "$VLAN_NETWORKS_FILE"
