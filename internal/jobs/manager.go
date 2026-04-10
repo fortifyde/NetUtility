@@ -3,6 +3,8 @@ package jobs
 import (
 	"fmt"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,7 +36,13 @@ type Job struct {
 	OutputChan <-chan executor.OutputLine
 	ErrorChan  <-chan error
 	Error      error
-	mu         sync.RWMutex
+
+	// Phase progress, updated by the progress scanner goroutine in monitorJob.
+	PhaseCurrent int
+	PhaseTotal   int
+	PhaseDesc    string
+
+	mu sync.RWMutex
 }
 
 // JobManager manages concurrent script execution
@@ -128,6 +136,33 @@ func (jm *JobManager) StartJob(jobID string) error {
 
 // monitorJob monitors a job's execution and updates its status
 func (jm *JobManager) monitorJob(job *Job) {
+	// Progress scanner: polls output lines for ##NETUTIL:PROGRESS## markers.
+	progressStop := make(chan struct{})
+	defer close(progressStop)
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+		lastIdx := 0
+		for {
+			select {
+			case <-ticker.C:
+				lines := job.GetOutputLines()
+				for i := lastIdx; i < len(lines); i++ {
+					const pfx = "##NETUTIL:PROGRESS## "
+					if !strings.HasPrefix(lines[i].Content, pfx) {
+						continue
+					}
+					if c, t, d, ok := parsePhaseProgress(lines[i].Content[len(pfx):]); ok {
+						job.SetPhaseProgress(c, t, d)
+					}
+				}
+				lastIdx = len(lines)
+			case <-progressStop:
+				return
+			}
+		}
+	}()
+
 	job.Executor.Wait()
 
 	job.mu.Lock()
@@ -516,6 +551,22 @@ func (j *Job) IsCompleted() bool {
 	return status == JobStatusCompleted || status == JobStatusFailed || status == JobStatusCancelled
 }
 
+// SetPhaseProgress stores phase progress thread-safely.
+func (j *Job) SetPhaseProgress(current, total int, desc string) {
+	j.mu.Lock()
+	j.PhaseCurrent = current
+	j.PhaseTotal = total
+	j.PhaseDesc = desc
+	j.mu.Unlock()
+}
+
+// GetPhaseProgress returns the last-seen phase progress.
+func (j *Job) GetPhaseProgress() (int, int, string) {
+	j.mu.RLock()
+	defer j.mu.RUnlock()
+	return j.PhaseCurrent, j.PhaseTotal, j.PhaseDesc
+}
+
 // GetOutputLines safely returns a copy of the output lines.
 func (j *Job) GetOutputLines() []executor.OutputLine {
 	j.mu.RLock()
@@ -526,4 +577,37 @@ func (j *Job) GetOutputLines() []executor.OutputLine {
 		return nil
 	}
 	return result.GetOutputLines()
+}
+
+// parsePhaseProgress parses a ##NETUTIL:PROGRESS## payload (the part after the prefix).
+// Handles two forms:
+//
+//	"[3/8] Phase 3: DNS Reverse Lookup"        → current=3, total=8
+//	"[2/3 VLANs] V100:3/8 V200:done V300:1/8" → current=2, total=3
+//
+// Returns ok=false when the format is not recognised.
+func parsePhaseProgress(text string) (current, total int, desc string, ok bool) {
+	if len(text) == 0 || text[0] != '[' {
+		return
+	}
+	closeIdx := strings.IndexByte(text, ']')
+	if closeIdx < 0 {
+		return
+	}
+	bracket := text[1:closeIdx]
+	rest := strings.TrimSpace(text[closeIdx+1:])
+	slashIdx := strings.IndexByte(bracket, '/')
+	if slashIdx < 0 {
+		return
+	}
+	totalField := bracket[slashIdx+1:]
+	if sp := strings.IndexByte(totalField, ' '); sp >= 0 {
+		totalField = totalField[:sp]
+	}
+	cur, err1 := strconv.Atoi(strings.TrimSpace(bracket[:slashIdx]))
+	tot, err2 := strconv.Atoi(strings.TrimSpace(totalField))
+	if err1 != nil || err2 != nil || tot <= 0 {
+		return
+	}
+	return cur, tot, rest, true
 }

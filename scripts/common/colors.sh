@@ -168,6 +168,11 @@ print_separator() {
 # Emit a live progress marker — intercepted by Go tool, not shown in text stream
 # Usage: emit_progress "Phase name" current total
 emit_progress() {
+    # Write per-VLAN phase file when running inside an auto-discovery subshell.
+    # AUTO_DISCOVERY_VLAN_DIR is exported by auto_discover.sh for each VLAN.
+    if [ -n "$AUTO_DISCOVERY_VLAN_DIR" ]; then
+        printf '%s %s %s\n' "$2" "$3" "$1" > "${AUTO_DISCOVERY_VLAN_DIR}/phase_progress"
+    fi
     [ "$NETUTIL_FORCE_COLOR" = "1" ] || return 0
     printf '##NETUTIL:PROGRESS## [%s/%s] %s\n' "$2" "$3" "$1"
 }
