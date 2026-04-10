@@ -1495,8 +1495,44 @@ if [ -x "$discovery_script" ]; then
             echo >&2
         fi
 
-        # Launch all VLAN discoveries concurrently — each runs in an isolated subshell
-        # with its own copy of the environment, writing to its own vlan_<id>/ directory.
+        # Concurrency cap: how many VLANs to scan simultaneously.
+        echo >&2
+        echo "Concurrent VLAN scan limit (default 4):" >&2
+        echo "  Higher = faster overall; lower = less network/CPU load." >&2
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sMax concurrent VLANs [1-%s, default 4]: %s\n" "$PROMPT_COLOR" "$vlan_network_count" "$COLOR_RESET" >&2
+        else
+            printf "Max concurrent VLANs [1-%s, default 4]: \n" "$vlan_network_count" >&2
+        fi
+        read -r vlan_cap
+        vlan_cap=${vlan_cap:-4}
+        case "$vlan_cap" in
+            *[!0-9]*)
+                echo "  Invalid input. Using default: 4" >&2
+                vlan_cap=4
+                ;;
+            *)
+                [ "$vlan_network_count" -gt 0 ] && [ "$vlan_cap" -gt "$vlan_network_count" ] && vlan_cap="$vlan_network_count"
+                [ "$vlan_cap" -lt 1 ] && vlan_cap=1
+                ;;
+        esac
+        echo "  Concurrency cap: $vlan_cap of $vlan_network_count VLANs at a time" >&2
+        echo >&2
+
+        # FIFO counting semaphore on FD9 ($vlan_cap tokens pre-loaded).
+        # The launch loop acquires a token before each background job; the subshell
+        # releases it on completion. FD3 is reserved for VLAN_NETWORKS_FILE reads.
+        _sem_fifo="$TEMP_DIR/sem_$$"
+        mkfifo "$_sem_fifo"
+        exec 9<>"$_sem_fifo"
+        _i=0
+        while [ "$_i" -lt "$vlan_cap" ]; do
+            printf 'x' >&9
+            _i=$((_i + 1))
+        done
+
+        # Launch VLAN discoveries — each in an isolated subshell, capped by the semaphore.
         _vlan_current=0
         while read -r vlan_id vlan_discovery_network <&3; do
             [ -n "$vlan_id" ] && [ -n "$vlan_discovery_network" ] || continue
@@ -1508,6 +1544,8 @@ if [ -x "$discovery_script" ]; then
 
             mkdir -p "$vlan_discovery_dir"
 
+            read -r _tok <&9  # acquire token — blocks here when cap is reached
+
             emit_progress "VLAN $vlan_id ($vlan_discovery_network)" "$_vlan_current" "$vlan_network_count"
             echo "  VLAN $vlan_id: launching discovery on $vlan_discovery_network..." >&2
             echo "  VLAN $vlan_id discovery:" >> "$WORKFLOW_REPORT"
@@ -1516,20 +1554,24 @@ if [ -x "$discovery_script" ]; then
             log_info "VLAN $vlan_id discovery launching (background): $vlan_discovery_network"
 
             # Subshell isolates environment; child output captured per-VLAN, not to terminal.
+            # 9>&- closes FD9 in the discovery script subprocess only; the subshell keeps it
+            # open to release the semaphore token with printf after the script exits.
             (
                 export MANUAL_NETWORK_RANGE="$vlan_discovery_network"
                 export AUTO_DISCOVERY_SESSION="true"
                 export AUTO_DISCOVERY_VLAN_ID="$vlan_id"
                 export AUTO_DISCOVERY_VLAN_DIR="$vlan_discovery_dir"
                 export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
-                { "$discovery_script" "$vlan_interface" "1" 3<&-; echo $? > "$_disc_status"; } 2>&1 | \
+                { "$discovery_script" "$vlan_interface" "1" 3<&- 9>&-; echo $? > "$_disc_status"; } 2>&1 | \
                     tee "$vlan_discovery_dir/discovery_output.txt" > /dev/null
+                printf 'x' >&9  # release token
             ) &
 
         done 3< "$VLAN_NETWORKS_FILE"
 
         echo "  Waiting for all $vlan_network_count VLAN discoveries to complete..." >&2
         wait
+        exec 9>&-  # close semaphore FD
 
         # Collect results now that all background jobs have finished
         while read -r vlan_id vlan_discovery_network <&3; do
