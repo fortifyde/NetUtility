@@ -1533,6 +1533,7 @@ if [ -x "$discovery_script" ]; then
         done
 
         # Launch VLAN discoveries — each in an isolated subshell, capped by the semaphore.
+        _vlan_pids=""
         _vlan_current=0
         while read -r vlan_id vlan_discovery_network <&3; do
             [ -n "$vlan_id" ] && [ -n "$vlan_discovery_network" ] || continue
@@ -1566,6 +1567,7 @@ if [ -x "$discovery_script" ]; then
                     tee "$vlan_discovery_dir/discovery_output.txt" > /dev/null
                 printf 'x\n' >&9  # release token
             ) &
+            _vlan_pids="$_vlan_pids $!"
 
         done 3< "$VLAN_NETWORKS_FILE"
 
@@ -1608,7 +1610,9 @@ if [ -x "$discovery_script" ]; then
         ) &
         _poll_pid=$!
 
-        wait
+        for _vpid in $_vlan_pids; do
+            wait "$_vpid" 2>/dev/null
+        done
         exec 9>&-  # close semaphore FD
 
         # Terminate poller
