@@ -1533,7 +1533,7 @@ if [ -x "$discovery_script" ]; then
                         export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
                         
                         _disc_status=$(mktemp)
-                        { "$discovery_script" "$vlan_interface" "1"; echo $? > "$_disc_status"; } 2>&1 | \
+                        { "$discovery_script" "$vlan_interface" "1" 3<&-; echo $? > "$_disc_status"; } 2>&1 | \
                             tee "$vlan_discovery_dir/discovery_output.txt"
                         vlan_discovery_exit=$(cat "$_disc_status" 2>/dev/null || echo 1)
                         rm -f "$_disc_status"
