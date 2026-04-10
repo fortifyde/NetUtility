@@ -1570,8 +1570,51 @@ if [ -x "$discovery_script" ]; then
         done 3< "$VLAN_NETWORKS_FILE"
 
         echo "  Waiting for all $vlan_network_count VLAN discoveries to complete..." >&2
+
+        # Build VLAN ID list for the poller (re-read file; FD3 was closed by the loop above).
+        _poll_ids=""
+        while IFS=' ' read -r _pv_id _; do
+            [ -n "$_pv_id" ] || continue
+            _poll_ids="$_poll_ids $_pv_id"
+        done < "$VLAN_NETWORKS_FILE"
+
+        # Sentinel file: poller exits when this appears.
+        _poll_sentinel="$TEMP_DIR/poll_sentinel_$$"
+
+        # Background progress poller — emits aggregated ##NETUTIL:PROGRESS## every 2s.
+        (
+            _pv_total=$vlan_network_count
+            while [ ! -f "$_poll_sentinel" ]; do
+                _pv_done=0
+                _pv_parts=""
+                for _pv_id in $_poll_ids; do
+                    if [ -f "$TEMP_DIR/status_${_pv_id}.txt" ]; then
+                        _pv_done=$((_pv_done + 1))
+                        _pv_parts="$_pv_parts V${_pv_id}:done"
+                    elif [ -f "$SESSION_DISCOVERY_DIR/vlan_${_pv_id}/phase_progress" ]; then
+                        read -r _pv_line < "$SESSION_DISCOVERY_DIR/vlan_${_pv_id}/phase_progress"
+                        _pv_cur="${_pv_line%% *}"
+                        _pv_rest="${_pv_line#* }"
+                        _pv_tot="${_pv_rest%% *}"
+                        _pv_parts="$_pv_parts V${_pv_id}:${_pv_cur}/${_pv_tot}"
+                    else
+                        _pv_parts="$_pv_parts V${_pv_id}:0/8"
+                    fi
+                done
+                printf '##NETUTIL:PROGRESS## [%s/%s VLANs]%s\n' \
+                    "$_pv_done" "$_pv_total" "$_pv_parts"
+                sleep 2
+            done
+        ) &
+        _poll_pid=$!
+
         wait
         exec 9>&-  # close semaphore FD
+
+        # Terminate poller
+        touch "$_poll_sentinel"
+        wait "$_poll_pid" 2>/dev/null
+        rm -f "$_poll_sentinel"
 
         # Collect results now that all background jobs have finished
         while read -r vlan_id vlan_discovery_network <&3; do

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -280,7 +281,10 @@ func (jv *JobsViewer) getJobProgress(job *jobs.Job) string {
 	case jobs.JobStatusPending:
 		return "⏳ Waiting"
 	case jobs.JobStatusRunning:
-		// Simple animated indicator
+		current, total, desc := job.GetPhaseProgress()
+		if total > 0 {
+			return renderProgressBar(current, total, desc)
+		}
 		indicators := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
 		idx := int(time.Now().Unix()) % len(indicators)
 		return fmt.Sprintf("%s Running", indicators[idx])
@@ -293,6 +297,24 @@ func (jv *JobsViewer) getJobProgress(job *jobs.Job) string {
 	default:
 		return "❓ Unknown"
 	}
+}
+
+// renderProgressBar renders a compact Unicode block progress bar.
+// Example: "[████████░░] 2/3 V100:3/8 V200:done"
+func renderProgressBar(current, total int, desc string) string {
+	const barWidth = 10
+	filled := current * barWidth / total
+	if filled > barWidth {
+		filled = barWidth
+	}
+	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+	if len([]rune(desc)) > 20 {
+		desc = string([]rune(desc)[:20])
+	}
+	if desc != "" {
+		return fmt.Sprintf("[%s] %d/%d %s", bar, current, total, desc)
+	}
+	return fmt.Sprintf("[%s] %d/%d", bar, current, total)
 }
 
 // viewJobOutput opens the output viewer for the selected job.
