@@ -1495,74 +1495,64 @@ if [ -x "$discovery_script" ]; then
             echo >&2
         fi
 
-        # Discover networks on each configured VLAN interface
+        # Launch all VLAN discoveries concurrently — each runs in an isolated subshell
+        # with its own copy of the environment, writing to its own vlan_<id>/ directory.
         _vlan_current=0
         while read -r vlan_id vlan_discovery_network <&3; do
-            if [ -n "$vlan_id" ] && [ -n "$vlan_discovery_network" ]; then
-                _vlan_current=$((_vlan_current + 1))
-                vlan_interface="${target_interface}.${vlan_id}"
-                vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
+            [ -n "$vlan_id" ] && [ -n "$vlan_discovery_network" ] || continue
 
-                emit_progress "VLAN $vlan_id ($vlan_discovery_network)" "$_vlan_current" "$vlan_network_count"
-                if command -v print_progress >/dev/null 2>&1; then
-                    print_progress "$_vlan_current" "$vlan_network_count" "Discovering VLAN $vlan_id on $vlan_discovery_network" >&2
-                else
-                    echo "=== Discovering VLAN $vlan_id on $vlan_discovery_network ===" >&2
-                fi
-                echo "  VLAN $vlan_id discovery:" >> "$WORKFLOW_REPORT"
-                echo "    Discovery network: $vlan_discovery_network" >> "$WORKFLOW_REPORT"
+            _vlan_current=$((_vlan_current + 1))
+            vlan_interface="${target_interface}.${vlan_id}"
+            vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
+            _disc_status="$TEMP_DIR/status_${vlan_id}.txt"
 
-                log_info "VLAN $vlan_id discovery network: $vlan_discovery_network"
+            mkdir -p "$vlan_discovery_dir"
 
-                # Create VLAN-specific discovery directory
-                mkdir -p "$vlan_discovery_dir"
+            emit_progress "VLAN $vlan_id ($vlan_discovery_network)" "$_vlan_current" "$vlan_network_count"
+            echo "  VLAN $vlan_id: launching discovery on $vlan_discovery_network..." >&2
+            echo "  VLAN $vlan_id discovery:" >> "$WORKFLOW_REPORT"
+            echo "    Discovery network: $vlan_discovery_network" >> "$WORKFLOW_REPORT"
 
-                # Run discovery for this specific VLAN network
-                if command -v color_info >/dev/null 2>&1; then
-                    echo "  " >&2
-                    color_info "  Running multi-phase discovery on $vlan_discovery_network..." >&2
-                else
-                    echo "  Starting multi-phase discovery on $vlan_discovery_network..." >&2
-                fi
-                        
-                        # Set environment variables for multiphase script context
-                        export MANUAL_NETWORK_RANGE="$vlan_discovery_network"
-                        export AUTO_DISCOVERY_SESSION="true"
-                        export AUTO_DISCOVERY_VLAN_ID="$vlan_id"
-                        export AUTO_DISCOVERY_VLAN_DIR="$vlan_discovery_dir"
-                        export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
-                        
-                        _disc_status=$(mktemp)
-                        { "$discovery_script" "$vlan_interface" "1" 3<&-; echo $? > "$_disc_status"; } 2>&1 | \
-                            tee "$vlan_discovery_dir/discovery_output.txt"
-                        vlan_discovery_exit=$(cat "$_disc_status" 2>/dev/null || echo 1)
-                        rm -f "$_disc_status"
-                        
-                        # Clean up environment variables
-                        unset MANUAL_NETWORK_RANGE AUTO_DISCOVERY_SESSION AUTO_DISCOVERY_VLAN_ID 
-                        unset AUTO_DISCOVERY_VLAN_DIR AUTO_DISCOVERY_SESSION_DIR
-                        
-                        if [ $vlan_discovery_exit -eq 0 ]; then
-                            echo "  ✓ VLAN $vlan_id discovery completed successfully"
-                            echo "    Status: SUCCESS" >> "$WORKFLOW_REPORT"
-                            discovery_success=$((discovery_success + 1))
-                            
-                            # Results are now directly in VLAN directory
-                            echo "    Results: $vlan_discovery_dir"
-                            echo "    VLAN $vlan_id discovery results organized in VLAN-specific directory"
-                            
-                            # Update session metadata with successful VLAN
-                            echo "VLAN $vlan_id: SUCCESS - Network $vlan_discovery_network" >> "$SESSION_METADATA"
-                        else
-                            echo "  ✗ VLAN $vlan_id discovery failed"
-                            echo "    Status: FAILED" >> "$WORKFLOW_REPORT"
-                            log_warn "Discovery failed for VLAN $vlan_id"
-                        fi
-                        
-                        # Add summary to report
-                        echo "    Output summary:" >> "$WORKFLOW_REPORT"
-                        head -20 "$vlan_discovery_dir/discovery_output.txt" 2>/dev/null | sed 's/^/      /' >> "$WORKFLOW_REPORT"
+            log_info "VLAN $vlan_id discovery launching (background): $vlan_discovery_network"
+
+            # Subshell isolates environment; child output captured per-VLAN, not to terminal.
+            (
+                export MANUAL_NETWORK_RANGE="$vlan_discovery_network"
+                export AUTO_DISCOVERY_SESSION="true"
+                export AUTO_DISCOVERY_VLAN_ID="$vlan_id"
+                export AUTO_DISCOVERY_VLAN_DIR="$vlan_discovery_dir"
+                export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
+                { "$discovery_script" "$vlan_interface" "1" 3<&-; echo $? > "$_disc_status"; } 2>&1 | \
+                    tee "$vlan_discovery_dir/discovery_output.txt" > /dev/null
+            ) &
+
+        done 3< "$VLAN_NETWORKS_FILE"
+
+        echo "  Waiting for all $vlan_network_count VLAN discoveries to complete..." >&2
+        wait
+
+        # Collect results now that all background jobs have finished
+        while read -r vlan_id vlan_discovery_network <&3; do
+            [ -n "$vlan_id" ] || continue
+            vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
+            _disc_status="$TEMP_DIR/status_${vlan_id}.txt"
+
+            vlan_discovery_exit=$(cat "$_disc_status" 2>/dev/null || echo 1)
+            rm -f "$_disc_status"
+
+            if [ "$vlan_discovery_exit" -eq 0 ]; then
+                echo "  ✓ VLAN $vlan_id ($vlan_discovery_network) completed" >&2
+                echo "    Status: SUCCESS" >> "$WORKFLOW_REPORT"
+                discovery_success=$((discovery_success + 1))
+                echo "VLAN $vlan_id: SUCCESS - Network $vlan_discovery_network" >> "$SESSION_METADATA"
+            else
+                echo "  ✗ VLAN $vlan_id ($vlan_discovery_network) failed" >&2
+                echo "    Status: FAILED" >> "$WORKFLOW_REPORT"
+                log_warn "Discovery failed for VLAN $vlan_id"
             fi
+
+            echo "    Output summary:" >> "$WORKFLOW_REPORT"
+            head -20 "$vlan_discovery_dir/discovery_output.txt" 2>/dev/null | sed 's/^/      /' >> "$WORKFLOW_REPORT"
         done 3< "$VLAN_NETWORKS_FILE"
         
         # Summary
