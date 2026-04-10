@@ -1367,28 +1367,69 @@ perform_masscan_discovery() {
         return
     fi
 
+    if [ -n "$scan_interface" ]; then
+        if ! ip addr show "$scan_interface" 2>/dev/null | grep -q "inet "; then
+            echo "    masscan skipped: $scan_interface has no IPv4 address" >> "$REPORT_FILE"
+            return
+        fi
+    fi
+
+    # masscan requires a next-hop router MAC to initialize its raw-frame template.
+    # On VLAN interfaces with no default route, masscan stalls trying to ARP-resolve 0.0.0.0.
+    # Resolve a neighbor MAC to supply via --router-mac, which bypasses that stall.
+    # For locally-connected targets masscan still ARPs each host individually; --router-mac
+    # is only needed to get past the initialization phase.
+    router_mac=""
+    if [ -n "$scan_interface" ] && \
+       ! ip route show dev "$scan_interface" 2>/dev/null | grep -q "^default"; then
+
+        # Prefer ARP neighbor table — already populated by the fping sweep in phase 2.1
+        router_mac=$(ip neigh show dev "$scan_interface" 2>/dev/null | \
+            awk '/lladdr/ && /REACHABLE|STALE|DELAY|PERMANENT/{print $5; exit}')
+
+        # Fallback: ARP-probe the likely gateway (.1) of each target network
+        if [ -z "$router_mac" ] && command -v arping >/dev/null 2>&1; then
+            for _net in $target_networks; do
+                _gw=$(echo "$_net" | cut -d'/' -f1 | sed 's/\.[0-9]*$/.1/')
+                router_mac=$(arping -c 1 -w 2 -I "$scan_interface" "$_gw" 2>/dev/null | \
+                    awk '/bytes from/{print $4; exit}')
+                [ -n "$router_mac" ] && break
+            done
+        fi
+
+        if [ -z "$router_mac" ]; then
+            echo "    masscan skipped: no reachable neighbor on $scan_interface (cannot resolve router MAC)" >> "$REPORT_FILE"
+            return
+        fi
+
+        echo "    masscan: resolved router-mac $router_mac on $scan_interface" >> "$REPORT_FILE"
+    fi
+
     for network in $target_networks; do
         if [ -n "$network" ]; then
             echo "    Masscan sweep on $network..." >> "$REPORT_FILE"
 
             network_sanitized=$(echo "$network" | tr '/' '_')
             masscan_output="$PHASE2_DIR/raw_scans/masscan_discovery_${network_sanitized}_$$.txt"
+            _masscan_err=$(mktemp)
 
             # High-speed scan of top ports; -oL list format: "open tcp PORT IP EPOCH"
-            if masscan -p80,443,22,21,25,53,135,139,445 "$network" \
+            # 60s timeout is ample: rate=1000 on /24 with 9 ports takes ~13s including wait.
+            if timeout 60 masscan -p80,443,22,21,25,53,135,139,445 "$network" \
                   --rate=1000 --open -oL "$masscan_output" \
-                  ${scan_interface:+-e "$scan_interface"} >/dev/null 2>&1; then
+                  ${router_mac:+--router-mac "$router_mac"} \
+                  ${scan_interface:+-e "$scan_interface"} >/dev/null 2>"$_masscan_err"; then
 
                 # Extract hosts: $4 is the IP in -oL list format
                 masscan_hosts=$(grep "^open" "$masscan_output" 2>/dev/null | awk '{print $4}' | sort -u)
-                
+
                 if [ -n "$masscan_hosts" ]; then
                     echo "      Masscan discovered hosts:" >> "$REPORT_FILE"
                     echo "$masscan_hosts" | while read -r masscan_host; do
                         echo "        $masscan_host" >> "$REPORT_FILE"
                         echo "$masscan_host" >> "$output_file"
                     done
-                    
+
                     masscan_count=$(echo "$masscan_hosts" | wc -l)
                     echo "      Found $masscan_count hosts via masscan" >> "$REPORT_FILE"
                 else
@@ -1398,7 +1439,12 @@ perform_masscan_discovery() {
                 # Keep raw scan for evidence
             else
                 echo "      Masscan failed on $network" >> "$REPORT_FILE"
+                if [ -s "$_masscan_err" ]; then
+                    echo "      Masscan error output:" >> "$REPORT_FILE"
+                    sed 's/^/        /' "$_masscan_err" >> "$REPORT_FILE"
+                fi
             fi
+            rm -f "$_masscan_err"
         fi
     done
 }
