@@ -359,13 +359,13 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 		t.switchFocus()
 		return nil
 	case tcell.KeyEscape:
-		t.app.Stop()
+		t.confirmQuit()
 		return nil
 	case tcell.KeyRune:
 		switch event.Rune() {
 		case 'q':
-			// Vim-like quit
-			t.app.Stop()
+			// Vim-like quit — shows confirmation if jobs are running
+			t.confirmQuit()
 			return nil
 		case '/':
 			// Search functionality
@@ -427,11 +427,11 @@ func (t *TUI) switchFocus() {
 func (t *TUI) setActiveFocus(pane *tview.List) {
 	t.app.SetFocus(pane)
 	if pane == t.categoryPane {
-		t.categoryPane.SetBorderColor(tcell.ColorAqua)
+		t.categoryPane.SetBorderColor(tcell.ColorBlue)
 		t.taskPane.SetBorderColor(tcell.ColorDefault)
 	} else {
 		t.categoryPane.SetBorderColor(tcell.ColorDefault)
-		t.taskPane.SetBorderColor(tcell.ColorAqua)
+		t.taskPane.SetBorderColor(tcell.ColorBlue)
 	}
 	t.updateInfoPanel()
 }
@@ -809,4 +809,25 @@ func (t *TUI) returnToMain() {
 	} else {
 		t.setActiveFocus(t.taskPane)
 	}
+}
+
+// confirmQuit quits immediately if no jobs are running. If jobs are running,
+// shows a modal asking the user to confirm before abandoning them.
+func (t *TUI) confirmQuit() {
+	stats := t.jobManager.GetStats()
+	if stats.RunningJobs == 0 {
+		t.app.Stop()
+		return
+	}
+	message := fmt.Sprintf("%d job(s) still running.\n\nQuit anyway? Running jobs will be abandoned.", stats.RunningJobs)
+	modal := tview.NewModal().
+		SetText(message).
+		AddButtons([]string{"Quit", "Cancel"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			t.pages.RemovePage("quit-confirm")
+			if buttonLabel == "Quit" {
+				t.app.Stop()
+			}
+		})
+	t.pages.AddPage("quit-confirm", modal, true, true)
 }
