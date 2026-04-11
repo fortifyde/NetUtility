@@ -2,6 +2,7 @@ package correlation
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -411,41 +412,50 @@ func (rp *ResultParser) ParseResultFile(filePath string) (*ScanResult, error) {
 	return rp.ParseJobResult(filePath, string(content), fileInfo.ModTime())
 }
 
-// ScanWorkspaceForResults scans the workspace directory for result files
+// ScanWorkspaceForResults scans the workspace directory recursively for result files.
 func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 	if rp.workspaceDir == "" {
 		return nil, fmt.Errorf("workspace directory not set")
 	}
 
-	var results []*ScanResult
-
-	// Common result file patterns
-	patterns := []string{
-		"*.nmap",
-		"*.xml",
-		"*.txt",
-		"*.log",
+	// Extensions we recognise as potential result files.
+	recognizedExts := map[string]bool{
+		".nmap": true,
+		".xml":  true,
+		".txt":  true,
+		".log":  true,
 	}
 
-	for _, pattern := range patterns {
-		files, err := filepath.Glob(filepath.Join(rp.workspaceDir, "**", pattern))
-		if err != nil {
-			continue
+	var results []*ScanResult
+
+	err := fs.WalkDir(os.DirFS(rp.workspaceDir), ".", func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil // skip unreadable entries
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !recognizedExts[filepath.Ext(path)] {
+			return nil
 		}
 
-		for _, file := range files {
-			// Skip if file is too large (> 10MB)
-			if info, err := os.Stat(file); err == nil && info.Size() > 10*1024*1024 {
-				continue
-			}
+		fullPath := filepath.Join(rp.workspaceDir, path)
 
-			result, err := rp.ParseResultFile(file)
-			if err != nil {
-				continue // Skip files that can't be parsed
-			}
-
-			results = append(results, result)
+		// Skip files larger than 10 MB.
+		info, statErr := d.Info()
+		if statErr != nil || info.Size() > 10*1024*1024 {
+			return nil
 		}
+
+		result, parseErr := rp.ParseResultFile(fullPath)
+		if parseErr != nil {
+			return nil // skip unparseable files
+		}
+		results = append(results, result)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scanning workspace: %w", err)
 	}
 
 	return results, nil
