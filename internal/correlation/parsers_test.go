@@ -654,8 +654,8 @@ PORT     STATE SERVICE
 
 func TestScanWorkspaceForResults_SubdirectoryScan(t *testing.T) {
 	dir := t.TempDir()
-	// Create a subdirectory with a result file
-	subdir := filepath.Join(dir, "scan-2024-01-15")
+	// Two levels deep — filepath.Glob("**") would not recurse this far
+	subdir := filepath.Join(dir, "scan-2024-01-15", "subscans")
 	if err := os.MkdirAll(subdir, 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
