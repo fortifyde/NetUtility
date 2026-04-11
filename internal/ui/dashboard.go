@@ -205,7 +205,7 @@ func (d *Dashboard) updateDashboard() {
 	d.updateStatsPanel(stats)
 	d.updateChartsPanel(stats, correlations)
 	d.updateAlertsPanel(stats)
-	d.updateActivityList()
+	d.updateActivityList(correlations)
 	d.updateHostsTable(correlations)
 }
 
@@ -423,10 +423,10 @@ func (d *Dashboard) updateAlertsPanel(stats DashboardStats) {
 }
 
 // updateActivityList updates the recent activity list
-func (d *Dashboard) updateActivityList() {
+func (d *Dashboard) updateActivityList(correlations map[string]*correlation.CorrelationResult) {
 	d.activityList.Clear()
 
-	activities := d.getRecentActivities()
+	activities := d.getRecentActivities(correlations)
 
 	// Sort by timestamp (newest first)
 	sort.Slice(activities, func(i, j int) bool {
@@ -454,7 +454,7 @@ func (d *Dashboard) updateActivityList() {
 }
 
 // getRecentActivities collects recent activities from various sources
-func (d *Dashboard) getRecentActivities() []ActivityItem {
+func (d *Dashboard) getRecentActivities(correlations map[string]*correlation.CorrelationResult) []ActivityItem {
 	var activities []ActivityItem
 
 	// Add job activities
@@ -472,7 +472,6 @@ func (d *Dashboard) getRecentActivities() []ActivityItem {
 	}
 
 	// Add correlation activities (scan timeline events)
-	correlations := d.correlator.GetAllCorrelations()
 	for _, correlation := range correlations {
 		for _, event := range correlation.Timeline {
 			activities = append(activities, ActivityItem{
