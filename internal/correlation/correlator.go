@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -363,13 +364,9 @@ func (c *Correlator) mergePorts(existing []Port, new []Port) []Port {
 
 // sortTimeline sorts timeline events by timestamp
 func (c *Correlator) sortTimeline(timeline []TimelineEvent) {
-	for i := 0; i < len(timeline)-1; i++ {
-		for j := i + 1; j < len(timeline); j++ {
-			if timeline[i].Timestamp.After(timeline[j].Timestamp) {
-				timeline[i], timeline[j] = timeline[j], timeline[i]
-			}
-		}
-	}
+	sort.Slice(timeline, func(i, j int) bool {
+		return timeline[i].Timestamp.Before(timeline[j].Timestamp)
+	})
 }
 
 // calculateRiskScore calculates a risk score based on discovered vulnerabilities and services
