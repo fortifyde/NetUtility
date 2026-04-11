@@ -435,41 +435,45 @@ func (we *WorkflowEngine) executeStep(workflow *Workflow, step *WorkflowStep) {
 
 // executeScriptStep executes a script step
 func (we *WorkflowEngine) executeScriptStep(workflow *Workflow, step *WorkflowStep) (bool, error) {
-	// Create a job for the script
 	jobID := fmt.Sprintf("workflow_%s_step_%s", workflow.ID, step.ID)
 	job := we.jobManager.CreateJob(jobID, step.Name, step.ScriptPath)
 
-	// Start the job
 	if err := we.jobManager.StartJob(job.ID); err != nil {
 		return false, fmt.Errorf("failed to start job: %w", err)
 	}
 
-	// Wait for job completion with timeout
 	timeout := step.Timeout
 	if timeout == 0 {
-		timeout = 30 * time.Minute // Default timeout
+		timeout = 30 * time.Minute
 	}
 
-	done := make(chan bool, 1)
-	go func() {
-		for {
-			if job.IsCompleted() {
-				done <- job.GetStatus() == jobs.JobStatusCompleted
-				return
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}()
+	_, completedCh, failedCh := we.jobManager.GetJobEventChannels()
 
-	select {
-	case success := <-done:
-		step.mu.Lock()
-		step.Result = job.Result
-		step.mu.Unlock()
-		return success, job.GetError()
-	case <-time.After(timeout):
-		we.jobManager.CancelJob(job.ID)
-		return false, fmt.Errorf("step timed out after %v", timeout)
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case j := <-completedCh:
+			if j == nil || j.ID != jobID {
+				continue
+			}
+			step.mu.Lock()
+			step.Result = j.Result
+			step.mu.Unlock()
+			return true, nil
+		case j := <-failedCh:
+			if j == nil || j.ID != jobID {
+				continue
+			}
+			step.mu.Lock()
+			step.Result = j.Result
+			step.mu.Unlock()
+			return false, j.GetError()
+		case <-timer.C:
+			we.jobManager.CancelJob(job.ID)
+			return false, fmt.Errorf("step timed out after %v", timeout)
+		}
 	}
 }
 
