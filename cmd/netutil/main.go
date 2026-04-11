@@ -235,7 +235,9 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 		if script, exists := registry.GetScriptByShortcut(command); exists {
 			success := executeScriptFromMetadata(script, cfg, registry)
 			cfg.AddRecentCommand(command, success)
-			cfg.SaveConfig()
+			if saveErr := cfg.SaveConfig(); saveErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
+			}
 			return
 		}
 
@@ -244,7 +246,9 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 			fmt.Printf("Did you mean '%s'? Running %s...\n\n", script.Script.Name, script.Script.Name)
 			success := executeScriptFromMetadata(script, cfg, registry)
 			cfg.AddRecentCommand(command, success)
-			cfg.SaveConfig()
+			if saveErr := cfg.SaveConfig(); saveErr != nil {
+				fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
+			}
 			return
 		}
 	}
@@ -254,7 +258,9 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 	if scriptInfo, exists := numericShortcuts[command]; exists {
 		success := executeScript(scriptInfo.Path, scriptInfo.Name, cfg)
 		cfg.AddRecentCommand(command, success)
-		cfg.SaveConfig()
+		if saveErr := cfg.SaveConfig(); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
+		}
 		return
 	}
 
@@ -262,7 +268,9 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 	if scriptInfo, exists := commandMappings[command]; exists {
 		success := executeScript(scriptInfo.Path, scriptInfo.Name, cfg)
 		cfg.AddRecentCommand(command, success)
-		cfg.SaveConfig()
+		if saveErr := cfg.SaveConfig(); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
+		}
 		return
 	}
 
@@ -271,7 +279,9 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 		fmt.Printf("Did you mean '%s'? Running %s...\n\n", match.Name, match.Name)
 		success := executeScript(match.Path, match.Name, cfg)
 		cfg.AddRecentCommand(command, success)
-		cfg.SaveConfig()
+		if saveErr := cfg.SaveConfig(); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
+		}
 		return
 	}
 

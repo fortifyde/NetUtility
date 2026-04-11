@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -68,7 +69,33 @@ type WorkflowStep struct {
 	Duration   time.Duration             `json:"duration,omitempty"`
 	Result     *executor.StreamingResult `json:"result,omitempty"`
 	Error      error                     `json:"error,omitempty"`
-	Metadata   map[string]interface{}    `json:"metadata,omitempty"`
+	Metadata   map[string]any    `json:"metadata,omitempty"`
+	mu         sync.Mutex
+}
+
+// getStatus returns the step's current status under the step lock.
+func (s *WorkflowStep) getStatus() WorkflowStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Status
+}
+
+// setRunning marks the step as running under the step lock.
+func (s *WorkflowStep) setRunning() {
+	s.mu.Lock()
+	s.Status = WorkflowStatusRunning
+	s.StartTime = time.Now()
+	s.mu.Unlock()
+}
+
+// setDone records the final status, timestamps, and error under the step lock.
+func (s *WorkflowStep) setDone(status WorkflowStatus, err error) {
+	s.mu.Lock()
+	s.Status = status
+	s.EndTime = time.Now()
+	s.Duration = s.EndTime.Sub(s.StartTime)
+	s.Error = err
+	s.mu.Unlock()
 }
 
 // StepCondition represents a condition for conditional execution
@@ -76,9 +103,9 @@ type StepCondition struct {
 	Type     ConditionType          `json:"type"`
 	Target   string                 `json:"target,omitempty"` // IP, port number, etc.
 	Operator string                 `json:"operator"`         // >, <, ==, !=, contains, etc.
-	Value    interface{}            `json:"value"`
+	Value    any                    `json:"value"`
 	StepID   string                 `json:"step_id,omitempty"` // Reference to another step
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // Workflow represents a complete automation workflow
@@ -95,7 +122,7 @@ type Workflow struct {
 	Progress    float64                            `json:"progress"`            // 0.0 to 1.0
 	Variables   map[string]string                  `json:"variables,omitempty"` // Workflow variables
 	Results     map[string]*correlation.ScanResult `json:"results,omitempty"`
-	Metadata    map[string]interface{}             `json:"metadata,omitempty"`
+	Metadata    map[string]any             `json:"metadata,omitempty"`
 
 	// Runtime state
 	completedSteps map[string]bool
@@ -161,7 +188,7 @@ func (we *WorkflowEngine) CreateWorkflow(id, name, description string) *Workflow
 		Status:         WorkflowStatusPending,
 		Variables:      make(map[string]string),
 		Results:        make(map[string]*correlation.ScanResult),
-		Metadata:       make(map[string]interface{}),
+		Metadata:       make(map[string]any),
 		completedSteps: make(map[string]bool),
 		runningSteps:   make(map[string]bool),
 	}
@@ -175,7 +202,6 @@ func (w *Workflow) AddStep(step *WorkflowStep) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	step.Status = WorkflowStatusPending
 	w.Steps[step.ID] = step
 }
 
@@ -189,7 +215,7 @@ func (w *Workflow) AddScriptStep(id, name, scriptPath string, required bool) *Wo
 		Required:   required,
 		Status:     WorkflowStatusPending,
 		Parameters: make(map[string]string),
-		Metadata:   make(map[string]interface{}),
+		Metadata:   make(map[string]any),
 	}
 
 	w.AddStep(step)
@@ -204,7 +230,7 @@ func (w *Workflow) AddConditionStep(id, name string, condition *StepCondition) *
 		Type:      StepTypeCondition,
 		Condition: condition,
 		Status:    WorkflowStatusPending,
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 
 	w.AddStep(step)
@@ -219,7 +245,7 @@ func (w *Workflow) AddDelayStep(id, name string, delay time.Duration) *WorkflowS
 		Type:     StepTypeDelay,
 		Delay:    delay,
 		Status:   WorkflowStatusPending,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 
 	w.AddStep(step)
@@ -234,7 +260,7 @@ func (w *Workflow) AddParallelStep(id, name string, parallelSteps []string) *Wor
 		Type:     StepTypeParallel,
 		Parallel: parallelSteps,
 		Status:   WorkflowStatusPending,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 
 	w.AddStep(step)
@@ -288,11 +314,12 @@ func (we *WorkflowEngine) executeWorkflowSteps(workflow *Workflow) {
 			anyFailed := false
 
 			for _, step := range workflow.Steps {
-				if step.Required && step.Status == WorkflowStatusFailed {
+				stepStatus := step.getStatus()
+				if step.Required && stepStatus == WorkflowStatusFailed {
 					anyFailed = true
 					break
 				}
-				if step.Status != WorkflowStatusCompleted && step.Status != WorkflowStatusFailed {
+				if stepStatus != WorkflowStatusCompleted && stepStatus != WorkflowStatusFailed {
 					allCompleted = false
 				}
 			}
@@ -360,8 +387,7 @@ func (we *WorkflowEngine) executeStep(workflow *Workflow, step *WorkflowStep) {
 		we.executeNextSteps(workflow, step)
 	}()
 
-	step.Status = WorkflowStatusRunning
-	step.StartTime = time.Now()
+	step.setRunning()
 
 	// Send step start event
 	select {
@@ -394,59 +420,60 @@ func (we *WorkflowEngine) executeStep(workflow *Workflow, step *WorkflowStep) {
 		err = fmt.Errorf("unknown step type: %s", step.Type)
 	}
 
-	step.EndTime = time.Now()
-	step.Duration = step.EndTime.Sub(step.StartTime)
-	step.Error = err
+	finalStatus := WorkflowStatusCompleted
+	if !success {
+		finalStatus = WorkflowStatusFailed
+	}
+	step.setDone(finalStatus, err)
 
-	if success {
-		step.Status = WorkflowStatusCompleted
-	} else {
-		step.Status = WorkflowStatusFailed
-
-		// Check if this is a required step failure
-		if step.Required {
-			workflow.mu.Lock()
-			workflow.Status = WorkflowStatusFailed
-			workflow.mu.Unlock()
-		}
+	if !success && step.Required {
+		workflow.mu.Lock()
+		workflow.Status = WorkflowStatusFailed
+		workflow.mu.Unlock()
 	}
 }
 
 // executeScriptStep executes a script step
 func (we *WorkflowEngine) executeScriptStep(workflow *Workflow, step *WorkflowStep) (bool, error) {
-	// Create a job for the script
 	jobID := fmt.Sprintf("workflow_%s_step_%s", workflow.ID, step.ID)
 	job := we.jobManager.CreateJob(jobID, step.Name, step.ScriptPath)
 
-	// Start the job
 	if err := we.jobManager.StartJob(job.ID); err != nil {
 		return false, fmt.Errorf("failed to start job: %w", err)
 	}
 
-	// Wait for job completion with timeout
 	timeout := step.Timeout
 	if timeout == 0 {
-		timeout = 30 * time.Minute // Default timeout
+		timeout = 30 * time.Minute
 	}
 
-	done := make(chan bool, 1)
-	go func() {
-		for {
-			if job.IsCompleted() {
-				done <- job.GetStatus() == jobs.JobStatusCompleted
-				return
-			}
-			time.Sleep(1 * time.Second)
-		}
-	}()
+	_, completedCh, failedCh := we.jobManager.GetJobEventChannels()
 
-	select {
-	case success := <-done:
-		step.Result = job.Result
-		return success, job.GetError()
-	case <-time.After(timeout):
-		we.jobManager.CancelJob(job.ID)
-		return false, fmt.Errorf("step timed out after %v", timeout)
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case j := <-completedCh:
+			if j == nil || j.ID != jobID {
+				continue
+			}
+			step.mu.Lock()
+			step.Result = j.Result
+			step.mu.Unlock()
+			return true, nil
+		case j := <-failedCh:
+			if j == nil || j.ID != jobID {
+				continue
+			}
+			step.mu.Lock()
+			step.Result = j.Result
+			step.mu.Unlock()
+			return false, j.GetError()
+		case <-timer.C:
+			we.jobManager.CancelJob(job.ID)
+			return false, fmt.Errorf("step timed out after %v", timeout)
+		}
 	}
 }
 
@@ -468,8 +495,11 @@ func (we *WorkflowEngine) executeDelayStep(workflow *Workflow, step *WorkflowSte
 // executeParallelStep executes parallel steps
 func (we *WorkflowEngine) executeParallelStep(workflow *Workflow, step *WorkflowStep) (bool, error) {
 	var wg sync.WaitGroup
-	successCount := 0
-	mu := sync.Mutex{}
+	type stepResult struct {
+		id  string
+		err error
+	}
+	resultsCh := make(chan stepResult, len(step.Parallel))
 
 	for _, stepID := range step.Parallel {
 		if parallelStep, exists := workflow.Steps[stepID]; exists {
@@ -477,17 +507,34 @@ func (we *WorkflowEngine) executeParallelStep(workflow *Workflow, step *Workflow
 			go func(s *WorkflowStep) {
 				defer wg.Done()
 				we.executeStep(workflow, s)
-				// Check step status after execution
-				if s.Status == WorkflowStatusCompleted {
-					mu.Lock()
-					successCount++
-					mu.Unlock()
+				var stepErr error
+				if s.getStatus() != WorkflowStatusCompleted {
+					stepErr = s.Error
+					if stepErr == nil {
+						stepErr = fmt.Errorf("step %s failed", s.ID)
+					}
 				}
+				resultsCh <- stepResult{id: s.ID, err: stepErr}
 			}(parallelStep)
 		}
 	}
 
 	wg.Wait()
+	close(resultsCh)
+
+	var errParts []string
+	successCount := 0
+	for r := range resultsCh {
+		if r.err != nil {
+			errParts = append(errParts, fmt.Sprintf("%s: %v", r.id, r.err))
+		} else {
+			successCount++
+		}
+	}
+
+	if successCount == 0 && len(errParts) > 0 {
+		return false, fmt.Errorf("all parallel steps failed: %s", strings.Join(errParts, "; "))
+	}
 	return successCount > 0, nil
 }
 
@@ -527,7 +574,7 @@ func (we *WorkflowEngine) evaluateCondition(workflow *Workflow, condition *StepC
 	case ConditionTypeScriptSuccess:
 		if condition.StepID != "" {
 			if step, exists := workflow.Steps[condition.StepID]; exists {
-				return step.Status == WorkflowStatusCompleted, nil
+				return step.getStatus() == WorkflowStatusCompleted, nil
 			}
 		}
 		return false, fmt.Errorf("step not found: %s", condition.StepID)
@@ -598,7 +645,7 @@ func (we *WorkflowEngine) getHostRiskScore(workflow *Workflow, host string) int 
 	return 0
 }
 
-func (we *WorkflowEngine) compareValues(actual interface{}, operator string, expected interface{}) (bool, error) {
+func (we *WorkflowEngine) compareValues(actual any, operator string, expected any) (bool, error) {
 	switch operator {
 	case ">":
 		if a, ok := actual.(int); ok {
@@ -636,7 +683,7 @@ func (we *WorkflowEngine) compareValues(actual interface{}, operator string, exp
 func (we *WorkflowEngine) executeNextSteps(workflow *Workflow, completedStep *WorkflowStep) {
 	var nextSteps []string
 
-	if completedStep.Status == WorkflowStatusCompleted {
+	if completedStep.getStatus() == WorkflowStatusCompleted {
 		nextSteps = completedStep.OnSuccess
 	} else {
 		nextSteps = completedStep.OnFailure

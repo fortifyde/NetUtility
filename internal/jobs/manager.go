@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"netutil/internal/executor"
@@ -41,6 +42,10 @@ type Job struct {
 	PhaseCurrent int
 	PhaseTotal   int
 	PhaseDesc    string
+
+	// cancelled is set atomically by CancelJob before Stop() is called,
+	// so monitorJob sees it after job.Executor.Wait() returns.
+	cancelled atomic.Bool
 
 	mu sync.RWMutex
 }
@@ -138,8 +143,10 @@ func (jm *JobManager) StartJob(jobID string) error {
 func (jm *JobManager) monitorJob(job *Job) {
 	// Progress scanner: polls output lines for ##NETUTIL:PROGRESS## markers.
 	progressStop := make(chan struct{})
-	defer close(progressStop)
+	var progressWg sync.WaitGroup
+	progressWg.Add(1)
 	go func() {
+		defer progressWg.Done()
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 		lastIdx := 0
@@ -165,54 +172,51 @@ func (jm *JobManager) monitorJob(job *Job) {
 
 	job.Executor.Wait()
 
-	job.mu.Lock()
-	// If CancelJob already set the status to cancelled, do not overwrite it
-	// and do not decrement runningCount (CancelJob already did that).
-	wasCancelled := job.Status == JobStatusCancelled
+	// Stop and join the progress goroutine before touching any shared state.
+	close(progressStop)
+	progressWg.Wait()
+
+	// Use the atomic cancelled flag (set by CancelJob before Stop()) to
+	// determine whether CancelJob already handled status and runningCount.
+	wasCancelled := job.cancelled.Load()
+
 	if !wasCancelled {
+		job.mu.Lock()
 		job.EndTime = time.Now()
 		job.Duration = job.EndTime.Sub(job.StartTime)
 
-		// Update status based on result
 		if job.Result != nil {
-			if job.Result.Success {
+			success, _, jobErr, _, _ := job.Result.GetFinal()
+			if success {
 				job.Status = JobStatusCompleted
 			} else {
 				job.Status = JobStatusFailed
-				job.Error = job.Result.Error
+				job.Error = jobErr
 			}
 		} else {
 			job.Status = JobStatusFailed
 			job.Error = fmt.Errorf("job execution failed - no result")
 		}
-	}
-	job.mu.Unlock()
+		job.mu.Unlock()
 
-	if wasCancelled {
-		// runningCount was already decremented by CancelJob; just fill vacant slots.
-		jm.AutoStartJobs()
-		return
-	}
+		jm.mu.Lock()
+		jm.runningCount--
+		jm.mu.Unlock()
 
-	// Update manager state
-	jm.mu.Lock()
-	jm.runningCount--
-	jm.mu.Unlock()
-
-	// Notify completion
-	if job.Status == JobStatusCompleted {
-		select {
-		case jm.jobCompletedChan <- job:
-		default:
-		}
-	} else {
-		select {
-		case jm.jobFailedChan <- job:
-		default:
+		if job.Status == JobStatusCompleted {
+			select {
+			case jm.jobCompletedChan <- job:
+			default:
+			}
+		} else {
+			select {
+			case jm.jobFailedChan <- job:
+			default:
+			}
 		}
 	}
 
-	// Start any pending jobs that were waiting for this slot
+	// Start any pending jobs that were waiting for this slot.
 	jm.AutoStartJobs()
 }
 
@@ -237,12 +241,16 @@ func (jm *JobManager) CancelJob(jobID string) error {
 		return fmt.Errorf("job %s is not running", jobID)
 	}
 
-	// Stop the executor (this should interrupt any waiting operations)
+	// Mark cancelled atomically BEFORE stopping the executor so monitorJob
+	// sees it after job.Executor.Wait() returns.
+	job.cancelled.Store(true)
+
+	// Stop the executor
 	if executor != nil {
 		executor.Stop()
 	}
 
-	// Update job status
+	// Update job status fields under the job lock
 	job.mu.Lock()
 	job.Status = JobStatusCancelled
 	job.EndTime = time.Now()
@@ -254,9 +262,7 @@ func (jm *JobManager) CancelJob(jobID string) error {
 	jm.runningCount--
 	jm.mu.Unlock()
 
-	// Start any pending jobs that were waiting for this slot
 	jm.AutoStartJobs()
-
 	return nil
 }
 
@@ -288,37 +294,39 @@ func jobStatusPriority(status JobStatus) int {
 	}
 }
 
-// GetAllJobs returns all jobs sorted by status priority and timestamp
-// Jobs are grouped: Running -> Pending -> Completed -> Failed -> Cancelled
-// Within each group, jobs are sorted by start time (oldest first)
+// GetAllJobs returns all jobs sorted by status priority and timestamp.
+// Jobs are grouped: Running -> Pending -> Completed -> Failed -> Cancelled.
+// Within each group, jobs are sorted by start time (oldest first).
 func (jm *JobManager) GetAllJobs() []*Job {
 	jm.mu.RLock()
-	defer jm.mu.RUnlock()
-
-	jobs := make([]*Job, 0, len(jm.jobs))
-	for _, job := range jm.jobs {
-		jobs = append(jobs, job)
+	type jobSnapshot struct {
+		job       *Job
+		priority  int
+		startTime time.Time
 	}
+	snapshots := make([]jobSnapshot, 0, len(jm.jobs))
+	for _, job := range jm.jobs {
+		job.mu.RLock()
+		snapshots = append(snapshots, jobSnapshot{
+			job:       job,
+			priority:  jobStatusPriority(job.Status),
+			startTime: job.StartTime,
+		})
+		job.mu.RUnlock()
+	}
+	jm.mu.RUnlock()
 
-	// Sort by status priority first, then by start time
-	sort.Slice(jobs, func(i, j int) bool {
-		jobs[i].mu.RLock()
-		jobs[j].mu.RLock()
-		defer jobs[i].mu.RUnlock()
-		defer jobs[j].mu.RUnlock()
-
-		priI := jobStatusPriority(jobs[i].Status)
-		priJ := jobStatusPriority(jobs[j].Status)
-
-		// Different priorities: lower priority number comes first
-		if priI != priJ {
-			return priI < priJ
+	sort.Slice(snapshots, func(i, j int) bool {
+		if snapshots[i].priority != snapshots[j].priority {
+			return snapshots[i].priority < snapshots[j].priority
 		}
-
-		// Same priority: older jobs come first
-		return jobs[i].StartTime.Before(jobs[j].StartTime)
+		return snapshots[i].startTime.Before(snapshots[j].startTime)
 	})
 
+	jobs := make([]*Job, len(snapshots))
+	for i, s := range snapshots {
+		jobs[i] = s.job
+	}
 	return jobs
 }
 
