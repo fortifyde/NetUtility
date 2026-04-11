@@ -247,6 +247,9 @@ func TestIsValidTarget(t *testing.T) {
 		{"invalid CIDR multiple slashes", "192.168.1.0/24/32", false},
 		{"file input with injection", "-iL /tmp/file; rm -rf", false},
 		{"file input with pipe", "-iL /tmp/file | cat", false},
+		{"out-of-range octets", "999.999.999.999", false},
+		{"last octet out of range", "192.168.1.256", false},
+		{"CIDR prefix out of range", "192.168.1.0/33", false},
 	}
 
 	for _, tt := range tests {
