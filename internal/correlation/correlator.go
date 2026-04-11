@@ -608,7 +608,7 @@ func ParseNmapOutput(filePath, scanID string) (*ScanResult, error) {
 		}
 
 		// Port detection
-		if currentHost != nil && strings.Contains(line, "/tcp") || strings.Contains(line, "/udp") {
+		if currentHost != nil && (strings.Contains(line, "/tcp") || strings.Contains(line, "/udp")) {
 			portRegex := regexp.MustCompile(`(\d+)/(tcp|udp)\s+(\w+)\s+(.*)`)
 			if matches := portRegex.FindStringSubmatch(line); len(matches) > 4 {
 				portNum, _ := strconv.Atoi(matches[1])
