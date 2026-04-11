@@ -112,15 +112,14 @@ func (d *Dashboard) setupUI() {
 [white]r[::-]        Refresh all data
 [white]j[::-]        View job manager
 [white]c[::-]        View correlations
-[white]w[::-]        View workflows
 [white]Enter[::-]    View host details
 [white]q[::-]        Close dashboard`)
 
 	// Layout: 3x2 grid
 	topRow := tview.NewFlex().SetDirection(tview.FlexColumn).
-		AddItem(d.statsPanel, 0, 1, false).
-		AddItem(d.chartsPanel, 0, 1, false).
-		AddItem(d.alertsPanel, 0, 1, false)
+		AddItem(d.statsPanel, 0, 2, false).
+		AddItem(d.chartsPanel, 0, 3, false).
+		AddItem(d.alertsPanel, 0, 2, false)
 
 	middleRow := tview.NewFlex().SetDirection(tview.FlexColumn).
 		AddItem(d.activityList, 0, 1, false).
@@ -167,9 +166,6 @@ func (d *Dashboard) setupKeyBindings() {
 				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
 					d.app.SetFocus(d.hostsTable)
 				})
-				return nil
-			case 'w':
-				d.showWorkflows()
 				return nil
 			}
 		}
@@ -644,16 +640,6 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, correlation *correlation
 		})
 
 	d.pages.AddPage("host-details", modal, true, true)
-}
-
-// showWorkflows shows workflow information
-func (d *Dashboard) showWorkflows() {
-	if d.workflowEngine == nil {
-		d.showInfo("Workflow engine not available")
-		return
-	}
-
-	d.showInfo("Workflow viewer not yet implemented")
 }
 
 // refresh updates all dashboard data
