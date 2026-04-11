@@ -61,6 +61,25 @@ func (r *StreamingResult) GetOutputLines() []OutputLine {
 	return out
 }
 
+// SetFinal records the final result fields atomically. Call this exactly once,
+// after the process has exited and all output readers have finished.
+func (r *StreamingResult) SetFinal(success bool, exitCode int, err error, endTime time.Time) {
+	r.mu.Lock()
+	r.Success = success
+	r.ExitCode = exitCode
+	r.Error = err
+	r.EndTime = endTime
+	r.Duration = endTime.Sub(r.StartTime)
+	r.mu.Unlock()
+}
+
+// GetFinal returns the final result fields atomically.
+func (r *StreamingResult) GetFinal() (success bool, exitCode int, err error, duration time.Duration, endTime time.Time) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.Success, r.ExitCode, r.Error, r.Duration, r.EndTime
+}
+
 // NewStreamingExecutor creates a new streaming executor
 func NewStreamingExecutor() *StreamingExecutor {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -115,9 +134,6 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 		e.mu.Lock()
 		e.running = false
 		e.mu.Unlock()
-
-		result.EndTime = time.Now()
-		result.Duration = result.EndTime.Sub(result.StartTime)
 
 		close(e.outputChan)
 		close(e.errorChan)
@@ -178,19 +194,25 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 
 	// Now safe to call cmd.Wait(): read ends are no longer in use.
 	exitErr := cmd.Wait()
+	var (
+		success  bool
+		exitCode int
+		finalErr error
+	)
 	if e.ctx.Err() != nil {
-		result.Error = e.ctx.Err()
-		result.Success = false
-		result.ExitCode = -1
+		finalErr = e.ctx.Err()
+		success = false
+		exitCode = -1
 	} else {
-		result.Error = exitErr
-		result.Success = exitErr == nil
+		finalErr = exitErr
+		success = exitErr == nil
 		if exitErr != nil {
 			if exitError, ok := exitErr.(*exec.ExitError); ok {
-				result.ExitCode = exitError.ExitCode()
+				exitCode = exitError.ExitCode()
 			}
 		}
 	}
+	result.SetFinal(success, exitCode, finalErr, time.Now())
 
 	// Close stdin
 	if e.stdin != nil {
