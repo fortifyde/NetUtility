@@ -294,37 +294,39 @@ func jobStatusPriority(status JobStatus) int {
 	}
 }
 
-// GetAllJobs returns all jobs sorted by status priority and timestamp
-// Jobs are grouped: Running -> Pending -> Completed -> Failed -> Cancelled
-// Within each group, jobs are sorted by start time (oldest first)
+// GetAllJobs returns all jobs sorted by status priority and timestamp.
+// Jobs are grouped: Running -> Pending -> Completed -> Failed -> Cancelled.
+// Within each group, jobs are sorted by start time (oldest first).
 func (jm *JobManager) GetAllJobs() []*Job {
 	jm.mu.RLock()
-	defer jm.mu.RUnlock()
-
-	jobs := make([]*Job, 0, len(jm.jobs))
-	for _, job := range jm.jobs {
-		jobs = append(jobs, job)
+	type jobSnapshot struct {
+		job       *Job
+		priority  int
+		startTime time.Time
 	}
+	snapshots := make([]jobSnapshot, 0, len(jm.jobs))
+	for _, job := range jm.jobs {
+		job.mu.RLock()
+		snapshots = append(snapshots, jobSnapshot{
+			job:       job,
+			priority:  jobStatusPriority(job.Status),
+			startTime: job.StartTime,
+		})
+		job.mu.RUnlock()
+	}
+	jm.mu.RUnlock()
 
-	// Sort by status priority first, then by start time
-	sort.Slice(jobs, func(i, j int) bool {
-		jobs[i].mu.RLock()
-		jobs[j].mu.RLock()
-		defer jobs[i].mu.RUnlock()
-		defer jobs[j].mu.RUnlock()
-
-		priI := jobStatusPriority(jobs[i].Status)
-		priJ := jobStatusPriority(jobs[j].Status)
-
-		// Different priorities: lower priority number comes first
-		if priI != priJ {
-			return priI < priJ
+	sort.Slice(snapshots, func(i, j int) bool {
+		if snapshots[i].priority != snapshots[j].priority {
+			return snapshots[i].priority < snapshots[j].priority
 		}
-
-		// Same priority: older jobs come first
-		return jobs[i].StartTime.Before(jobs[j].StartTime)
+		return snapshots[i].startTime.Before(snapshots[j].startTime)
 	})
 
+	jobs := make([]*Job, len(snapshots))
+	for i, s := range snapshots {
+		jobs[i] = s.job
+	}
 	return jobs
 }
 
