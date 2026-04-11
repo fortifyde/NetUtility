@@ -202,7 +202,6 @@ func (w *Workflow) AddStep(step *WorkflowStep) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	step.Status = WorkflowStatusPending
 	w.Steps[step.ID] = step
 }
 
@@ -571,7 +570,7 @@ func (we *WorkflowEngine) evaluateCondition(workflow *Workflow, condition *StepC
 	case ConditionTypeScriptSuccess:
 		if condition.StepID != "" {
 			if step, exists := workflow.Steps[condition.StepID]; exists {
-				return step.Status == WorkflowStatusCompleted, nil
+				return step.getStatus() == WorkflowStatusCompleted, nil
 			}
 		}
 		return false, fmt.Errorf("step not found: %s", condition.StepID)
@@ -680,7 +679,7 @@ func (we *WorkflowEngine) compareValues(actual interface{}, operator string, exp
 func (we *WorkflowEngine) executeNextSteps(workflow *Workflow, completedStep *WorkflowStep) {
 	var nextSteps []string
 
-	if completedStep.Status == WorkflowStatusCompleted {
+	if completedStep.getStatus() == WorkflowStatusCompleted {
 		nextSteps = completedStep.OnSuccess
 	} else {
 		nextSteps = completedStep.OnFailure
