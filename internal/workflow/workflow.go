@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -69,6 +70,32 @@ type WorkflowStep struct {
 	Result     *executor.StreamingResult `json:"result,omitempty"`
 	Error      error                     `json:"error,omitempty"`
 	Metadata   map[string]interface{}    `json:"metadata,omitempty"`
+	mu         sync.Mutex
+}
+
+// getStatus returns the step's current status under the step lock.
+func (s *WorkflowStep) getStatus() WorkflowStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Status
+}
+
+// setRunning marks the step as running under the step lock.
+func (s *WorkflowStep) setRunning() {
+	s.mu.Lock()
+	s.Status = WorkflowStatusRunning
+	s.StartTime = time.Now()
+	s.mu.Unlock()
+}
+
+// setDone records the final status, timestamps, and error under the step lock.
+func (s *WorkflowStep) setDone(status WorkflowStatus, err error) {
+	s.mu.Lock()
+	s.Status = status
+	s.EndTime = time.Now()
+	s.Duration = s.EndTime.Sub(s.StartTime)
+	s.Error = err
+	s.mu.Unlock()
 }
 
 // StepCondition represents a condition for conditional execution
@@ -288,11 +315,12 @@ func (we *WorkflowEngine) executeWorkflowSteps(workflow *Workflow) {
 			anyFailed := false
 
 			for _, step := range workflow.Steps {
-				if step.Required && step.Status == WorkflowStatusFailed {
+				stepStatus := step.getStatus()
+				if step.Required && stepStatus == WorkflowStatusFailed {
 					anyFailed = true
 					break
 				}
-				if step.Status != WorkflowStatusCompleted && step.Status != WorkflowStatusFailed {
+				if stepStatus != WorkflowStatusCompleted && stepStatus != WorkflowStatusFailed {
 					allCompleted = false
 				}
 			}
@@ -360,8 +388,7 @@ func (we *WorkflowEngine) executeStep(workflow *Workflow, step *WorkflowStep) {
 		we.executeNextSteps(workflow, step)
 	}()
 
-	step.Status = WorkflowStatusRunning
-	step.StartTime = time.Now()
+	step.setRunning()
 
 	// Send step start event
 	select {
@@ -394,21 +421,16 @@ func (we *WorkflowEngine) executeStep(workflow *Workflow, step *WorkflowStep) {
 		err = fmt.Errorf("unknown step type: %s", step.Type)
 	}
 
-	step.EndTime = time.Now()
-	step.Duration = step.EndTime.Sub(step.StartTime)
-	step.Error = err
+	finalStatus := WorkflowStatusCompleted
+	if !success {
+		finalStatus = WorkflowStatusFailed
+	}
+	step.setDone(finalStatus, err)
 
-	if success {
-		step.Status = WorkflowStatusCompleted
-	} else {
-		step.Status = WorkflowStatusFailed
-
-		// Check if this is a required step failure
-		if step.Required {
-			workflow.mu.Lock()
-			workflow.Status = WorkflowStatusFailed
-			workflow.mu.Unlock()
-		}
+	if !success && step.Required {
+		workflow.mu.Lock()
+		workflow.Status = WorkflowStatusFailed
+		workflow.mu.Unlock()
 	}
 }
 
@@ -442,7 +464,9 @@ func (we *WorkflowEngine) executeScriptStep(workflow *Workflow, step *WorkflowSt
 
 	select {
 	case success := <-done:
+		step.mu.Lock()
 		step.Result = job.Result
+		step.mu.Unlock()
 		return success, job.GetError()
 	case <-time.After(timeout):
 		we.jobManager.CancelJob(job.ID)
@@ -468,8 +492,11 @@ func (we *WorkflowEngine) executeDelayStep(workflow *Workflow, step *WorkflowSte
 // executeParallelStep executes parallel steps
 func (we *WorkflowEngine) executeParallelStep(workflow *Workflow, step *WorkflowStep) (bool, error) {
 	var wg sync.WaitGroup
-	successCount := 0
-	mu := sync.Mutex{}
+	type stepResult struct {
+		id  string
+		err error
+	}
+	resultsCh := make(chan stepResult, len(step.Parallel))
 
 	for _, stepID := range step.Parallel {
 		if parallelStep, exists := workflow.Steps[stepID]; exists {
@@ -477,17 +504,34 @@ func (we *WorkflowEngine) executeParallelStep(workflow *Workflow, step *Workflow
 			go func(s *WorkflowStep) {
 				defer wg.Done()
 				we.executeStep(workflow, s)
-				// Check step status after execution
-				if s.Status == WorkflowStatusCompleted {
-					mu.Lock()
-					successCount++
-					mu.Unlock()
+				var stepErr error
+				if s.getStatus() != WorkflowStatusCompleted {
+					stepErr = s.Error
+					if stepErr == nil {
+						stepErr = fmt.Errorf("step %s failed", s.ID)
+					}
 				}
+				resultsCh <- stepResult{id: s.ID, err: stepErr}
 			}(parallelStep)
 		}
 	}
 
 	wg.Wait()
+	close(resultsCh)
+
+	var errParts []string
+	successCount := 0
+	for r := range resultsCh {
+		if r.err != nil {
+			errParts = append(errParts, fmt.Sprintf("%s: %v", r.id, r.err))
+		} else {
+			successCount++
+		}
+	}
+
+	if successCount == 0 && len(errParts) > 0 {
+		return false, fmt.Errorf("all parallel steps failed: %s", strings.Join(errParts, "; "))
+	}
 	return successCount > 0, nil
 }
 
