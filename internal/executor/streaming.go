@@ -163,13 +163,18 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 		e.errorChan <- fmt.Errorf("failed to create stdin pipe: %w", err)
 		return
 	}
-	e.stdin = stdin
 
-	// Start the command
+	// Start the command before publishing stdin so the process is ready to receive input.
 	if err := cmd.Start(); err != nil {
 		e.errorChan <- fmt.Errorf("failed to start command: %w", err)
 		return
 	}
+
+	// Atomically publish stdin under the same lock that guards e.running,
+	// so SendInput cannot observe running=true with stdin=nil.
+	e.mu.Lock()
+	e.stdin = stdin
+	e.mu.Unlock()
 
 	// Set up output readers
 	var wg sync.WaitGroup
