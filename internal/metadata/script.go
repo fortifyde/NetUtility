@@ -3,6 +3,7 @@ package metadata
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -30,15 +31,21 @@ type Parameter struct {
 	} `yaml:"validation,omitempty"`
 }
 
-// Dependency represents external dependencies
-type Dependency struct {
-	Tools []struct {
-		Name         string `yaml:"name"`
-		Package      string `yaml:"package"`
-		CheckCommand string `yaml:"check_command"`
-	} `yaml:"tools,omitempty"`
+// Tool represents a tool dependency
+type Tool struct {
+	Name         string `yaml:"name"`
+	Package      string `yaml:"package"`
+	CheckCommand string `yaml:"check_command"`
+}
+
+// Dependencies represents external dependencies
+type Dependencies struct {
+	Tools   []Tool   `yaml:"tools,omitempty"`
 	Scripts []string `yaml:"scripts,omitempty"`
 }
+
+// Dependency is an alias for Dependencies for backward compatibility
+type Dependency = Dependencies
 
 // Output represents script output information
 type Output struct {
@@ -53,30 +60,33 @@ type Example struct {
 	Command     string `yaml:"command"`
 }
 
+// ScriptInfo holds the fields for a single script's metadata
+type ScriptInfo struct {
+	Name              string       `yaml:"name"`
+	Description       string       `yaml:"description"`
+	Category          string       `yaml:"category"`
+	Subcategory       string       `yaml:"subcategory,omitempty"`
+	File              string       `yaml:"file"`
+	RequiresRoot      bool         `yaml:"requires_root"`
+	EstimatedDuration string       `yaml:"estimated_duration"`
+	CLIShortcuts      []string     `yaml:"cli_shortcuts"`
+	Keywords          []string     `yaml:"keywords"`
+	Parameters        []Parameter  `yaml:"parameters,omitempty"`
+	Dependencies      Dependencies `yaml:"dependencies,omitempty"`
+	Output            Output       `yaml:"output"`
+	Tags              []string     `yaml:"tags"`
+	RiskLevel         string       `yaml:"risk_level"`
+	NetworkAccess     bool         `yaml:"network_access"`
+	ModifiesSystem    bool         `yaml:"modifies_system"`
+	Examples          []Example    `yaml:"examples,omitempty"`
+	Version           string       `yaml:"version"`
+	Author            string       `yaml:"author"`
+	LastUpdated       string       `yaml:"last_updated"`
+}
+
 // ScriptMetadata represents the complete metadata for a script
 type ScriptMetadata struct {
-	Script struct {
-		Name              string      `yaml:"name"`
-		Description       string      `yaml:"description"`
-		Category          string      `yaml:"category"`
-		Subcategory       string      `yaml:"subcategory,omitempty"`
-		File              string      `yaml:"file"`
-		RequiresRoot      bool        `yaml:"requires_root"`
-		EstimatedDuration string      `yaml:"estimated_duration"`
-		CLIShortcuts      []string    `yaml:"cli_shortcuts"`
-		Keywords          []string    `yaml:"keywords"`
-		Parameters        []Parameter `yaml:"parameters,omitempty"`
-		Dependencies      Dependency  `yaml:"dependencies,omitempty"`
-		Output            Output      `yaml:"output"`
-		Tags              []string    `yaml:"tags"`
-		RiskLevel         string      `yaml:"risk_level"`
-		NetworkAccess     bool        `yaml:"network_access"`
-		ModifiesSystem    bool        `yaml:"modifies_system"`
-		Examples          []Example   `yaml:"examples,omitempty"`
-		Version           string      `yaml:"version"`
-		Author            string      `yaml:"author"`
-		LastUpdated       string      `yaml:"last_updated"`
-	} `yaml:"script"`
+	Script ScriptInfo `yaml:"script"`
 }
 
 // ScriptRegistry manages all script metadata
@@ -324,9 +334,11 @@ func (r *ScriptRegistry) ValidateScript(script ScriptMetadata) error {
 
 	// Check tool dependencies
 	for _, tool := range script.Script.Dependencies.Tools {
-		if tool.CheckCommand != "" {
-			// This would need to be implemented to actually check the command
-			// For now, we'll just validate the structure
+		if tool.CheckCommand == "" {
+			continue
+		}
+		if _, err := exec.LookPath(tool.CheckCommand); err != nil {
+			return fmt.Errorf("required tool %q not found in PATH: %w", tool.Name, err)
 		}
 	}
 

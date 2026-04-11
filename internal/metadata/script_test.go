@@ -562,6 +562,57 @@ func TestParameterStructure(t *testing.T) {
 	}
 }
 
+func TestValidateScript_MissingTool(t *testing.T) {
+	dir := t.TempDir()
+	scriptFile := filepath.Join(dir, "scan.sh")
+	if err := os.WriteFile(scriptFile, []byte("#!/bin/sh\necho test"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewScriptRegistry(dir)
+	meta := ScriptMetadata{
+		Script: ScriptInfo{
+			Category: ".",
+			File:     "scan.sh",
+			Dependencies: Dependencies{
+				Tools: []Tool{
+					{Name: "definitely-not-a-real-tool-xyz123", CheckCommand: "definitely-not-a-real-tool-xyz123"},
+				},
+			},
+		},
+	}
+	err := registry.ValidateScript(meta)
+	if err == nil {
+		t.Error("ValidateScript should return error for missing tool dependency")
+	}
+	if err != nil && !strings.Contains(err.Error(), "definitely-not-a-real-tool-xyz123") {
+		t.Errorf("error should mention the missing tool, got: %v", err)
+	}
+}
+
+func TestValidateScript_PresentTool(t *testing.T) {
+	dir := t.TempDir()
+	scriptFile := filepath.Join(dir, "scan.sh")
+	if err := os.WriteFile(scriptFile, []byte("#!/bin/sh\necho test"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	registry := NewScriptRegistry(dir)
+	meta := ScriptMetadata{
+		Script: ScriptInfo{
+			Category: ".",
+			File:     "scan.sh",
+			Dependencies: Dependencies{
+				Tools: []Tool{
+					{Name: "sh", CheckCommand: "sh"},
+				},
+			},
+		},
+	}
+	err := registry.ValidateScript(meta)
+	if err != nil {
+		t.Errorf("ValidateScript should not error for 'sh' tool: %v", err)
+	}
+}
+
 func TestLoadMetadataIntegration(t *testing.T) {
 	tempDir := t.TempDir()
 
