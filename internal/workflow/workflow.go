@@ -69,7 +69,7 @@ type WorkflowStep struct {
 	Duration   time.Duration             `json:"duration,omitempty"`
 	Result     *executor.StreamingResult `json:"result,omitempty"`
 	Error      error                     `json:"error,omitempty"`
-	Metadata   map[string]interface{}    `json:"metadata,omitempty"`
+	Metadata   map[string]any    `json:"metadata,omitempty"`
 	mu         sync.Mutex
 }
 
@@ -103,9 +103,9 @@ type StepCondition struct {
 	Type     ConditionType          `json:"type"`
 	Target   string                 `json:"target,omitempty"` // IP, port number, etc.
 	Operator string                 `json:"operator"`         // >, <, ==, !=, contains, etc.
-	Value    interface{}            `json:"value"`
+	Value    any                    `json:"value"`
 	StepID   string                 `json:"step_id,omitempty"` // Reference to another step
-	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // Workflow represents a complete automation workflow
@@ -122,7 +122,7 @@ type Workflow struct {
 	Progress    float64                            `json:"progress"`            // 0.0 to 1.0
 	Variables   map[string]string                  `json:"variables,omitempty"` // Workflow variables
 	Results     map[string]*correlation.ScanResult `json:"results,omitempty"`
-	Metadata    map[string]interface{}             `json:"metadata,omitempty"`
+	Metadata    map[string]any             `json:"metadata,omitempty"`
 
 	// Runtime state
 	completedSteps map[string]bool
@@ -188,7 +188,7 @@ func (we *WorkflowEngine) CreateWorkflow(id, name, description string) *Workflow
 		Status:         WorkflowStatusPending,
 		Variables:      make(map[string]string),
 		Results:        make(map[string]*correlation.ScanResult),
-		Metadata:       make(map[string]interface{}),
+		Metadata:       make(map[string]any),
 		completedSteps: make(map[string]bool),
 		runningSteps:   make(map[string]bool),
 	}
@@ -215,7 +215,7 @@ func (w *Workflow) AddScriptStep(id, name, scriptPath string, required bool) *Wo
 		Required:   required,
 		Status:     WorkflowStatusPending,
 		Parameters: make(map[string]string),
-		Metadata:   make(map[string]interface{}),
+		Metadata:   make(map[string]any),
 	}
 
 	w.AddStep(step)
@@ -230,7 +230,7 @@ func (w *Workflow) AddConditionStep(id, name string, condition *StepCondition) *
 		Type:      StepTypeCondition,
 		Condition: condition,
 		Status:    WorkflowStatusPending,
-		Metadata:  make(map[string]interface{}),
+		Metadata:  make(map[string]any),
 	}
 
 	w.AddStep(step)
@@ -245,7 +245,7 @@ func (w *Workflow) AddDelayStep(id, name string, delay time.Duration) *WorkflowS
 		Type:     StepTypeDelay,
 		Delay:    delay,
 		Status:   WorkflowStatusPending,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 
 	w.AddStep(step)
@@ -260,7 +260,7 @@ func (w *Workflow) AddParallelStep(id, name string, parallelSteps []string) *Wor
 		Type:     StepTypeParallel,
 		Parallel: parallelSteps,
 		Status:   WorkflowStatusPending,
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 	}
 
 	w.AddStep(step)
@@ -645,7 +645,7 @@ func (we *WorkflowEngine) getHostRiskScore(workflow *Workflow, host string) int 
 	return 0
 }
 
-func (we *WorkflowEngine) compareValues(actual interface{}, operator string, expected interface{}) (bool, error) {
+func (we *WorkflowEngine) compareValues(actual any, operator string, expected any) (bool, error) {
 	switch operator {
 	case ">":
 		if a, ok := actual.(int); ok {
