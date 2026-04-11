@@ -317,8 +317,8 @@ func (t *TUI) setupUI() {
 		return t.handleGlobalKeys(event)
 	})
 
-	// Set initial focus
-	t.app.SetFocus(t.categoryPane)
+	// Set initial focus and apply visual focus indicator
+	t.setActiveFocus(t.categoryPane)
 }
 
 func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
@@ -373,13 +373,11 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 			return nil
 		case 'h':
 			// Vim-like left (focus categories)
-			t.app.SetFocus(t.categoryPane)
-			t.updateInfoPanel()
+			t.setActiveFocus(t.categoryPane)
 			return nil
 		case 'l':
 			// Vim-like right (focus tasks)
-			t.app.SetFocus(t.taskPane)
-			t.updateInfoPanel()
+			t.setActiveFocus(t.taskPane)
 			return nil
 		case 'j':
 			// Vim-like down - let the focused widget handle it
@@ -418,11 +416,23 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 func (t *TUI) switchFocus() {
 	current := t.app.GetFocus()
 	if current == t.categoryPane {
-		t.app.SetFocus(t.taskPane)
+		t.setActiveFocus(t.taskPane)
 	} else {
-		t.app.SetFocus(t.categoryPane)
+		t.setActiveFocus(t.categoryPane)
 	}
-	// Update info panel to reflect new focus
+}
+
+// setActiveFocus focuses the given pane and updates border colors: the active
+// pane gets a cyan border, all others revert to the terminal default.
+func (t *TUI) setActiveFocus(pane *tview.List) {
+	t.app.SetFocus(pane)
+	if pane == t.categoryPane {
+		t.categoryPane.SetBorderColor(tcell.ColorAqua)
+		t.taskPane.SetBorderColor(tcell.ColorDefault)
+	} else {
+		t.categoryPane.SetBorderColor(tcell.ColorDefault)
+		t.taskPane.SetBorderColor(tcell.ColorAqua)
+	}
 	t.updateInfoPanel()
 }
 
@@ -441,11 +451,8 @@ func (t *TUI) showCategory(categoryName string) {
 		}
 	}
 
-	// Switch focus to task pane
-	t.app.SetFocus(t.taskPane)
-
-	// Update info panel to reflect new context
-	t.updateInfoPanel()
+	// Switch focus to task pane and update visual focus indicator
+	t.setActiveFocus(t.taskPane)
 }
 
 func (t *TUI) executeTask(taskName string) {
@@ -609,6 +616,17 @@ func (t *TUI) Stop() {
 
 // startSearch opens a search dialog for filtering tasks
 func (t *TUI) startSearch() {
+	// Capture which pane was focused so we can restore it on dismiss
+	focusBeforeSearch := t.categoryPane
+	if t.app.GetFocus() == t.taskPane {
+		focusBeforeSearch = t.taskPane
+	}
+
+	closeSearch := func() {
+		t.pages.RemovePage("search")
+		t.setActiveFocus(focusBeforeSearch)
+	}
+
 	var form *tview.Form
 
 	// Create a simple form
@@ -617,12 +635,10 @@ func (t *TUI) startSearch() {
 		AddButton("Search", func() {
 			query := form.GetFormItem(0).(*tview.InputField).GetText()
 			t.filterTasks(query)
-			t.pages.RemovePage("search")
-			t.app.SetFocus(t.taskPane)
+			closeSearch()
 		}).
 		AddButton("Cancel", func() {
-			t.pages.RemovePage("search")
-			t.app.SetFocus(t.taskPane)
+			closeSearch()
 		})
 
 	form.SetBorder(true).SetTitle("Search Tasks")
@@ -632,8 +648,7 @@ func (t *TUI) startSearch() {
 	searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape:
-			t.pages.RemovePage("search")
-			t.app.SetFocus(t.taskPane)
+			closeSearch()
 			return nil
 		}
 		// Let all other keys pass through
@@ -741,6 +756,7 @@ func (t *TUI) refreshCategories() {
 	t.taskPane.Clear()
 	t.taskPane.SetTitle("Select a category")
 	t.currentCategory = ""
+	t.setActiveFocus(t.categoryPane)
 }
 
 // updateInfoPanel updates the informational panel with context-sensitive content
@@ -789,11 +805,8 @@ func (t *TUI) returnToMain() {
 
 	// Focus on categories if no category selected, otherwise focus on tasks
 	if t.currentCategory == "" {
-		t.app.SetFocus(t.categoryPane)
+		t.setActiveFocus(t.categoryPane)
 	} else {
-		t.app.SetFocus(t.taskPane)
+		t.setActiveFocus(t.taskPane)
 	}
-
-	// Update info panel to reflect current focus
-	t.updateInfoPanel()
 }
