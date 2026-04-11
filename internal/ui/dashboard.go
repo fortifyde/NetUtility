@@ -198,17 +198,19 @@ func (d *Dashboard) setupKeyBindings() {
 
 // updateDashboard refreshes all dashboard components
 func (d *Dashboard) updateDashboard() {
-	stats := d.calculateStats()
+	correlations := d.correlator.GetAllCorrelations()
+
+	stats := d.calculateStats(correlations)
 
 	d.updateStatsPanel(stats)
-	d.updateChartsPanel(stats)
+	d.updateChartsPanel(stats, correlations)
 	d.updateAlertsPanel(stats)
-	d.updateActivityList()
-	d.updateHostsTable()
+	d.updateActivityList(correlations)
+	d.updateHostsTable(correlations)
 }
 
 // calculateStats calculates dashboard statistics
-func (d *Dashboard) calculateStats() DashboardStats {
+func (d *Dashboard) calculateStats(correlations map[string]*correlation.CorrelationResult) DashboardStats {
 	stats := DashboardStats{}
 
 	// Job statistics
@@ -218,7 +220,6 @@ func (d *Dashboard) calculateStats() DashboardStats {
 	stats.FailedJobs = jobStats.FailedJobs
 
 	// Correlation statistics
-	correlations := d.correlator.GetAllCorrelations()
 	stats.TotalHosts = len(correlations)
 
 	var totalRiskScore int
@@ -300,7 +301,7 @@ func (d *Dashboard) updateStatsPanel(stats DashboardStats) {
 }
 
 // updateChartsPanel updates the charts panel with ASCII visualizations
-func (d *Dashboard) updateChartsPanel(stats DashboardStats) {
+func (d *Dashboard) updateChartsPanel(stats DashboardStats, correlations map[string]*correlation.CorrelationResult) {
 	var content strings.Builder
 
 	content.WriteString("[yellow]Risk Level Distribution[::-]\n\n")
@@ -314,7 +315,6 @@ func (d *Dashboard) updateChartsPanel(stats DashboardStats) {
 		"None":     0,
 	}
 
-	correlations := d.correlator.GetAllCorrelations()
 	for _, correlation := range correlations {
 		switch {
 		case correlation.RiskScore >= 750:
@@ -423,10 +423,10 @@ func (d *Dashboard) updateAlertsPanel(stats DashboardStats) {
 }
 
 // updateActivityList updates the recent activity list
-func (d *Dashboard) updateActivityList() {
+func (d *Dashboard) updateActivityList(correlations map[string]*correlation.CorrelationResult) {
 	d.activityList.Clear()
 
-	activities := d.getRecentActivities()
+	activities := d.getRecentActivities(correlations)
 
 	// Sort by timestamp (newest first)
 	sort.Slice(activities, func(i, j int) bool {
@@ -454,7 +454,7 @@ func (d *Dashboard) updateActivityList() {
 }
 
 // getRecentActivities collects recent activities from various sources
-func (d *Dashboard) getRecentActivities() []ActivityItem {
+func (d *Dashboard) getRecentActivities(correlations map[string]*correlation.CorrelationResult) []ActivityItem {
 	var activities []ActivityItem
 
 	// Add job activities
@@ -472,7 +472,6 @@ func (d *Dashboard) getRecentActivities() []ActivityItem {
 	}
 
 	// Add correlation activities (scan timeline events)
-	correlations := d.correlator.GetAllCorrelations()
 	for _, correlation := range correlations {
 		for _, event := range correlation.Timeline {
 			activities = append(activities, ActivityItem{
@@ -521,7 +520,7 @@ func (d *Dashboard) getActivityColor(status string) string {
 }
 
 // updateHostsTable updates the top risk hosts table
-func (d *Dashboard) updateHostsTable() {
+func (d *Dashboard) updateHostsTable(correlations map[string]*correlation.CorrelationResult) {
 	d.hostsTable.Clear()
 
 	// Set headers
@@ -533,9 +532,7 @@ func (d *Dashboard) updateHostsTable() {
 			SetSelectable(false))
 	}
 
-	// Get correlations and sort by risk score
-	correlations := d.correlator.GetAllCorrelations()
-
+	// Sort correlations by risk score
 	type hostRisk struct {
 		host   string
 		result *correlation.CorrelationResult

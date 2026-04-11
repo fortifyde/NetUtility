@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -327,42 +328,21 @@ func isValidTarget(target string) bool {
 	// Basic validation for IP addresses and ranges
 	// This is a simplified check - more comprehensive validation would be in the validation package
 	if strings.Contains(target, "/") {
-		// CIDR notation
-		parts := strings.Split(target, "/")
-		if len(parts) != 2 {
-			return false
-		}
-		return isValidIPAddress(parts[0]) && isValidCIDRPrefix(parts[1])
+		// CIDR notation - use net.ParseCIDR for authoritative validation
+		_, _, err := net.ParseCIDR(target)
+		return err == nil
 	}
 
 	// Single IP address
 	return isValidIPAddress(target)
 }
 
-// isValidIPAddress performs basic IP address validation
+// isValidIPAddress returns true if ip is a valid IPv4 or IPv6 address.
 func isValidIPAddress(ip string) bool {
-	parts := strings.Split(ip, ".")
-	if len(parts) != 4 {
-		return false
-	}
-
-	for _, part := range parts {
-		if part == "" {
-			return false
-		}
-
-		// Check if part contains only digits
-		for _, char := range part {
-			if char < '0' || char > '9' {
-				return false
-			}
-		}
-	}
-
-	return true
+	return net.ParseIP(ip) != nil
 }
 
-// isValidCIDRPrefix checks if a CIDR prefix is valid
+// isValidCIDRPrefix checks if a CIDR prefix is valid (0–32 for IPv4, 0–128 for IPv6)
 func isValidCIDRPrefix(prefix string) bool {
 	if prefix == "" {
 		return false
@@ -375,7 +355,12 @@ func isValidCIDRPrefix(prefix string) bool {
 		}
 	}
 
-	return true
+	n, err := strconv.Atoi(prefix)
+	if err != nil {
+		return false
+	}
+
+	return n >= 0 && n <= 128
 }
 
 // SanitizeConfig removes invalid entries and fixes common issues
@@ -419,8 +404,8 @@ func (c *Config) SanitizeConfig() {
 }
 
 // GetConfigStatus returns a summary of the configuration status
-func (c *Config) GetConfigStatus() map[string]interface{} {
-	status := make(map[string]interface{})
+func (c *Config) GetConfigStatus() map[string]any {
+	status := make(map[string]any)
 
 	status["workspace_dir"] = c.WorkspaceDir
 	status["workspace_exists"] = false

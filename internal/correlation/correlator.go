@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,7 +37,7 @@ type ScanResult struct {
 	Hosts           []Host                 `json:"hosts"`           // Discovered hosts
 	Services        []Service              `json:"services"`        // Discovered services
 	Vulnerabilities []Vulnerability        `json:"vulnerabilities"` // Found vulnerabilities
-	Metadata        map[string]interface{} `json:"metadata"`        // Additional data
+	Metadata        map[string]any `json:"metadata"`        // Additional data
 }
 
 // Host represents a discovered network host
@@ -98,7 +99,7 @@ type CorrelationResult struct {
 	Timeline        []TimelineEvent        `json:"timeline"`
 	RiskScore       int                    `json:"risk_score"`
 	Recommendations []string               `json:"recommendations"`
-	Metadata        map[string]interface{} `json:"metadata"`
+	Metadata        map[string]any `json:"metadata"`
 }
 
 // TimelineEvent represents an event in the scan timeline
@@ -186,7 +187,7 @@ func (c *Correlator) correlateHost(hostIP string) {
 		Vulnerabilities: make([]Vulnerability, 0),
 		Timeline:        make([]TimelineEvent, 0),
 		Recommendations: make([]string, 0),
-		Metadata:        make(map[string]interface{}),
+		Metadata:        make(map[string]any),
 	}
 
 	// Collect data from all relevant scans
@@ -363,13 +364,9 @@ func (c *Correlator) mergePorts(existing []Port, new []Port) []Port {
 
 // sortTimeline sorts timeline events by timestamp
 func (c *Correlator) sortTimeline(timeline []TimelineEvent) {
-	for i := 0; i < len(timeline)-1; i++ {
-		for j := i + 1; j < len(timeline); j++ {
-			if timeline[i].Timestamp.After(timeline[j].Timestamp) {
-				timeline[i], timeline[j] = timeline[j], timeline[i]
-			}
-		}
-	}
+	sort.Slice(timeline, func(i, j int) bool {
+		return timeline[i].Timestamp.Before(timeline[j].Timestamp)
+	})
 }
 
 // calculateRiskScore calculates a risk score based on discovered vulnerabilities and services
@@ -608,7 +605,7 @@ func ParseNmapOutput(filePath, scanID string) (*ScanResult, error) {
 		}
 
 		// Port detection
-		if currentHost != nil && strings.Contains(line, "/tcp") || strings.Contains(line, "/udp") {
+		if currentHost != nil && (strings.Contains(line, "/tcp") || strings.Contains(line, "/udp")) {
 			portRegex := regexp.MustCompile(`(\d+)/(tcp|udp)\s+(\w+)\s+(.*)`)
 			if matches := portRegex.FindStringSubmatch(line); len(matches) > 4 {
 				portNum, _ := strconv.Atoi(matches[1])

@@ -652,6 +652,33 @@ PORT     STATE SERVICE
 	}
 }
 
+func TestScanWorkspaceForResults_SubdirectoryScan(t *testing.T) {
+	dir := t.TempDir()
+	// Two levels deep — filepath.Glob("**") would not recurse this far
+	subdir := filepath.Join(dir, "scan-2024-01-15", "subscans")
+	if err := os.MkdirAll(subdir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	nmapContent := `Starting Nmap 7.94
+Nmap scan report for 192.168.1.1
+Host is up (0.001s latency).
+PORT   STATE SERVICE
+22/tcp open  ssh
+Nmap done: 1 IP address (1 host up) scanned`
+	nmapFile := filepath.Join(subdir, "result.nmap")
+	if err := os.WriteFile(nmapFile, []byte(nmapContent), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	rp := NewResultParser(dir)
+	results, err := rp.ScanWorkspaceForResults()
+	if err != nil {
+		t.Fatalf("ScanWorkspaceForResults error: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("ScanWorkspaceForResults found no results in subdirectory — filepath.Glob('**') bug")
+	}
+}
+
 func TestScanWorkspaceSkipsLargeFiles(t *testing.T) {
 	tempDir := t.TempDir()
 	parser := NewResultParser(tempDir)

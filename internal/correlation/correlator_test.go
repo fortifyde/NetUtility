@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -625,16 +626,34 @@ Nmap done: 2 IP addresses (2 hosts up) scanned in 1.23 seconds
 
 // Helper function
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || indexOf(s, substr) >= 0))
+	return strings.Contains(s, substr)
 }
 
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
+func TestParseNmapOutputUDPBeforeHost(t *testing.T) {
+	// UDP port line appears before any host header — previously caused nil pointer panic.
+	input := `Starting Nmap 7.94
+53/udp open  domain
+Nmap scan report for 192.168.1.1
+Host is up (0.001s latency).
+22/tcp open  ssh
+Nmap done: 1 IP address (1 host up) scanned`
+
+	tempDir := t.TempDir()
+	nmapFile := filepath.Join(tempDir, "scan.nmap")
+	if err := os.WriteFile(nmapFile, []byte(input), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
 	}
-	return -1
+
+	result, err := ParseNmapOutput(nmapFile, "test-udp-before-host")
+	if err != nil {
+		t.Fatalf("ParseNmapOutput returned unexpected error: %v", err)
+	}
+	if len(result.Hosts) != 1 {
+		t.Errorf("got %d hosts, want 1", len(result.Hosts))
+	}
+	if len(result.Hosts) > 0 && result.Hosts[0].IP != "192.168.1.1" {
+		t.Errorf("got host IP %s, want 192.168.1.1", result.Hosts[0].IP)
+	}
 }
 
 func TestScanTypeConstants(t *testing.T) {
