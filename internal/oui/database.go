@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"embed"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -27,18 +28,15 @@ type DatabaseInfo struct {
 	Version      string    `json:"version"`
 }
 
-var (
-	globalDB *Database
-	once     sync.Once
-)
+var getDatabase = sync.OnceValues(func() (*Database, error) {
+	return loadEmbeddedDatabase()
+})
 
-// GetDatabase returns the global OUI database instance
+// GetDatabase returns the global OUI database instance, loading it on first call.
+// If the first load fails, subsequent calls return the same error — the database
+// is not retried, matching the embedded-resource nature of the data.
 func GetDatabase() (*Database, error) {
-	var err error
-	once.Do(func() {
-		globalDB, err = loadEmbeddedDatabase()
-	})
-	return globalDB, err
+	return getDatabase()
 }
 
 // loadEmbeddedDatabase loads the embedded OUI database into memory
@@ -49,7 +47,7 @@ func loadEmbeddedDatabase() (*Database, error) {
 	}
 	defer func() {
 		if closeErr := file.Close(); closeErr != nil {
-			// Log error but don't fail the function since we're in defer
+			fmt.Fprintf(os.Stderr, "oui: warning: failed to close embedded database file: %v\n", closeErr)
 		}
 	}()
 
