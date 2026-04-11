@@ -36,7 +36,7 @@ type ScanResult struct {
 	Hosts           []Host                 `json:"hosts"`           // Discovered hosts
 	Services        []Service              `json:"services"`        // Discovered services
 	Vulnerabilities []Vulnerability        `json:"vulnerabilities"` // Found vulnerabilities
-	Metadata        map[string]interface{} `json:"metadata"`        // Additional data
+	Metadata        map[string]any `json:"metadata"`        // Additional data
 }
 
 // Host represents a discovered network host
@@ -98,7 +98,7 @@ type CorrelationResult struct {
 	Timeline        []TimelineEvent        `json:"timeline"`
 	RiskScore       int                    `json:"risk_score"`
 	Recommendations []string               `json:"recommendations"`
-	Metadata        map[string]interface{} `json:"metadata"`
+	Metadata        map[string]any `json:"metadata"`
 }
 
 // TimelineEvent represents an event in the scan timeline
@@ -186,7 +186,7 @@ func (c *Correlator) correlateHost(hostIP string) {
 		Vulnerabilities: make([]Vulnerability, 0),
 		Timeline:        make([]TimelineEvent, 0),
 		Recommendations: make([]string, 0),
-		Metadata:        make(map[string]interface{}),
+		Metadata:        make(map[string]any),
 	}
 
 	// Collect data from all relevant scans

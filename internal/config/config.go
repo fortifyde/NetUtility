@@ -404,8 +404,8 @@ func (c *Config) SanitizeConfig() {
 }
 
 // GetConfigStatus returns a summary of the configuration status
-func (c *Config) GetConfigStatus() map[string]interface{} {
-	status := make(map[string]interface{})
+func (c *Config) GetConfigStatus() map[string]any {
+	status := make(map[string]any)
 
 	status["workspace_dir"] = c.WorkspaceDir
 	status["workspace_exists"] = false
