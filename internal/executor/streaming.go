@@ -342,17 +342,18 @@ func FilterOutput(lines []OutputLine, source string) []OutputLine {
 
 // FormatOutput formats output lines for display
 func FormatOutput(lines []OutputLine, showTimestamp bool, showSource bool) string {
-	var result string
+	var sb strings.Builder
 	for _, line := range lines {
 		if showTimestamp {
-			result += line.Timestamp.Format("15:04:05 ")
+			sb.WriteString(line.Timestamp.Format("15:04:05 "))
 		}
 		if showSource {
-			result += fmt.Sprintf("[%s] ", line.Source)
+			fmt.Fprintf(&sb, "[%s] ", line.Source)
 		}
-		result += line.Content + "\n"
+		sb.WriteString(line.Content)
+		sb.WriteByte('\n')
 	}
-	return result
+	return sb.String()
 }
 
 // TailOutput returns the last N lines of output
