@@ -351,7 +351,9 @@ func (d *Dashboard) updateChartsPanel(stats DashboardStats, correlations map[str
 				colors[i], level, colors[i], bar, count))
 		}
 	} else {
-		content.WriteString("No risk data available\n")
+		content.WriteString("[gray]No scan data yet.[::-]\n")
+		content.WriteString("[gray]Run Network Discovery[::-]\n")
+		content.WriteString("[gray]to populate this chart.[::-]\n")
 	}
 
 	content.WriteString("\n[yellow]Vulnerability Trends[::-]\n")
@@ -542,6 +544,16 @@ func (d *Dashboard) updateHostsTable(correlations map[string]*correlation.Correl
 	sort.Slice(hosts, func(i, j int) bool {
 		return hosts[i].result.RiskScore > hosts[j].result.RiskScore
 	})
+
+	// Empty state: show guidance when no scan data exists
+	if len(hosts) == 0 {
+		d.hostsTable.SetCell(1, 0, tview.NewTableCell("No scan data yet — run Network Discovery to populate.").
+			SetTextColor(tcell.ColorGray).
+			SetAlign(tview.AlignCenter).
+			SetSelectable(false).
+			SetExpansion(5))
+		return
+	}
 
 	// Show top 10 hosts
 	maxHosts := 10
