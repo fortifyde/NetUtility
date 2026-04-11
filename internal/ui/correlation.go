@@ -82,7 +82,6 @@ func (cv *CorrelationViewer) setupUI() {
 [white]r[::-]        Refresh correlations
 [white]s[::-]        Sort by risk score
 [white]f[::-]        Filter high-risk hosts
-[white]e[::-]        Export correlations
 [white]q[::-]        Close correlation viewer`)
 
 	// Layout: Left panel (hosts table), Right panel (details + timeline + controls)
@@ -128,9 +127,6 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 				return nil
 			case 'f':
 				cv.filterHighRisk()
-				return nil
-			case 'e':
-				cv.exportCorrelations()
 				return nil
 			}
 		}
@@ -474,25 +470,6 @@ func (cv *CorrelationViewer) filterHighRisk() {
 	}
 
 	cv.hostsList.SetTitle(fmt.Sprintf("High-Risk Hosts (%d)", len(highRiskHosts)))
-}
-
-// exportCorrelations exports correlation data
-func (cv *CorrelationViewer) exportCorrelations() {
-	// Show export options
-	modal := tview.NewModal().
-		SetText("Export correlation data to file?").
-		AddButtons([]string{"JSON", "CSV", "Cancel"}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			cv.pages.RemovePage("export")
-			switch buttonLabel {
-			case "JSON":
-				cv.showInfo("JSON export not yet implemented")
-			case "CSV":
-				cv.showInfo("CSV export not yet implemented")
-			}
-		})
-
-	cv.pages.AddPage("export", modal, true, true)
 }
 
 // startRefreshTimer starts automatic refresh
