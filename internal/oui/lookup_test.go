@@ -399,3 +399,20 @@ func TestExtractOUIWithPartialMAC(t *testing.T) {
 		t.Errorf("ExtractOUI(%s) = %s, should start with AABB", partial, result)
 	}
 }
+
+func TestGetDatabaseReturnsSameInstance(t *testing.T) {
+	db1, err1 := GetDatabase()
+	if err1 != nil {
+		t.Fatalf("first GetDatabase() error: %v", err1)
+	}
+	db2, err2 := GetDatabase()
+	if err2 != nil {
+		t.Fatalf("second GetDatabase() error: %v", err2)
+	}
+	if db1 != db2 {
+		t.Error("GetDatabase() returned different pointers on consecutive calls")
+	}
+	if db1 == nil {
+		t.Error("GetDatabase() returned nil database")
+	}
+}
