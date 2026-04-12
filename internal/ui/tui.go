@@ -431,6 +431,8 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 		t.showCorrelationViewer()
 		return nil
 	}
+	// Ctrl+Z: tcell puts the terminal in raw mode (ISIG cleared),
+	// so the kernel never converts Ctrl+Z to SIGTSTP — safe to use as a keybind.
 	if event.Key() == tcell.KeyCtrlZ {
 		// Global return to main TUI from anywhere
 		t.returnToMain()
