@@ -28,6 +28,7 @@ type CorrelationViewer struct {
 	// State
 	selectedHost         string
 	currentView          string // "hosts", "details", "timeline"
+	filterActive         bool   // true when high-risk filter is applied
 	refreshTicker        *time.Ticker
 	stopChan             chan struct{}
 	returnToMainCallback func()
@@ -76,13 +77,7 @@ func (cv *CorrelationViewer) setupUI() {
 	// Create controls panel
 	cv.controlsText = tview.NewTextView().SetDynamicColors(true)
 	cv.controlsText.SetBorder(true).SetTitle("Controls")
-	cv.controlsText.SetText(`[yellow]Controls:[::-]
-[white]Enter[::-]    View host details
-[white]t[::-]        View timeline
-[white]r[::-]        Refresh correlations
-[white]s[::-]        Sort by risk score
-[white]f[::-]        Filter high-risk hosts
-[white]q[::-]        Close correlation viewer`)
+	cv.updateControlsText()
 
 	// Layout: Left panel (hosts table), Right panel (details + timeline + controls)
 	rightPanel := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -99,6 +94,21 @@ func (cv *CorrelationViewer) setupUI() {
 
 	// Initial update
 	cv.updateHostsList()
+}
+
+// updateControlsText re-renders the controls panel to reflect current filter state.
+func (cv *CorrelationViewer) updateControlsText() {
+	filterLine := "[white]f[::-]        Filter high-risk hosts"
+	if cv.filterActive {
+		filterLine = "[yellow]f[::-]        Clear filter [ACTIVE]"
+	}
+	cv.controlsText.SetText(fmt.Sprintf(`[yellow]Controls:[::-]
+[white]Enter[::-]    View host details
+[white]t[::-]        View timeline
+[white]r[::-]        Refresh correlations
+[white]s[::-]        Sort by risk score
+%s
+[white]q[::-]        Close correlation viewer`, filterLine))
 }
 
 // setupKeyBindings configures keyboard shortcuts
@@ -126,7 +136,7 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 				cv.sortByRiskScore()
 				return nil
 			case 'f':
-				cv.filterHighRisk()
+				cv.toggleFilterHighRisk()
 				return nil
 			}
 		}
@@ -409,9 +419,12 @@ func (cv *CorrelationViewer) showTimeline() {
 	cv.app.SetFocus(cv.timelineList)
 }
 
-// refresh updates all UI components
+// refresh clears any active filter and reloads all UI components.
 func (cv *CorrelationViewer) refresh() {
 	cv.app.QueueUpdateDraw(func() {
+		cv.filterActive = false
+		cv.hostsList.SetTitle("Correlated Hosts")
+		cv.updateControlsText()
 		cv.updateHostsList()
 		cv.updateDetailsPanel()
 		cv.updateTimeline()
@@ -423,11 +436,11 @@ func (cv *CorrelationViewer) sortByRiskScore() {
 	cv.updateHostsList() // Already sorts by risk score
 }
 
-// filterHighRisk shows only high-risk hosts
-func (cv *CorrelationViewer) filterHighRisk() {
+// applyHighRiskFilter populates the hosts table with only hosts having risk score ≥ 500.
+// Call toggleFilterHighRisk rather than this method directly.
+func (cv *CorrelationViewer) applyHighRiskFilter() {
 	highRiskHosts := cv.correlator.GetHighRiskHosts(500)
 
-	// Clear table and reset headers
 	cv.hostsList.Clear()
 	headers := []string{"Host", "Services", "Vulns", "Risk", "Last Scan", "Status"}
 	for i, header := range headers {
@@ -437,7 +450,6 @@ func (cv *CorrelationViewer) filterHighRisk() {
 			SetSelectable(false))
 	}
 
-	// Add only high-risk hosts
 	for i, result := range highRiskHosts {
 		row := i + 1
 
@@ -464,12 +476,25 @@ func (cv *CorrelationViewer) filterHighRisk() {
 		cv.hostsList.SetCell(row, 5, tview.NewTableCell(status).SetTextColor(statusColor))
 	}
 
-	// Set initial selection to enable navigation (skip header row)
 	if cv.hostsList.GetRowCount() > 1 {
 		cv.hostsList.Select(1, 0)
 	}
 
-	cv.hostsList.SetTitle(fmt.Sprintf("High-Risk Hosts (%d)", len(highRiskHosts)))
+	cv.hostsList.SetTitle(fmt.Sprintf("[FILTERED] High-Risk Hosts (%d)", len(highRiskHosts)))
+}
+
+// toggleFilterHighRisk toggles the high-risk filter on or off.
+// When turned on, only hosts with risk score ≥ 500 are shown.
+// When turned off, all hosts are shown and the title is restored.
+func (cv *CorrelationViewer) toggleFilterHighRisk() {
+	cv.filterActive = !cv.filterActive
+	if cv.filterActive {
+		cv.applyHighRiskFilter()
+	} else {
+		cv.hostsList.SetTitle("Correlated Hosts")
+		cv.updateHostsList()
+	}
+	cv.updateControlsText()
 }
 
 // startRefreshTimer starts automatic refresh
