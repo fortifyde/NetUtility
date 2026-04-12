@@ -246,7 +246,7 @@ func (ov *OutputViewer) sendInputToScript(input string) {
 		if isPassword {
 			ov.inputField.SetMaskCharacter(0)
 		}
-		ov.statusLine.SetText("[green]Input sent[::-] - Waiting for response | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
+		ov.statusLine.SetText("[green]Input sent[::-] - Waiting for response | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Z=Main")
 	})
 }
 
@@ -391,7 +391,7 @@ func (ov *OutputViewer) pollJobOutput(job *jobs.Job, startIdx int) {
 					ov.mu.Lock()
 					ov.updateTitleLocked(scriptPath, fmt.Sprintf("%s - Duration: %v", finalStatus, finalDuration.Round(time.Second)))
 					ov.mu.Unlock()
-					ov.statusLine.SetText(fmt.Sprintf("[%s]ENTER=Continue | Ctrl+J=Jobs | Ctrl+Home=Home | ESC=Close[::-]", finalColor))
+					ov.statusLine.SetText(fmt.Sprintf("[%s]ENTER=Continue | Ctrl+J=Jobs | Ctrl+Z=Main | ESC=Close[::-]", finalColor))
 				})
 				return
 			}
@@ -437,7 +437,7 @@ func (ov *OutputViewer) processOutput() {
 				ov.mu.Lock()
 				ov.updateTitleLocked(scriptPath, fmt.Sprintf("%s - Duration: %v", finalStatus, result.Duration.Round(time.Second)))
 				ov.mu.Unlock()
-				ov.statusLine.SetText(fmt.Sprintf("[%s]ENTER=Continue | Ctrl+J=Jobs | Ctrl+Home=Home | ESC=Close[::-]", finalColor))
+				ov.statusLine.SetText(fmt.Sprintf("[%s]ENTER=Continue | Ctrl+J=Jobs | Ctrl+Z=Main | ESC=Close[::-]", finalColor))
 			})
 		}
 	}()
@@ -512,7 +512,7 @@ func (ov *OutputViewer) handlePromptDetection(line executor.OutputLine) {
 		ov.app.QueueUpdateDraw(func() {
 			if ov.HasFocus() {
 				ov.app.SetFocus(ov.inputField)
-				ov.statusLine.SetText("[yellow]Waiting for input[::-] - Enter selection + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
+				ov.statusLine.SetText("[yellow]Waiting for input[::-] - Enter selection + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Z=Main")
 			}
 		})
 	}
@@ -525,7 +525,7 @@ func (ov *OutputViewer) handlePromptDetection(line executor.OutputLine) {
 			if ov.HasFocus() {
 				ov.inputField.SetMaskCharacter('*')
 				ov.app.SetFocus(ov.inputField)
-				ov.statusLine.SetText("[yellow]Password input[::-] - Type password + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
+				ov.statusLine.SetText("[yellow]Password input[::-] - Type password + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Z=Main")
 			}
 		})
 	}
