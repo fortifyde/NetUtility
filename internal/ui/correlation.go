@@ -237,7 +237,8 @@ func (cv *CorrelationViewer) updateControlsText() {
 [white]Enter[::-]    View host details
 [white]t[::-]        View timeline
 %s
-[white]q[::-]        Close`, filterLine))
+[white]q[::-]        Close
+[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`, filterLine))
 }
 
 // setupKeyBindings configures keyboard shortcuts
