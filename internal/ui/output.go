@@ -200,10 +200,8 @@ func (ov *OutputViewer) setupInputField() {
 			}
 
 			input := ov.inputField.GetText()
-			if input != "" {
-				ov.inputField.SetText("")
-				go ov.sendInputToScript(input)
-			}
+			ov.inputField.SetText("")
+			go ov.sendInputToScript(input)
 			return nil
 		}
 
@@ -233,8 +231,12 @@ func (ov *OutputViewer) sendInputToScript(input string) {
 	}
 
 	if !isPassword {
+		display := input
+		if display == "" {
+			display = "(default)"
+		}
 		ov.addOutputLine(executor.OutputLine{
-			Content:   fmt.Sprintf("> %s", input),
+			Content:   fmt.Sprintf("> %s", display),
 			Timestamp: time.Now(),
 			Source:    "input",
 		})
