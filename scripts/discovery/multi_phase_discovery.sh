@@ -719,10 +719,9 @@ create_enriched_service_target() {
             fi
 
             # Get hostname from dns_results.txt (Phase 3 directory)
-            # File contains literal \t not tab character
             hostname="-"
             if [ -f "$PHASE3_DIR/dns_results.txt" ]; then
-                hostname=$(grep "^${ip}" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | sed 's/.*\\t//' | head -1)
+                hostname=$(grep "^${ip}" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | awk -F'\t' '{print $2}' | head -1)
                 if [ -z "$hostname" ] || [ "$hostname" = "<no hostname>" ]; then
                     hostname="-"
                 fi
@@ -780,7 +779,7 @@ create_enriched_categorized_hosts() {
             # Get hostname
             hostname="-"
             if [ -f "$PHASE3_DIR/dns_results.txt" ]; then
-                hostname=$(grep "^${ip}" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | sed 's/.*\t//' | head -1)
+                hostname=$(grep "^${ip}" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | awk -F'\t' '{print $2}' | head -1)
                 [ -z "$hostname" ] && hostname="-"
             fi
 
@@ -2401,14 +2400,14 @@ if [ "$dns_configured" = "true" ]; then
             if [ -z "$hostname" ]; then
                 hostname="<no hostname>"
             fi
-            echo "$host\t$hostname" >> "$REPORT_FILE"
-            echo "$host\t$hostname" >> "$PHASE3_DIR/dns_results.txt"
+            printf '%s\t%s\n' "$host" "$hostname" >> "$REPORT_FILE"
+            printf '%s\t%s\n' "$host" "$hostname" >> "$PHASE3_DIR/dns_results.txt"
         fi
     done < "$PHASE2_DIR/all_hosts.txt"
 else
     echo "  Skipping DNS reverse lookups (no nameserver configured)" >> "$REPORT_FILE"
     while read -r host; do
-        [ -n "$host" ] && echo "$host\t<no DNS configured>" >> "$PHASE3_DIR/dns_results.txt"
+        [ -n "$host" ] && printf '%s\t%s\n' "$host" "<no DNS configured>" >> "$PHASE3_DIR/dns_results.txt"
     done < "$PHASE2_DIR/all_hosts.txt"
 fi
 
@@ -2703,7 +2702,7 @@ while read -r host; do
         evidence=$(  echo "$result" | cut -d'|' -f5)
 
         # Get hostname for display (file contains literal \t not tab character)
-        hostname=$(grep "^$host" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | sed 's/.*\\t//')
+        hostname=$(grep "^$host" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | awk -F'\t' '{print $2}' | head -1)
         if [ -z "$hostname" ] || [ "$hostname" = "<no hostname>" ]; then
             hostname="-"
         fi
