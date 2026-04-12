@@ -51,6 +51,7 @@ type Task struct {
 	Name        string
 	Description string
 	Script      string
+	SubTasks    []Task // non-nil: selecting this task shows a sub-menu modal
 }
 
 // getCategories returns the list of available categories and their tasks.
@@ -170,6 +171,56 @@ func (t *TUI) getHardcodedCategories() []Category {
 			},
 		},
 	}
+}
+
+// mergeInterfaceTasks finds "Manage Network Interfaces" and "Manage VLAN Interfaces"
+// in the "Host Configuration" category and replaces them with a single composite
+// "Configure Interfaces" task whose SubTasks hold the originals.
+func mergeInterfaceTasks(categories []Category) []Category {
+	for ci, cat := range categories {
+		if cat.Name != "Host Configuration" {
+			continue
+		}
+		var ifaceTask, vlanTask Task
+		ifaceIdx := -1
+		for ti, task := range cat.Tasks {
+			switch task.Name {
+			case "Manage Network Interfaces":
+				ifaceTask = task
+				if ifaceIdx == -1 {
+					ifaceIdx = ti
+				}
+			case "Manage VLAN Interfaces":
+				vlanTask = task
+			}
+		}
+		if ifaceIdx == -1 {
+			break // neither task found — nothing to merge
+		}
+		// Build new task list without the two interface tasks
+		newTasks := make([]Task, 0, len(cat.Tasks)-1)
+		for _, t := range cat.Tasks {
+			if t.Name != "Manage Network Interfaces" && t.Name != "Manage VLAN Interfaces" {
+				newTasks = append(newTasks, t)
+			}
+		}
+		composite := Task{
+			Name:        "Configure Interfaces",
+			Description: "Manage interface states or configure VLAN subinterfaces",
+			SubTasks: []Task{
+				{Name: "Interface States", Description: ifaceTask.Description, Script: ifaceTask.Script},
+				{Name: "VLAN Interfaces", Description: vlanTask.Description, Script: vlanTask.Script},
+			},
+		}
+		// Insert composite at the original position of the first interface task
+		if ifaceIdx > len(newTasks) {
+			ifaceIdx = len(newTasks)
+		}
+		newTasks = append(newTasks[:ifaceIdx:ifaceIdx], append([]Task{composite}, newTasks[ifaceIdx:]...)...)
+		categories[ci].Tasks = newTasks
+		break
+	}
+	return categories
 }
 
 func NewTUI(scriptsDir, workspaceDir string) *TUI {
