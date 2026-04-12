@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -37,20 +36,18 @@ type Dashboard struct {
 	returnToMainCallback func()
 }
 
-// DashboardStats contains aggregated statistics
+// DashboardStats contains aggregated statistics for the discovery dashboard.
 type DashboardStats struct {
-	TotalHosts           int
-	ActiveHosts          int
-	TotalServices        int
-	TotalVulnerabilities int
-	CriticalVulns        int
-	HighRiskHosts        int
-	RunningJobs          int
-	CompletedJobs        int
-	FailedJobs           int
-	ActiveWorkflows      int
-	AverageRiskScore     float64
-	LastScanTime         time.Time
+	TotalHosts      int
+	ActiveHosts     int
+	TotalServices   int
+	HostsByCategory map[string]int // keyed by category: "windows", "linux", "network_device", "unknown"
+	RunningJobs     int
+	CompletedJobs   int
+	FailedJobs      int
+	ActiveWorkflows int
+	MaxConcurrent   int
+	LastScanTime    time.Time
 }
 
 // ActivityItem represents a recent activity entry
@@ -87,7 +84,7 @@ func NewDashboard(app *tview.Application, pages *tview.Pages, jobManager *jobs.J
 func (d *Dashboard) setupUI() {
 	// Create stats panel
 	d.statsPanel = tview.NewTextView().SetDynamicColors(true)
-	d.statsPanel.SetBorder(true).SetTitle("System Statistics")
+	d.statsPanel.SetBorder(true).SetTitle("Discovery Stats")
 
 	// Create activity list
 	d.activityList = tview.NewList()
@@ -95,15 +92,15 @@ func (d *Dashboard) setupUI() {
 
 	// Create hosts table
 	d.hostsTable = tview.NewTable().SetBorders(true).SetSelectable(true, false)
-	d.hostsTable.SetBorder(true).SetTitle("Top Risk Hosts")
+	d.hostsTable.SetBorder(true).SetTitle("Discovered Hosts")
 
 	// Create alerts panel
 	d.alertsPanel = tview.NewTextView().SetDynamicColors(true).SetScrollable(true)
-	d.alertsPanel.SetBorder(true).SetTitle("Security Alerts")
+	d.alertsPanel.SetBorder(true).SetTitle("Job Activity")
 
 	// Create charts panel (ASCII charts)
 	d.chartsPanel = tview.NewTextView().SetDynamicColors(true)
-	d.chartsPanel.SetBorder(true).SetTitle("Risk Distribution")
+	d.chartsPanel.SetBorder(true).SetTitle("Category Breakdown")
 
 	// Create controls panel
 	d.controlsText = tview.NewTextView().SetDynamicColors(true)
@@ -112,15 +109,14 @@ func (d *Dashboard) setupUI() {
 [white]r[::-]        Refresh all data
 [white]j[::-]        View job manager
 [white]c[::-]        View correlations
-[white]w[::-]        View workflows
 [white]Enter[::-]    View host details
 [white]q[::-]        Close dashboard`)
 
 	// Layout: 3x2 grid
 	topRow := tview.NewFlex().SetDirection(tview.FlexColumn).
-		AddItem(d.statsPanel, 0, 1, false).
-		AddItem(d.chartsPanel, 0, 1, false).
-		AddItem(d.alertsPanel, 0, 1, false)
+		AddItem(d.statsPanel, 0, 2, false).
+		AddItem(d.chartsPanel, 0, 3, false).
+		AddItem(d.alertsPanel, 0, 2, false)
 
 	middleRow := tview.NewFlex().SetDirection(tview.FlexColumn).
 		AddItem(d.activityList, 0, 1, false).
@@ -168,9 +164,6 @@ func (d *Dashboard) setupKeyBindings() {
 					d.app.SetFocus(d.hostsTable)
 				})
 				return nil
-			case 'w':
-				d.showWorkflows()
-				return nil
 			}
 		}
 		return event
@@ -203,59 +196,41 @@ func (d *Dashboard) updateDashboard() {
 	stats := d.calculateStats(correlations)
 
 	d.updateStatsPanel(stats)
-	d.updateChartsPanel(stats, correlations)
-	d.updateAlertsPanel(stats)
+	d.updateChartsPanel(stats)
+	d.updateActivityPanel()
 	d.updateActivityList(correlations)
 	d.updateHostsTable(correlations)
 }
 
-// calculateStats calculates dashboard statistics
+// calculateStats aggregates discovery statistics from correlations and jobs.
 func (d *Dashboard) calculateStats(correlations map[string]*correlation.CorrelationResult) DashboardStats {
-	stats := DashboardStats{}
+	stats := DashboardStats{
+		HostsByCategory: make(map[string]int),
+	}
 
-	// Job statistics
 	jobStats := d.jobManager.GetStats()
 	stats.RunningJobs = jobStats.RunningJobs
 	stats.CompletedJobs = jobStats.CompletedJobs
 	stats.FailedJobs = jobStats.FailedJobs
+	stats.MaxConcurrent = jobStats.MaxConcurrent
 
-	// Correlation statistics
 	stats.TotalHosts = len(correlations)
 
-	var totalRiskScore int
-	for _, correlation := range correlations {
-		if correlation.HostInfo != nil && correlation.HostInfo.Status == "up" {
+	for _, corr := range correlations {
+		if corr.HostInfo != nil && corr.HostInfo.Status == "up" {
 			stats.ActiveHosts++
 		}
-		stats.TotalServices += len(correlation.Services)
-		stats.TotalVulnerabilities += len(correlation.Vulnerabilities)
+		stats.TotalServices += len(corr.Services)
+		stats.HostsByCategory[hostCategory(corr)]++
 
-		for _, vuln := range correlation.Vulnerabilities {
-			if strings.ToLower(vuln.Severity) == "critical" {
-				stats.CriticalVulns++
-			}
-		}
-
-		if correlation.RiskScore >= 500 {
-			stats.HighRiskHosts++
-		}
-
-		totalRiskScore += correlation.RiskScore
-
-		// Find last scan time
-		if len(correlation.Timeline) > 0 {
-			lastEvent := correlation.Timeline[len(correlation.Timeline)-1]
+		if len(corr.Timeline) > 0 {
+			lastEvent := corr.Timeline[len(corr.Timeline)-1]
 			if lastEvent.Timestamp.After(stats.LastScanTime) {
 				stats.LastScanTime = lastEvent.Timestamp
 			}
 		}
 	}
 
-	if stats.TotalHosts > 0 {
-		stats.AverageRiskScore = float64(totalRiskScore) / float64(stats.TotalHosts)
-	}
-
-	// Workflow statistics
 	if d.workflowEngine != nil {
 		workflows := d.workflowEngine.GetAllWorkflows()
 		for _, wf := range workflows {
@@ -268,155 +243,124 @@ func (d *Dashboard) calculateStats(correlations map[string]*correlation.Correlat
 	return stats
 }
 
-// updateStatsPanel updates the statistics panel
+// updateStatsPanel renders the discovery statistics panel.
 func (d *Dashboard) updateStatsPanel(stats DashboardStats) {
 	var content strings.Builder
 
-	content.WriteString("[yellow]Network Overview[::-]\n")
-	content.WriteString(fmt.Sprintf("Total Hosts: [white]%d[::-]\n", stats.TotalHosts))
-	content.WriteString(fmt.Sprintf("Active Hosts: [green]%d[::-]\n", stats.ActiveHosts))
-	content.WriteString(fmt.Sprintf("Services: [white]%d[::-]\n", stats.TotalServices))
+	content.WriteString("[yellow]Discovery Stats[::-]\n\n")
+	content.WriteString(fmt.Sprintf("Hosts Discovered:  [white]%d[::-]\n", stats.TotalHosts))
+	content.WriteString(fmt.Sprintf("  Windows:         [green]%d[::-]\n", stats.HostsByCategory["windows"]))
+	content.WriteString(fmt.Sprintf("  Linux:           [yellow]%d[::-]\n", stats.HostsByCategory["linux"]))
+	content.WriteString(fmt.Sprintf("  Net Devices:     [blue]%d[::-]\n", stats.HostsByCategory["network_device"]))
+	content.WriteString(fmt.Sprintf("  Unknown:         [gray]%d[::-]\n", stats.HostsByCategory["unknown"]))
 	content.WriteString("\n")
-
-	content.WriteString("[yellow]Security Status[::-]\n")
-	content.WriteString(fmt.Sprintf("Vulnerabilities: [white]%d[::-]\n", stats.TotalVulnerabilities))
-	content.WriteString(fmt.Sprintf("Critical: [red]%d[::-]\n", stats.CriticalVulns))
-	content.WriteString(fmt.Sprintf("High Risk Hosts: [orange]%d[::-]\n", stats.HighRiskHosts))
-	content.WriteString(fmt.Sprintf("Avg Risk Score: [white]%.1f[::-]\n", stats.AverageRiskScore))
+	content.WriteString(fmt.Sprintf("Services Found:    [white]%d[::-]\n", stats.TotalServices))
 	content.WriteString("\n")
-
-	content.WriteString("[yellow]Activity[::-]\n")
-	content.WriteString(fmt.Sprintf("Running Jobs: [green]%d[::-]\n", stats.RunningJobs))
+	content.WriteString("[yellow]Jobs[::-]\n")
+	content.WriteString(fmt.Sprintf("Running:   [green]%d[::-]/%d max\n", stats.RunningJobs, stats.MaxConcurrent))
 	content.WriteString(fmt.Sprintf("Completed: [blue]%d[::-]\n", stats.CompletedJobs))
-	content.WriteString(fmt.Sprintf("Failed: [red]%d[::-]\n", stats.FailedJobs))
-	content.WriteString(fmt.Sprintf("Active Workflows: [yellow]%d[::-]\n", stats.ActiveWorkflows))
-	content.WriteString("\n")
-
+	content.WriteString(fmt.Sprintf("Failed:    [red]%d[::-]\n", stats.FailedJobs))
 	if !stats.LastScanTime.IsZero() {
-		content.WriteString(fmt.Sprintf("Last Scan: [white]%s[::-]\n",
-			stats.LastScanTime.Format("15:04:05")))
+		content.WriteString(fmt.Sprintf("\nLast Scan: [white]%s[::-]\n", stats.LastScanTime.Format("15:04")))
 	}
 
 	d.statsPanel.SetText(content.String())
 }
 
-// updateChartsPanel updates the charts panel with ASCII visualizations
-func (d *Dashboard) updateChartsPanel(stats DashboardStats, correlations map[string]*correlation.CorrelationResult) {
+// updateChartsPanel renders a category breakdown bar chart.
+func (d *Dashboard) updateChartsPanel(stats DashboardStats) {
 	var content strings.Builder
 
-	content.WriteString("[yellow]Risk Level Distribution[::-]\n\n")
+	categories := []string{"windows", "linux", "network_device", "unknown"}
+	labels := []string{"Windows   ", "Linux     ", "Net Device", "Unknown   "}
 
-	// Get risk distribution
-	riskBuckets := map[string]int{
-		"Critical": 0,
-		"High":     0,
-		"Medium":   0,
-		"Low":      0,
-		"None":     0,
-	}
-
-	for _, correlation := range correlations {
-		switch {
-		case correlation.RiskScore >= 750:
-			riskBuckets["Critical"]++
-		case correlation.RiskScore >= 500:
-			riskBuckets["High"]++
-		case correlation.RiskScore >= 250:
-			riskBuckets["Medium"]++
-		case correlation.RiskScore >= 100:
-			riskBuckets["Low"]++
-		default:
-			riskBuckets["None"]++
-		}
-	}
-
-	// Create simple ASCII bar chart
 	maxCount := 0
-	for _, count := range riskBuckets {
-		if count > maxCount {
-			maxCount = count
+	for _, cat := range categories {
+		if n := stats.HostsByCategory[cat]; n > maxCount {
+			maxCount = n
 		}
 	}
 
-	if maxCount > 0 {
-		// Risk levels in order
-		levels := []string{"Critical", "High", "Medium", "Low", "None"}
-		colors := []string{"red", "orange", "yellow", "green", "gray"}
-
-		for i, level := range levels {
-			count := riskBuckets[level]
-			barLength := 0
-			if maxCount > 0 {
-				barLength = (count * 20) / maxCount
+	if maxCount == 0 {
+		content.WriteString("[gray]No hosts discovered yet.[::-]\n\n")
+		content.WriteString("[gray]Run Network Discovery from[::-]\n")
+		content.WriteString("[gray]the Scripts menu to populate.[::-]\n")
+	} else {
+		const barWidth = 15
+		for i, cat := range categories {
+			count := stats.HostsByCategory[cat]
+			filled := count * barWidth / maxCount
+			if filled > barWidth {
+				filled = barWidth
 			}
-
-			bar := strings.Repeat("█", barLength)
-			content.WriteString(fmt.Sprintf("[%s]%-8s[::-] [%s]%s[::-] [white]%d[::-]\n",
-				colors[i], level, colors[i], bar, count))
+			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+			color := categoryTviewColor(cat)
+			content.WriteString(fmt.Sprintf("[%s]%s[::-]  [%s]%s[::-]  [white]%d[::-]\n",
+				color, labels[i], color, bar, count))
 		}
-	} else {
-		content.WriteString("No risk data available\n")
-	}
-
-	content.WriteString("\n[yellow]Vulnerability Trends[::-]\n")
-	content.WriteString(fmt.Sprintf("Critical: [red]%d[::-] | ", stats.CriticalVulns))
-	content.WriteString(fmt.Sprintf("Total: [white]%d[::-]\n", stats.TotalVulnerabilities))
-
-	// Simple trend indicator
-	if stats.CriticalVulns > 0 {
-		content.WriteString("[red]⚠ Critical vulnerabilities detected[::-]\n")
-	} else if stats.TotalVulnerabilities > 10 {
-		content.WriteString("[yellow]⚡ Multiple vulnerabilities found[::-]\n")
-	} else {
-		content.WriteString("[green]✓ Low vulnerability count[::-]\n")
 	}
 
 	d.chartsPanel.SetText(content.String())
 }
 
-// updateAlertsPanel updates the security alerts panel
-func (d *Dashboard) updateAlertsPanel(stats DashboardStats) {
+// updateActivityPanel renders recent job activity in the Job Activity panel.
+func (d *Dashboard) updateActivityPanel() {
 	var content strings.Builder
 
-	content.WriteString("[yellow]Security Alerts[::-]\n\n")
+	allJobs := d.jobManager.GetAllJobs()
 
-	alertCount := 0
+	// Running jobs first, then by start time descending
+	sort.Slice(allJobs, func(i, j int) bool {
+		si := allJobs[i].GetStatus()
+		sj := allJobs[j].GetStatus()
+		if (si == jobs.JobStatusRunning) != (sj == jobs.JobStatusRunning) {
+			return si == jobs.JobStatusRunning
+		}
+		return allJobs[i].StartTime.After(allJobs[j].StartTime)
+	})
 
-	// Check for critical vulnerabilities
-	if stats.CriticalVulns > 0 {
-		content.WriteString(fmt.Sprintf("[red]🔥 CRITICAL[::-] %d critical vulnerabilities detected\n", stats.CriticalVulns))
-		alertCount++
+	maxItems := 8
+	if len(allJobs) < maxItems {
+		maxItems = len(allJobs)
 	}
 
-	// Check for high-risk hosts
-	if stats.HighRiskHosts > 0 {
-		content.WriteString(fmt.Sprintf("[orange]⚠ HIGH RISK[::-] %d hosts with risk score ≥500\n", stats.HighRiskHosts))
-		alertCount++
+	for i := 0; i < maxItems; i++ {
+		job := allJobs[i]
+		status := job.GetStatus()
+		var prefix, color string
+		switch status {
+		case jobs.JobStatusRunning:
+			prefix, color = "●", "green"
+		case jobs.JobStatusCompleted:
+			prefix, color = "✓", "blue"
+		case jobs.JobStatusFailed:
+			prefix, color = "✗", "red"
+		case jobs.JobStatusCancelled:
+			prefix, color = "⊘", "gray"
+		default:
+			prefix, color = "○", "yellow"
+		}
+
+		var dur time.Duration
+		if job.IsRunning() {
+			dur = time.Since(job.StartTime)
+		} else {
+			dur = job.GetDuration()
+		}
+
+		name := job.Name
+		if len([]rune(name)) > 22 {
+			name = string([]rune(name)[:21]) + "…"
+		}
+
+		content.WriteString(fmt.Sprintf("[%s]%s %s  %s[::-]\n",
+			color, prefix, name, formatJobDuration(dur)))
 	}
 
-	// Check for failed jobs
-	if stats.FailedJobs > 0 {
-		content.WriteString(fmt.Sprintf("[red]❌ JOBS[::-] %d jobs failed\n", stats.FailedJobs))
-		alertCount++
-	}
-
-	// Check for stale data
-	if !stats.LastScanTime.IsZero() && time.Since(stats.LastScanTime) > 24*time.Hour {
-		content.WriteString("[yellow]⏰ STALE[::-] Last scan >24h ago\n")
-		alertCount++
-	}
-
-	// Check for unusual activity
-	if stats.TotalHosts > 100 {
-		content.WriteString("[blue]📊 INFO[::-] Large network detected\n")
-		alertCount++
-	}
-
-	if alertCount == 0 {
-		content.WriteString("[green]✅ No active alerts[::-]\n")
-		content.WriteString("\nSystem status: [green]Normal[::-]\n")
-	} else {
-		content.WriteString(fmt.Sprintf("\n[white]Total alerts: %d[::-]", alertCount))
+	if len(allJobs) == 0 {
+		content.WriteString("[gray]No jobs run yet.[::-]\n")
+		content.WriteString("[gray]Start a discovery from[::-]\n")
+		content.WriteString("[gray]the Scripts menu.[::-]\n")
 	}
 
 	d.alertsPanel.SetText(content.String())
@@ -519,12 +463,11 @@ func (d *Dashboard) getActivityColor(status string) string {
 	}
 }
 
-// updateHostsTable updates the top risk hosts table
+// updateHostsTable renders discovered hosts sorted by category then IP.
 func (d *Dashboard) updateHostsTable(correlations map[string]*correlation.CorrelationResult) {
 	d.hostsTable.Clear()
 
-	// Set headers
-	headers := []string{"Host", "Risk", "Vulns", "Services", "Status"}
+	headers := []string{"IP", "Category", "Vendor", "Hostname", "Open Ports"}
 	for i, header := range headers {
 		d.hostsTable.SetCell(0, i, tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
@@ -532,60 +475,51 @@ func (d *Dashboard) updateHostsTable(correlations map[string]*correlation.Correl
 			SetSelectable(false))
 	}
 
-	// Sort correlations by risk score
-	type hostRisk struct {
-		host   string
+	type hostEntry struct {
+		ip     string
 		result *correlation.CorrelationResult
 	}
 
-	var hosts []hostRisk
-	for host, result := range correlations {
-		hosts = append(hosts, hostRisk{host, result})
+	var entries []hostEntry
+	for ip, result := range correlations {
+		entries = append(entries, hostEntry{ip, result})
 	}
 
-	sort.Slice(hosts, func(i, j int) bool {
-		return hosts[i].result.RiskScore > hosts[j].result.RiskScore
+	sort.Slice(entries, func(i, j int) bool {
+		ci := categoryOrder(hostCategory(entries[i].result))
+		cj := categoryOrder(hostCategory(entries[j].result))
+		if ci != cj {
+			return ci < cj
+		}
+		return compareIPs(entries[i].ip, entries[j].ip)
 	})
 
-	// Show top 10 hosts
+	if len(entries) == 0 {
+		d.hostsTable.SetCell(1, 0,
+			tview.NewTableCell("No hosts discovered yet — run Network Discovery to populate.").
+				SetTextColor(tcell.ColorGray).
+				SetAlign(tview.AlignCenter).
+				SetSelectable(false).
+				SetExpansion(5))
+		return
+	}
+
 	maxHosts := 10
-	if len(hosts) < maxHosts {
-		maxHosts = len(hosts)
+	if len(entries) < maxHosts {
+		maxHosts = len(entries)
 	}
 
 	for i := 0; i < maxHosts; i++ {
 		row := i + 1
-		host := hosts[i]
-		result := host.result
-
-		hostIP := host.host
-		riskScore := strconv.Itoa(result.RiskScore)
-		vulnCount := strconv.Itoa(len(result.Vulnerabilities))
-		serviceCount := strconv.Itoa(len(result.Services))
-
-		status := "Unknown"
-		if result.HostInfo != nil {
-			status = result.HostInfo.Status
-		}
-
-		// Color coding for risk score
-		riskColor := tcell.ColorGreen
-		if result.RiskScore >= 750 {
-			riskColor = tcell.ColorRed
-		} else if result.RiskScore >= 500 {
-			riskColor = tcell.ColorOrange
-		} else if result.RiskScore >= 250 {
-			riskColor = tcell.ColorYellow
-		}
-
-		d.hostsTable.SetCell(row, 0, tview.NewTableCell(hostIP))
-		d.hostsTable.SetCell(row, 1, tview.NewTableCell(riskScore).SetTextColor(riskColor))
-		d.hostsTable.SetCell(row, 2, tview.NewTableCell(vulnCount))
-		d.hostsTable.SetCell(row, 3, tview.NewTableCell(serviceCount))
-		d.hostsTable.SetCell(row, 4, tview.NewTableCell(status))
+		e := entries[i]
+		cat := hostCategory(e.result)
+		d.hostsTable.SetCell(row, 0, tview.NewTableCell(e.ip))
+		d.hostsTable.SetCell(row, 1, tview.NewTableCell(cat).SetTextColor(categoryTcellColor(cat)))
+		d.hostsTable.SetCell(row, 2, tview.NewTableCell(hostVendor(e.result)))
+		d.hostsTable.SetCell(row, 3, tview.NewTableCell(hostHostname(e.result)))
+		d.hostsTable.SetCell(row, 4, tview.NewTableCell(hostOpenPorts(e.result)))
 	}
 
-	// Set initial selection to enable navigation (skip header row)
 	if d.hostsTable.GetRowCount() > 1 {
 		d.hostsTable.Select(1, 0)
 	}
@@ -609,34 +543,49 @@ func (d *Dashboard) viewHostDetails() {
 	}
 }
 
-// showHostDetailsModal displays detailed host information
-func (d *Dashboard) showHostDetailsModal(hostIP string, correlation *correlation.CorrelationResult) {
+// showHostDetailsModal displays a summary modal for the selected host.
+func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.CorrelationResult) {
 	var details strings.Builder
 
 	details.WriteString(fmt.Sprintf("[yellow]Host: %s[::-]\n\n", hostIP))
-	details.WriteString(fmt.Sprintf("Risk Score: [white]%d[::-]\n", correlation.RiskScore))
-	details.WriteString(fmt.Sprintf("Services: [white]%d[::-]\n", len(correlation.Services)))
-	details.WriteString(fmt.Sprintf("Vulnerabilities: [white]%d[::-]\n", len(correlation.Vulnerabilities)))
 
-	if correlation.HostInfo != nil {
-		details.WriteString(fmt.Sprintf("Status: [white]%s[::-]\n", correlation.HostInfo.Status))
-		if correlation.HostInfo.OS != "" {
-			details.WriteString(fmt.Sprintf("OS: [white]%s[::-]\n", correlation.HostInfo.OS))
+	cat := hostCategory(corr)
+	vendor := hostVendor(corr)
+	hostname := hostHostname(corr)
+
+	details.WriteString(fmt.Sprintf("Category: [%s]%s[::-]\n", categoryTviewColor(cat), cat))
+	details.WriteString(fmt.Sprintf("Vendor:   [white]%s[::-]\n", vendor))
+	details.WriteString(fmt.Sprintf("Hostname: [white]%s[::-]\n", hostname))
+	details.WriteString(fmt.Sprintf("Services: [white]%d[::-]\n", len(corr.Services)))
+
+	if corr.HostInfo != nil {
+		mac := corr.HostInfo.MACAddress
+		if mac == "" {
+			mac = "-"
 		}
+		details.WriteString(fmt.Sprintf("MAC:      [white]%s[::-]\n", mac))
+		osStr := corr.HostInfo.OSDetails
+		if osStr == "" {
+			osStr = corr.HostInfo.OS
+		}
+		if osStr == "" {
+			osStr = "-"
+		}
+		details.WriteString(fmt.Sprintf("OS:       [white]%s[::-]\n", osStr))
 	}
 
 	details.WriteString("\n[yellow]Recent Scans:[::-]\n")
-	for _, event := range correlation.Timeline {
+	for _, event := range corr.Timeline {
 		details.WriteString(fmt.Sprintf("• %s - %s\n",
 			event.Timestamp.Format("15:04"), event.Description))
 	}
 
 	modal := tview.NewModal().
 		SetText(details.String()).
-		AddButtons([]string{"View Correlation", "Close"}).
+		AddButtons([]string{"View Inventory", "Close"}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			d.pages.RemovePage("host-details")
-			if buttonLabel == "View Correlation" {
+			if buttonLabel == "View Inventory" {
 				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
 					d.app.SetFocus(d.hostsTable)
 				})
@@ -644,16 +593,6 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, correlation *correlation
 		})
 
 	d.pages.AddPage("host-details", modal, true, true)
-}
-
-// showWorkflows shows workflow information
-func (d *Dashboard) showWorkflows() {
-	if d.workflowEngine == nil {
-		d.showInfo("Workflow engine not available")
-		return
-	}
-
-	d.showInfo("Workflow viewer not yet implemented")
 }
 
 // refresh updates all dashboard data
@@ -706,6 +645,17 @@ func (d *Dashboard) showInfo(message string) {
 		})
 
 	d.pages.AddPage("info", modal, true, true)
+}
+
+// formatJobDuration formats a duration for the activity panel display.
+func formatJobDuration(d time.Duration) string {
+	if d == 0 {
+		return "-"
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.0fs", d.Seconds())
+	}
+	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 // ShowDashboard creates and displays a dashboard page.
