@@ -87,6 +87,9 @@ type ScriptInfo struct {
 // ScriptMetadata represents the complete metadata for a script
 type ScriptMetadata struct {
 	Script ScriptInfo `yaml:"script"`
+	// Dir is the directory containing the script file, set at load time from the
+	// meta.yaml path. Not read from YAML — overrides category-based path derivation.
+	Dir string `yaml:"-"`
 }
 
 // ScriptRegistry manages all script metadata
@@ -136,10 +139,10 @@ func (r *ScriptRegistry) LoadMetadata() error {
 }
 
 // loadScriptMetadata loads metadata from a single file
-func (r *ScriptRegistry) loadScriptMetadata(filepath string) (ScriptMetadata, error) {
+func (r *ScriptRegistry) loadScriptMetadata(metaPath string) (ScriptMetadata, error) {
 	var metadata ScriptMetadata
 
-	data, err := os.ReadFile(filepath)
+	data, err := os.ReadFile(metaPath)
 	if err != nil {
 		return metadata, fmt.Errorf("failed to read file: %w", err)
 	}
@@ -153,6 +156,10 @@ func (r *ScriptRegistry) loadScriptMetadata(filepath string) (ScriptMetadata, er
 	if metadata.Script.Name == "" || metadata.Script.File == "" || metadata.Script.Category == "" {
 		return metadata, fmt.Errorf("missing required fields: name, file, or category")
 	}
+
+	// Store the actual directory so GetScriptPath uses the real location,
+	// not a path derived from the category field.
+	metadata.Dir = filepath.Dir(metaPath)
 
 	return metadata, nil
 }
@@ -320,6 +327,9 @@ func (r *ScriptRegistry) FuzzyMatchScript(input string) (ScriptMetadata, bool) {
 
 // GetScriptPath returns the full path to a script file
 func (r *ScriptRegistry) GetScriptPath(script ScriptMetadata) string {
+	if script.Dir != "" {
+		return filepath.Join(script.Dir, script.Script.File)
+	}
 	return filepath.Join(r.scriptsDir, script.Script.Category, script.Script.File)
 }
 
