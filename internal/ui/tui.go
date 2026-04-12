@@ -423,7 +423,7 @@ func (t *TUI) switchFocus() {
 }
 
 // setActiveFocus focuses the given pane and updates border colors: the active
-// pane gets a cyan border, all others revert to the terminal default.
+// pane gets a blue border, all others revert to the terminal default.
 func (t *TUI) setActiveFocus(pane *tview.List) {
 	t.app.SetFocus(pane)
 	if pane == t.categoryPane {

@@ -163,6 +163,7 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 
 // updateHostsList refreshes the hosts table
 func (cv *CorrelationViewer) updateHostsList() {
+	cv.hostsList.SetTitle("Correlated Hosts")
 	// Clear existing rows (except header)
 	cv.hostsList.Clear()
 
@@ -431,9 +432,13 @@ func (cv *CorrelationViewer) refresh() {
 	})
 }
 
-// sortByRiskScore sorts hosts by risk score
+// sortByRiskScore sorts hosts by risk score, respecting any active filter.
 func (cv *CorrelationViewer) sortByRiskScore() {
-	cv.updateHostsList() // Already sorts by risk score
+	if cv.filterActive {
+		cv.applyHighRiskFilter()
+	} else {
+		cv.updateHostsList()
+	}
 }
 
 // applyHighRiskFilter populates the hosts table with only hosts having risk score ≥ 500.
