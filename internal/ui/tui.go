@@ -814,29 +814,28 @@ Navigation:
   Tab          Switch between categories and tasks
   Enter        Select category or execute task
   Escape, q    Quit application
-  
+
 Vim-like Keys:
   h            Focus categories (left panel)
-  l            Focus tasks (right panel)  
+  l            Focus tasks (right panel)
   j            Move down in current panel
   k            Move up in current panel
-  
-Search & Analysis:
+
+Search:
   /            Start search mode
-  J            View job manager (concurrent execution)
-  C            View correlation analysis (cross-scan results)
-  
-Other:
-  ?            Show this help
-  r            Refresh categories
-  
+
+Global (work from any view):
+  Ctrl+J       Job manager
+  Ctrl+D       Dashboard
+  Ctrl+N       Host inventory
+  Ctrl+Z       Return to main screen
+
 Advanced Features:
   - Up to 3 scripts can run concurrently
   - Additional scripts are queued automatically
-  - Use 'J' to view running, queued, and completed jobs
-  - Use 'C' to analyze correlated results across scans
-  - Risk scoring and security recommendations
-  
+  - Use Ctrl+J to view running, queued, and completed jobs
+  - Use Ctrl+N to view correlated host inventory
+
 Mouse:
   Click        Select items
   Scroll       Navigate lists`
@@ -851,58 +850,24 @@ Mouse:
 	t.pages.AddPage("help", helpModal, true, true)
 }
 
-// refreshCategories reloads the category list
-func (t *TUI) refreshCategories() {
-	// Reload metadata if available
-	if t.registry != nil {
-		if err := t.registry.LoadMetadata(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to reload script metadata: %v\n", err)
-		}
-	}
-
-	// Clear and repopulate categories
-	t.categoryPane.Clear()
-	for i, category := range t.getCategories() {
-		name := category.Name
-		t.categoryPane.AddItem(name, "", rune('1'+i), func() {
-			t.showCategory(name)
-		})
-	}
-
-	// Clear task pane
-	t.taskPane.Clear()
-	t.taskPane.SetTitle("Select a category")
-	t.currentCategory = ""
-	t.setActiveFocus(t.categoryPane)
-}
-
 // updateInfoPanel updates the informational panel with context-sensitive content
 func (t *TUI) updateInfoPanel() {
 	current := t.app.GetFocus()
 	var content strings.Builder
 
-	// Context-sensitive help based on current focus
 	if current == t.categoryPane {
-		// Categories panel is focused
-		content.WriteString("[yellow]Categories Panel:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Select Category [white]Tab/l[::-]=Go to Tasks\n")
-		content.WriteString("[yellow]Available:[::-] System Config, Network Recon, Vulnerability Assessment, Config Gathering\n")
-		content.WriteString("[yellow]Quick:[::-] [white]J[::-]=Jobs [white]C[::-]=Correlations [white]?[::-]=Help [white]q[::-]=Quit [white]/[::-]=Search")
+		content.WriteString("[yellow]Categories:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Select [white]Tab/l[::-]=Tasks [white]/[::-]=Search [white]?[::-]=Help [white]q[::-]=Quit\n")
+		content.WriteString("[yellow]Global:[::-]     [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Main")
 	} else if current == t.taskPane {
-		// Tasks panel is focused
 		if t.currentCategory != "" {
-			content.WriteString(fmt.Sprintf("[yellow]%s Tasks:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Execute Task [white]Tab/h[::-]=Back to Categories\n", t.currentCategory))
-			content.WriteString("[yellow]Execution:[::-] Live output viewer • Up to 3 concurrent jobs • [white]Ctrl+J[::-]=Jobs [white]Ctrl+B[::-]=Background\n")
-			content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]C[::-]=Correlations [white]Ctrl+Home[::-]=Home [white]/[::-]=Search [white]q[::-]=Quit")
+			content.WriteString(fmt.Sprintf("[yellow]%s:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Execute [white]Tab/h[::-]=Categories [white]/[::-]=Search\n", t.currentCategory))
 		} else {
-			content.WriteString("[yellow]Tasks Panel:[::-] [white]Tab/h[::-]=Select Category First [white]/[::-]=Search [white]?[::-]=Help\n")
-			content.WriteString("[yellow]Features:[::-] Real-time execution • Background job management • Result correlation\n")
-			content.WriteString("[yellow]Access:[::-] [white]J[::-]=Job Manager [white]C[::-]=Correlation Analysis [white]q[::-]=Quit")
+			content.WriteString("[yellow]Tasks:[::-] Select a category first  [white]Tab/h[::-]=Categories [white]/[::-]=Search\n")
 		}
+		content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Main [white]q[::-]=Quit")
 	} else {
-		// Default/general help
-		content.WriteString("[yellow]Essential:[::-] [white]Tab[::-]=Switch Panels [white]Enter[::-]=Select [white]q[::-]=Quit [white]?[::-]=Full Help\n")
-		content.WriteString("[yellow]Navigate:[::-] [white]h[::-]=Categories [white]l[::-]=Tasks [white]j/k[::-]=Move Up/Down [white]/[::-]=Search\n")
-		content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]C[::-]=Correlations [white]Ctrl+Home[::-]=Home [white]r[::-]=Refresh")
+		content.WriteString("[yellow]Navigate:[::-] [white]Tab[::-]=Switch [white]h[::-]=Categories [white]l[::-]=Tasks [white]j/k[::-]=Move [white]/[::-]=Search [white]?[::-]=Help\n")
+		content.WriteString("[yellow]Global:[::-]   [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Main [white]q[::-]=Quit")
 	}
 
 	t.infoPane.SetText(content.String())
