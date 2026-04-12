@@ -117,15 +117,27 @@ type Correlator struct {
 	results      map[string]*ScanResult
 	correlations map[string]*CorrelationResult
 	workspaceDir string
+	dataDir      string // directory where correlations.json is stored (alongside the binary)
 	mu           sync.RWMutex
 }
 
-// NewCorrelator creates a new result correlator
+// NewCorrelator creates a new result correlator. correlations.json is stored
+// in the same directory as the running binary, not in the workspace.
 func NewCorrelator(workspaceDir string) *Correlator {
+	dataDir := ""
+	if execPath, err := os.Executable(); err == nil {
+		dataDir = filepath.Dir(execPath)
+	}
+	return newCorrelatorWithDataDir(workspaceDir, dataDir)
+}
+
+// newCorrelatorWithDataDir is used in tests to inject an explicit data directory.
+func newCorrelatorWithDataDir(workspaceDir, dataDir string) *Correlator {
 	return &Correlator{
 		results:      make(map[string]*ScanResult),
 		correlations: make(map[string]*CorrelationResult),
 		workspaceDir: workspaceDir,
+		dataDir:      dataDir,
 	}
 }
 
@@ -515,11 +527,11 @@ func (c *Correlator) GetHighRiskHosts(threshold int) []*CorrelationResult {
 
 // saveResults saves correlation results to disk
 func (c *Correlator) saveResults() error {
-	if c.workspaceDir == "" {
+	if c.dataDir == "" {
 		return nil
 	}
 
-	correlationDir := filepath.Join(c.workspaceDir, "correlations")
+	correlationDir := filepath.Join(c.dataDir, "correlations")
 	if err := os.MkdirAll(correlationDir, 0755); err != nil {
 		return fmt.Errorf("failed to create correlation directory: %w", err)
 	}
@@ -540,11 +552,11 @@ func (c *Correlator) saveResults() error {
 
 // LoadResults loads saved correlation results from disk
 func (c *Correlator) LoadResults() error {
-	if c.workspaceDir == "" {
+	if c.dataDir == "" {
 		return nil
 	}
 
-	correlationFile := filepath.Join(c.workspaceDir, "correlations", "correlations.json")
+	correlationFile := filepath.Join(c.dataDir, "correlations", "correlations.json")
 	if _, err := os.Stat(correlationFile); os.IsNotExist(err) {
 		return nil // No saved results
 	}
