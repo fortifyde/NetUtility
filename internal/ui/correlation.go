@@ -15,7 +15,7 @@ import (
 // hostCategory returns the ph7 category from HostInfo.Attributes ("windows",
 // "linux", "net_device", or "unknown"). Falls back to "unknown" if unset.
 func hostCategory(result *correlation.CorrelationResult) string {
-	if result.HostInfo != nil {
+	if result != nil && result.HostInfo != nil {
 		if cat, ok := result.HostInfo.Attributes["category"]; ok && cat != "" {
 			return cat
 		}
@@ -25,7 +25,7 @@ func hostCategory(result *correlation.CorrelationResult) string {
 
 // hostVendor returns the ph7 vendor string, or "-" if absent.
 func hostVendor(result *correlation.CorrelationResult) string {
-	if result.HostInfo != nil {
+	if result != nil && result.HostInfo != nil {
 		if v, ok := result.HostInfo.Attributes["vendor"]; ok && v != "" && v != "-" {
 			return v
 		}
@@ -35,7 +35,7 @@ func hostVendor(result *correlation.CorrelationResult) string {
 
 // hostHostname returns the best available name: DNS hostname, then NetBIOS, then "-".
 func hostHostname(result *correlation.CorrelationResult) string {
-	if result.HostInfo != nil {
+	if result != nil && result.HostInfo != nil {
 		if result.HostInfo.Hostname != "" {
 			return result.HostInfo.Hostname
 		}
@@ -48,17 +48,22 @@ func hostHostname(result *correlation.CorrelationResult) string {
 
 // hostOpenPorts returns a comma-joined list of open port numbers, truncated to 22 chars.
 func hostOpenPorts(result *correlation.CorrelationResult) string {
-	if result.HostInfo == nil || len(result.HostInfo.Ports) == 0 {
+	if result == nil || result.HostInfo == nil || len(result.HostInfo.Ports) == 0 {
 		return "-"
 	}
-	var ports []string
+	var portNums []int
 	for _, p := range result.HostInfo.Ports {
 		if p.State == "open" {
-			ports = append(ports, strconv.Itoa(p.Number))
+			portNums = append(portNums, p.Number)
 		}
 	}
-	if len(ports) == 0 {
+	if len(portNums) == 0 {
 		return "-"
+	}
+	sort.Ints(portNums)
+	var ports []string
+	for _, n := range portNums {
+		ports = append(ports, strconv.Itoa(n))
 	}
 	joined := strings.Join(ports, ",")
 	if len([]rune(joined)) > 22 {

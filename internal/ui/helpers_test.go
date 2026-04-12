@@ -123,3 +123,22 @@ func TestCompareIPs(t *testing.T) {
 		}
 	}
 }
+
+func TestHostOpenPortsTruncation(t *testing.T) {
+	// Build a host with many open ports so the joined string exceeds 22 runes
+	var ports []correlation.Port
+	for i := 1; i <= 20; i++ {
+		ports = append(ports, correlation.Port{Number: i * 1000, State: "open"})
+	}
+	r := &correlation.CorrelationResult{
+		HostInfo: &correlation.Host{Ports: ports},
+	}
+	got := hostOpenPorts(r)
+	runes := []rune(got)
+	if len(runes) > 22 {
+		t.Errorf("hostOpenPorts() length = %d, want ≤22 runes; got %q", len(runes), got)
+	}
+	if len(runes) > 0 && runes[len(runes)-1] != '…' {
+		t.Errorf("hostOpenPorts() should end with …, got %q", got)
+	}
+}
