@@ -83,7 +83,7 @@ func (jv *JobsViewer) setupUI() {
 	// Layout: Left panel (table), Right panel (stats + controls)
 	rightPanel := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(jv.statsText, 0, 1, false).
-		AddItem(jv.controlsText, 8, 0, false)
+		AddItem(jv.controlsText, 9, 0, false)
 
 	jv.SetDirection(tview.FlexColumn).
 		AddItem(jv.jobsList, 0, 2, true).
