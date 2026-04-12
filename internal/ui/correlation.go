@@ -487,7 +487,6 @@ func (cv *CorrelationViewer) showTimeline() {
 
 func (cv *CorrelationViewer) refresh() {
 	cv.app.QueueUpdateDraw(func() {
-		cv.filterCategory = ""
 		cv.updateControlsText()
 		cv.updateHostsList()
 		cv.updateDetailsPanel()
