@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -464,12 +463,11 @@ func (d *Dashboard) getActivityColor(status string) string {
 	}
 }
 
-// updateHostsTable updates the top risk hosts table
+// updateHostsTable renders discovered hosts sorted by category then IP.
 func (d *Dashboard) updateHostsTable(correlations map[string]*correlation.CorrelationResult) {
 	d.hostsTable.Clear()
 
-	// Set headers
-	headers := []string{"Host", "Risk", "Vulns", "Services", "Status"}
+	headers := []string{"IP", "Category", "Vendor", "Hostname", "Open Ports"}
 	for i, header := range headers {
 		d.hostsTable.SetCell(0, i, tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
@@ -477,70 +475,51 @@ func (d *Dashboard) updateHostsTable(correlations map[string]*correlation.Correl
 			SetSelectable(false))
 	}
 
-	// Sort correlations by risk score
-	type hostRisk struct {
-		host   string
+	type hostEntry struct {
+		ip     string
 		result *correlation.CorrelationResult
 	}
 
-	var hosts []hostRisk
-	for host, result := range correlations {
-		hosts = append(hosts, hostRisk{host, result})
+	var entries []hostEntry
+	for ip, result := range correlations {
+		entries = append(entries, hostEntry{ip, result})
 	}
 
-	sort.Slice(hosts, func(i, j int) bool {
-		return hosts[i].result.RiskScore > hosts[j].result.RiskScore
+	sort.Slice(entries, func(i, j int) bool {
+		ci := categoryOrder(hostCategory(entries[i].result))
+		cj := categoryOrder(hostCategory(entries[j].result))
+		if ci != cj {
+			return ci < cj
+		}
+		return compareIPs(entries[i].ip, entries[j].ip)
 	})
 
-	// Empty state: show guidance when no scan data exists
-	if len(hosts) == 0 {
-		d.hostsTable.SetCell(1, 0, tview.NewTableCell("No scan data yet — run Network Discovery to populate.").
-			SetTextColor(tcell.ColorGray).
-			SetAlign(tview.AlignCenter).
-			SetSelectable(false).
-			SetExpansion(5))
+	if len(entries) == 0 {
+		d.hostsTable.SetCell(1, 0,
+			tview.NewTableCell("No hosts discovered yet — run Network Discovery to populate.").
+				SetTextColor(tcell.ColorGray).
+				SetAlign(tview.AlignCenter).
+				SetSelectable(false).
+				SetExpansion(5))
 		return
 	}
 
-	// Show top 10 hosts
 	maxHosts := 10
-	if len(hosts) < maxHosts {
-		maxHosts = len(hosts)
+	if len(entries) < maxHosts {
+		maxHosts = len(entries)
 	}
 
 	for i := 0; i < maxHosts; i++ {
 		row := i + 1
-		host := hosts[i]
-		result := host.result
-
-		hostIP := host.host
-		riskScore := strconv.Itoa(result.RiskScore)
-		vulnCount := strconv.Itoa(len(result.Vulnerabilities))
-		serviceCount := strconv.Itoa(len(result.Services))
-
-		status := "Unknown"
-		if result.HostInfo != nil {
-			status = result.HostInfo.Status
-		}
-
-		// Color coding for risk score
-		riskColor := tcell.ColorGreen
-		if result.RiskScore >= 750 {
-			riskColor = tcell.ColorRed
-		} else if result.RiskScore >= 500 {
-			riskColor = tcell.ColorOrange
-		} else if result.RiskScore >= 250 {
-			riskColor = tcell.ColorYellow
-		}
-
-		d.hostsTable.SetCell(row, 0, tview.NewTableCell(hostIP))
-		d.hostsTable.SetCell(row, 1, tview.NewTableCell(riskScore).SetTextColor(riskColor))
-		d.hostsTable.SetCell(row, 2, tview.NewTableCell(vulnCount))
-		d.hostsTable.SetCell(row, 3, tview.NewTableCell(serviceCount))
-		d.hostsTable.SetCell(row, 4, tview.NewTableCell(status))
+		e := entries[i]
+		cat := hostCategory(e.result)
+		d.hostsTable.SetCell(row, 0, tview.NewTableCell(e.ip))
+		d.hostsTable.SetCell(row, 1, tview.NewTableCell(cat).SetTextColor(categoryTcellColor(cat)))
+		d.hostsTable.SetCell(row, 2, tview.NewTableCell(hostVendor(e.result)))
+		d.hostsTable.SetCell(row, 3, tview.NewTableCell(hostHostname(e.result)))
+		d.hostsTable.SetCell(row, 4, tview.NewTableCell(hostOpenPorts(e.result)))
 	}
 
-	// Set initial selection to enable navigation (skip header row)
 	if d.hostsTable.GetRowCount() > 1 {
 		d.hostsTable.Select(1, 0)
 	}
@@ -564,34 +543,49 @@ func (d *Dashboard) viewHostDetails() {
 	}
 }
 
-// showHostDetailsModal displays detailed host information
-func (d *Dashboard) showHostDetailsModal(hostIP string, correlation *correlation.CorrelationResult) {
+// showHostDetailsModal displays a summary modal for the selected host.
+func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.CorrelationResult) {
 	var details strings.Builder
 
 	details.WriteString(fmt.Sprintf("[yellow]Host: %s[::-]\n\n", hostIP))
-	details.WriteString(fmt.Sprintf("Risk Score: [white]%d[::-]\n", correlation.RiskScore))
-	details.WriteString(fmt.Sprintf("Services: [white]%d[::-]\n", len(correlation.Services)))
-	details.WriteString(fmt.Sprintf("Vulnerabilities: [white]%d[::-]\n", len(correlation.Vulnerabilities)))
 
-	if correlation.HostInfo != nil {
-		details.WriteString(fmt.Sprintf("Status: [white]%s[::-]\n", correlation.HostInfo.Status))
-		if correlation.HostInfo.OS != "" {
-			details.WriteString(fmt.Sprintf("OS: [white]%s[::-]\n", correlation.HostInfo.OS))
+	cat := hostCategory(corr)
+	vendor := hostVendor(corr)
+	hostname := hostHostname(corr)
+
+	details.WriteString(fmt.Sprintf("Category: [%s]%s[::-]\n", categoryTviewColor(cat), cat))
+	details.WriteString(fmt.Sprintf("Vendor:   [white]%s[::-]\n", vendor))
+	details.WriteString(fmt.Sprintf("Hostname: [white]%s[::-]\n", hostname))
+	details.WriteString(fmt.Sprintf("Services: [white]%d[::-]\n", len(corr.Services)))
+
+	if corr.HostInfo != nil {
+		mac := corr.HostInfo.MACAddress
+		if mac == "" {
+			mac = "-"
 		}
+		details.WriteString(fmt.Sprintf("MAC:      [white]%s[::-]\n", mac))
+		osStr := corr.HostInfo.OSDetails
+		if osStr == "" {
+			osStr = corr.HostInfo.OS
+		}
+		if osStr == "" {
+			osStr = "-"
+		}
+		details.WriteString(fmt.Sprintf("OS:       [white]%s[::-]\n", osStr))
 	}
 
 	details.WriteString("\n[yellow]Recent Scans:[::-]\n")
-	for _, event := range correlation.Timeline {
+	for _, event := range corr.Timeline {
 		details.WriteString(fmt.Sprintf("• %s - %s\n",
 			event.Timestamp.Format("15:04"), event.Description))
 	}
 
 	modal := tview.NewModal().
 		SetText(details.String()).
-		AddButtons([]string{"View Correlation", "Close"}).
+		AddButtons([]string{"View Inventory", "Close"}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			d.pages.RemovePage("host-details")
-			if buttonLabel == "View Correlation" {
+			if buttonLabel == "View Inventory" {
 				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
 					d.app.SetFocus(d.hostsTable)
 				})
