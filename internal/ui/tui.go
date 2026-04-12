@@ -130,7 +130,7 @@ func (t *TUI) getHardcodedCategories() []Category {
 	}
 	return []Category{
 		{
-			Name: "System Configuration",
+			Name: "Host Configuration",
 			Tasks: []Task{
 				{Name: "Select Working Directory", Description: "Choose working directory for operations", Script: s("system", "select_workdir.sh")},
 				{
@@ -149,7 +149,7 @@ func (t *TUI) getHardcodedCategories() []Category {
 			},
 		},
 		{
-			Name: "Network Reconnaissance",
+			Name: "Network Discovery",
 			Tasks: []Task{
 				{Name: "Network Capture", Description: "Capture network traffic with integrated security analysis and unsafe protocol detection", Script: s("network", "network_capture.sh")},
 				{Name: "Extract VLAN IDs", Description: "Extract VLAN IDs from capture files", Script: s("network", "extract_vlans.sh")},
@@ -158,20 +158,20 @@ func (t *TUI) getHardcodedCategories() []Category {
 			},
 		},
 		{
-			Name: "Detailed Port Scan",
+			Name: "Port Scanning",
 			Tasks: []Task{
 				{Name: "Deep Scan with NSE", Description: "Full port scan with service detection and NSE vulnerability scripts", Script: s("scanning", "deep_nse_scan.sh")},
 				{Name: "Vulnerability Analysis", Description: "Analyze results for known vulnerabilities", Script: s("scanning", "vuln_analysis.sh")},
 			},
 		},
 		{
-			Name: "Advanced",
+			Name: "Advanced Tools",
 			Tasks: []Task{
 				{Name: "Integrated Workflow", Description: "Comprehensive workflow: capture, analysis, interface config, and discovery", Script: s("network", "integrated_workflow.sh")},
 			},
 		},
 		{
-			Name: "Network Config Gatherer",
+			Name: "Advanced Tools",
 			Tasks: []Task{
 				{Name: "Device Configuration Gathering", Description: "SSH to device, detect vendor, and gather configuration", Script: s("config", "device_config.sh")},
 			},
@@ -622,7 +622,7 @@ func (t *TUI) showSubTaskMenu(task Task) {
 		SetText(fmt.Sprintf("%s\n\nSelect an operation:", task.Name)).
 		AddButtons(buttons).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			t.pages.RemovePage("interface-submenu")
+			t.pages.RemovePage("subtask-menu")
 			if buttonLabel == "Cancel" {
 				t.setActiveFocus(t.taskPane)
 				return
@@ -635,7 +635,7 @@ func (t *TUI) showSubTaskMenu(task Task) {
 			}
 		})
 
-	t.pages.AddPage("interface-submenu", modal, true, true)
+	t.pages.AddPage("subtask-menu", modal, true, true)
 }
 
 // showExecutionOptions shows options for script execution when at capacity
@@ -920,7 +920,7 @@ func (t *TUI) updateInfoPanel() {
 // returnToMain returns to the main TUI from any other view
 func (t *TUI) returnToMain() {
 	// Remove any overlays and return to main page
-	pageNames := []string{"output", "job-output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help", "interface-submenu"}
+	pageNames := []string{"output", "job-output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help", "subtask-menu"}
 
 	for _, pageName := range pageNames {
 		t.pages.RemovePage(pageName)
