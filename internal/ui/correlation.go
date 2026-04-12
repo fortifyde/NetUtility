@@ -236,7 +236,6 @@ func (cv *CorrelationViewer) updateControlsText() {
 	cv.controlsText.SetText(fmt.Sprintf(`[yellow]Controls:[::-]
 [white]Enter[::-]    View host details
 [white]t[::-]        View timeline
-[white]r[::-]        Refresh
 %s
 [white]q[::-]        Close`, filterLine))
 }
@@ -258,9 +257,6 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 				return nil
 			case 't':
 				cv.showTimeline()
-				return nil
-			case 'r':
-				cv.refresh()
 				return nil
 			case 'f':
 				cv.cycleCategoryFilter()
