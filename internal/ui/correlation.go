@@ -12,6 +12,137 @@ import (
 	"netutil/internal/correlation"
 )
 
+// hostCategory returns the ph7 category from HostInfo.Attributes ("windows",
+// "linux", "network_device", or "unknown"). Falls back to "unknown" if unset.
+func hostCategory(result *correlation.CorrelationResult) string {
+	if result != nil && result.HostInfo != nil {
+		if cat, ok := result.HostInfo.Attributes["category"]; ok && cat != "" {
+			return cat
+		}
+	}
+	return "unknown"
+}
+
+// hostVendor returns the ph7 vendor string, or "-" if absent.
+func hostVendor(result *correlation.CorrelationResult) string {
+	if result != nil && result.HostInfo != nil {
+		if v, ok := result.HostInfo.Attributes["vendor"]; ok && v != "" && v != "-" {
+			return v
+		}
+	}
+	return "-"
+}
+
+// hostHostname returns the best available name: DNS hostname, then NetBIOS, then "-".
+func hostHostname(result *correlation.CorrelationResult) string {
+	if result != nil && result.HostInfo != nil {
+		if result.HostInfo.Hostname != "" {
+			return result.HostInfo.Hostname
+		}
+		if nb, ok := result.HostInfo.Attributes["netbios_name"]; ok && nb != "" {
+			return nb
+		}
+	}
+	return "-"
+}
+
+// hostOpenPorts returns a comma-joined list of open port numbers, truncated to 22 chars.
+func hostOpenPorts(result *correlation.CorrelationResult) string {
+	if result == nil || result.HostInfo == nil || len(result.HostInfo.Ports) == 0 {
+		return "-"
+	}
+	var portNums []int
+	for _, p := range result.HostInfo.Ports {
+		if p.State == "open" {
+			portNums = append(portNums, p.Number)
+		}
+	}
+	if len(portNums) == 0 {
+		return "-"
+	}
+	sort.Ints(portNums)
+	var ports []string
+	for _, n := range portNums {
+		ports = append(ports, strconv.Itoa(n))
+	}
+	joined := strings.Join(ports, ",")
+	if len([]rune(joined)) > 22 {
+		return string([]rune(joined)[:21]) + "…"
+	}
+	return joined
+}
+
+// categoryOrder returns a sort key for display order: windows=0, linux=1, network_device=2, unknown=3.
+func categoryOrder(cat string) int {
+	switch cat {
+	case "windows":
+		return 0
+	case "linux":
+		return 1
+	case "network_device":
+		return 2
+	default:
+		return 3
+	}
+}
+
+// categoryTcellColor returns the tcell display color for a category (for table cells).
+func categoryTcellColor(cat string) tcell.Color {
+	switch cat {
+	case "windows":
+		return tcell.ColorGreen
+	case "linux":
+		return tcell.ColorYellow
+	case "network_device":
+		return tcell.ColorBlue
+	default:
+		return tcell.ColorGray
+	}
+}
+
+// categoryTviewColor returns the tview markup color name for a category (for TextView).
+func categoryTviewColor(cat string) string {
+	switch cat {
+	case "windows":
+		return "green"
+	case "linux":
+		return "yellow"
+	case "network_device":
+		return "aqua"
+	default:
+		return "gray"
+	}
+}
+
+// compareIPs returns true if ip1 sorts before ip2 by numeric octet comparison.
+func compareIPs(ip1, ip2 string) bool {
+	p1 := strings.Split(ip1, ".")
+	p2 := strings.Split(ip2, ".")
+	for i := 0; i < 4 && i < len(p1) && i < len(p2); i++ {
+		n1, _ := strconv.Atoi(p1[i])
+		n2, _ := strconv.Atoi(p2[i])
+		if n1 != n2 {
+			return n1 < n2
+		}
+	}
+	return ip1 < ip2
+}
+
+// filterCategories defines the cycling order for the category filter.
+var filterCategories = []string{"", "windows", "linux", "network_device", "unknown"}
+
+// cycleCategoryFilter advances filterCategory to the next value in the cycle.
+func (cv *CorrelationViewer) cycleCategoryFilter() {
+	for i, cat := range filterCategories {
+		if cv.filterCategory == cat {
+			cv.filterCategory = filterCategories[(i+1)%len(filterCategories)]
+			break
+		}
+	}
+	cv.updateHostsList()
+	cv.updateControlsText()
+}
+
 // CorrelationViewer displays correlated scan results
 type CorrelationViewer struct {
 	*tview.Flex
@@ -28,6 +159,7 @@ type CorrelationViewer struct {
 	// State
 	selectedHost         string
 	currentView          string // "hosts", "details", "timeline"
+	filterCategory       string // "" = all; "windows"/"linux"/"network_device"/"unknown" = filtered
 	refreshTicker        *time.Ticker
 	stopChan             chan struct{}
 	returnToMainCallback func()
@@ -54,10 +186,10 @@ func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator
 func (cv *CorrelationViewer) setupUI() {
 	// Create hosts table
 	cv.hostsList = tview.NewTable().SetBorders(true).SetSelectable(true, false)
-	cv.hostsList.SetBorder(true).SetTitle("Correlated Hosts")
+	cv.hostsList.SetBorder(true).SetTitle("Host Inventory")
 
 	// Set table headers
-	headers := []string{"Host", "Services", "Vulns", "Risk", "Last Scan", "Status"}
+	headers := []string{"IP", "Category", "Vendor", "Hostname", "Ports"}
 	for i, header := range headers {
 		cv.hostsList.SetCell(0, i, tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
@@ -76,14 +208,7 @@ func (cv *CorrelationViewer) setupUI() {
 	// Create controls panel
 	cv.controlsText = tview.NewTextView().SetDynamicColors(true)
 	cv.controlsText.SetBorder(true).SetTitle("Controls")
-	cv.controlsText.SetText(`[yellow]Controls:[::-]
-[white]Enter[::-]    View host details
-[white]t[::-]        View timeline
-[white]r[::-]        Refresh correlations
-[white]s[::-]        Sort by risk score
-[white]f[::-]        Filter high-risk hosts
-[white]e[::-]        Export correlations
-[white]q[::-]        Close correlation viewer`)
+	cv.updateControlsText()
 
 	// Layout: Left panel (hosts table), Right panel (details + timeline + controls)
 	rightPanel := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -100,6 +225,20 @@ func (cv *CorrelationViewer) setupUI() {
 
 	// Initial update
 	cv.updateHostsList()
+}
+
+// updateControlsText re-renders the controls panel to reflect current filter state.
+func (cv *CorrelationViewer) updateControlsText() {
+	filterLine := "[white]f[::-]        Cycle category filter"
+	if cv.filterCategory != "" {
+		filterLine = fmt.Sprintf("[yellow]f[::-]        Cycle filter [%s]", cv.filterCategory)
+	}
+	cv.controlsText.SetText(fmt.Sprintf(`[yellow]Controls:[::-]
+[white]Enter[::-]    View host details
+[white]t[::-]        View timeline
+[white]r[::-]        Refresh
+%s
+[white]q[::-]        Close`, filterLine))
 }
 
 // setupKeyBindings configures keyboard shortcuts
@@ -123,14 +262,8 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 			case 'r':
 				cv.refresh()
 				return nil
-			case 's':
-				cv.sortByRiskScore()
-				return nil
 			case 'f':
-				cv.filterHighRisk()
-				return nil
-			case 'e':
-				cv.exportCorrelations()
+				cv.cycleCategoryFilter()
 				return nil
 			}
 		}
@@ -155,13 +288,23 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 
 }
 
-// updateHostsList refreshes the hosts table
+// updateHostsList refreshes the hosts table with category-sorted inventory data.
 func (cv *CorrelationViewer) updateHostsList() {
-	// Clear existing rows (except header)
+	title := "Host Inventory"
+	switch cv.filterCategory {
+	case "windows":
+		title = "Host Inventory [Windows]"
+	case "linux":
+		title = "Host Inventory [Linux]"
+	case "network_device":
+		title = "Host Inventory [Network Devices]"
+	case "unknown":
+		title = "Host Inventory [Unknown]"
+	}
+	cv.hostsList.SetTitle(title)
 	cv.hostsList.Clear()
 
-	// Reset headers
-	headers := []string{"Host", "Services", "Vulns", "Risk", "Last Scan", "Status"}
+	headers := []string{"IP", "Category", "Vendor", "Hostname", "Ports"}
 	for i, header := range headers {
 		cv.hostsList.SetCell(0, i, tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
@@ -169,185 +312,141 @@ func (cv *CorrelationViewer) updateHostsList() {
 			SetSelectable(false))
 	}
 
-	// Get all correlations
 	correlations := cv.correlator.GetAllCorrelations()
 
-	// Convert to sorted slice
-	type hostCorrelation struct {
-		host   string
+	type hostEntry struct {
+		ip     string
 		result *correlation.CorrelationResult
 	}
 
-	hosts := make([]hostCorrelation, 0, len(correlations))
-	for host, result := range correlations {
-		hosts = append(hosts, hostCorrelation{host, result})
+	var entries []hostEntry
+	for ip, result := range correlations {
+		cat := hostCategory(result)
+		if cv.filterCategory == "" || cat == cv.filterCategory {
+			entries = append(entries, hostEntry{ip, result})
+		}
 	}
 
-	// Sort by risk score (highest first)
-	sort.Slice(hosts, func(i, j int) bool {
-		return hosts[i].result.RiskScore > hosts[j].result.RiskScore
+	sort.Slice(entries, func(i, j int) bool {
+		ci := categoryOrder(hostCategory(entries[i].result))
+		cj := categoryOrder(hostCategory(entries[j].result))
+		if ci != cj {
+			return ci < cj
+		}
+		return compareIPs(entries[i].ip, entries[j].ip)
 	})
 
-	// Add host rows
-	for i, hc := range hosts {
+	for i, e := range entries {
 		row := i + 1
-		result := hc.result
-
-		// Format data
-		hostIP := hc.host
-		serviceCount := strconv.Itoa(len(result.Services))
-		vulnCount := strconv.Itoa(len(result.Vulnerabilities))
-		riskScore := strconv.Itoa(result.RiskScore)
-
-		// Determine last scan time
-		lastScan := "Never"
-		if len(result.Timeline) > 0 {
-			lastEvent := result.Timeline[len(result.Timeline)-1]
-			lastScan = lastEvent.Timestamp.Format("15:04:05")
-		}
-
-		// Determine status
-		status := cv.getHostStatus(result)
-		statusColor := cv.getStatusColor(result.RiskScore)
-		riskColor := cv.getRiskColor(result.RiskScore)
-
-		// Set table cells
-		cv.hostsList.SetCell(row, 0, tview.NewTableCell(hostIP))
-		cv.hostsList.SetCell(row, 1, tview.NewTableCell(serviceCount))
-		cv.hostsList.SetCell(row, 2, tview.NewTableCell(vulnCount))
-		cv.hostsList.SetCell(row, 3, tview.NewTableCell(riskScore).SetTextColor(riskColor))
-		cv.hostsList.SetCell(row, 4, tview.NewTableCell(lastScan))
-		cv.hostsList.SetCell(row, 5, tview.NewTableCell(status).SetTextColor(statusColor))
+		cat := hostCategory(e.result)
+		cv.hostsList.SetCell(row, 0, tview.NewTableCell(e.ip))
+		cv.hostsList.SetCell(row, 1, tview.NewTableCell(cat).SetTextColor(categoryTcellColor(cat)))
+		cv.hostsList.SetCell(row, 2, tview.NewTableCell(hostVendor(e.result)))
+		cv.hostsList.SetCell(row, 3, tview.NewTableCell(hostHostname(e.result)))
+		cv.hostsList.SetCell(row, 4, tview.NewTableCell(hostOpenPorts(e.result)))
 	}
 
-	// Set initial selection to enable navigation (skip header row)
 	if cv.hostsList.GetRowCount() > 1 {
 		cv.hostsList.Select(1, 0)
 	}
 }
 
-// getHostStatus determines the status of a host based on correlation data
-func (cv *CorrelationViewer) getHostStatus(result *correlation.CorrelationResult) string {
-	if result.RiskScore >= 750 {
-		return "Critical"
-	} else if result.RiskScore >= 500 {
-		return "High Risk"
-	} else if result.RiskScore >= 250 {
-		return "Medium Risk"
-	} else if result.RiskScore >= 100 {
-		return "Low Risk"
-	} else if len(result.Services) > 0 {
-		return "Active"
-	}
-	return "Scanned"
-}
 
-// getStatusColor returns appropriate color for host status
-func (cv *CorrelationViewer) getStatusColor(riskScore int) tcell.Color {
-	if riskScore >= 750 {
-		return tcell.ColorRed
-	} else if riskScore >= 500 {
-		return tcell.ColorOrange
-	} else if riskScore >= 250 {
-		return tcell.ColorYellow
-	} else if riskScore >= 100 {
-		return tcell.ColorLightBlue
-	}
-	return tcell.ColorGreen
-}
-
-// getRiskColor returns appropriate color for risk score
-func (cv *CorrelationViewer) getRiskColor(riskScore int) tcell.Color {
-	if riskScore >= 750 {
-		return tcell.ColorRed
-	} else if riskScore >= 500 {
-		return tcell.ColorOrange
-	} else if riskScore >= 250 {
-		return tcell.ColorYellow
-	}
-	return tcell.ColorGreen
-}
-
-// updateDetailsPanel updates the details panel with information about the selected host
+// updateDetailsPanel renders host identity, classification, and port data for the selected host.
 func (cv *CorrelationViewer) updateDetailsPanel() {
 	if cv.selectedHost == "" {
-		cv.detailsPanel.SetText("Select a host to view details")
+		cv.detailsPanel.SetText("[gray]Select a host to view details[::-]")
 		return
 	}
 
 	result, exists := cv.correlator.GetCorrelationForHost(cv.selectedHost)
 	if !exists {
-		cv.detailsPanel.SetText("No correlation data found for selected host")
+		cv.detailsPanel.SetText("[gray]No data found for selected host[::-]")
 		return
 	}
 
-	var details strings.Builder
+	var b strings.Builder
 
-	// Host information
-	details.WriteString(fmt.Sprintf("[yellow]Host Information[::-]\n"))
-	details.WriteString(fmt.Sprintf("IP Address: [white]%s[::-]\n", result.Host))
-
+	// --- Identity ---
+	b.WriteString("[yellow]Identity[::-]\n")
+	b.WriteString(fmt.Sprintf("IP:       [white]%s[::-]\n", result.Host))
+	mac := "-"
+	hostname := "-"
+	netbios := "-"
+	osStr := "-"
 	if result.HostInfo != nil {
-		if result.HostInfo.Hostname != "" {
-			details.WriteString(fmt.Sprintf("Hostname: [white]%s[::-]\n", result.HostInfo.Hostname))
-		}
-		if result.HostInfo.OS != "" {
-			details.WriteString(fmt.Sprintf("OS: [white]%s[::-]\n", result.HostInfo.OS))
-		}
 		if result.HostInfo.MACAddress != "" {
-			details.WriteString(fmt.Sprintf("MAC: [white]%s[::-]\n", result.HostInfo.MACAddress))
+			mac = result.HostInfo.MACAddress
 		}
-		details.WriteString(fmt.Sprintf("Status: [white]%s[::-]\n", result.HostInfo.Status))
-		details.WriteString(fmt.Sprintf("Last Seen: [white]%s[::-]\n", result.HostInfo.LastSeen.Format("2006-01-02 15:04:05")))
+		if result.HostInfo.Hostname != "" {
+			hostname = result.HostInfo.Hostname
+		}
+		if nb, ok := result.HostInfo.Attributes["netbios_name"]; ok && nb != "" {
+			netbios = nb
+		}
+		if result.HostInfo.OSDetails != "" {
+			osStr = result.HostInfo.OSDetails
+		} else if result.HostInfo.OS != "" {
+			osStr = result.HostInfo.OS
+		}
 	}
+	b.WriteString(fmt.Sprintf("MAC:      [white]%s[::-]\n", mac))
+	b.WriteString(fmt.Sprintf("Hostname: [white]%s[::-]\n", hostname))
+	b.WriteString(fmt.Sprintf("NetBIOS:  [white]%s[::-]\n", netbios))
+	b.WriteString(fmt.Sprintf("OS:       [white]%s[::-]\n", osStr))
+	b.WriteString("\n")
 
-	details.WriteString(fmt.Sprintf("Risk Score: [%s]%d[::-]\n\n",
-		cv.formatRiskColor(result.RiskScore), result.RiskScore))
-
-	// Services
-	details.WriteString(fmt.Sprintf("[yellow]Services (%d)[::-]\n", len(result.Services)))
-	if len(result.Services) == 0 {
-		details.WriteString("No services discovered\n")
+	// --- Classification ---
+	b.WriteString("[yellow]Classification[::-]\n")
+	cat := hostCategory(result)
+	vendor := hostVendor(result)
+	confidence := "-"
+	score := "-"
+	if result.HostInfo != nil {
+		if c, ok := result.HostInfo.Attributes["confidence"]; ok && c != "" {
+			confidence = c
+		}
+		if s, ok := result.HostInfo.Attributes["score"]; ok && s != "" {
+			score = s
+		}
+	}
+	b.WriteString(fmt.Sprintf("Category:   [%s]%s[::-]\n", categoryTviewColor(cat), cat))
+	b.WriteString(fmt.Sprintf("Vendor:     [white]%s[::-]\n", vendor))
+	if score != "-" {
+		b.WriteString(fmt.Sprintf("Confidence: [white]%s[::-]  (score %s)\n", confidence, score))
 	} else {
-		for _, service := range result.Services {
-			details.WriteString(fmt.Sprintf("  %d/%s - [white]%s[::-]",
-				service.Port, service.Protocol, service.Name))
-			if service.Version != "" {
-				details.WriteString(fmt.Sprintf(" (%s)", service.Version))
+		b.WriteString(fmt.Sprintf("Confidence: [white]%s[::-]\n", confidence))
+	}
+	b.WriteString("\n")
+
+	// --- Ports & Services ---
+	var openPorts []correlation.Port
+	if result.HostInfo != nil {
+		for _, p := range result.HostInfo.Ports {
+			if p.State == "open" {
+				openPorts = append(openPorts, p)
 			}
-			details.WriteString("\n")
 		}
 	}
-	details.WriteString("\n")
-
-	// Vulnerabilities
-	details.WriteString(fmt.Sprintf("[yellow]Vulnerabilities (%d)[::-]\n", len(result.Vulnerabilities)))
-	if len(result.Vulnerabilities) == 0 {
-		details.WriteString("No vulnerabilities found\n")
+	b.WriteString(fmt.Sprintf("[yellow]Ports & Services (%d)[::-]\n", len(openPorts)))
+	if len(openPorts) == 0 {
+		b.WriteString("[gray]No open ports found[::-]\n")
 	} else {
-		for _, vuln := range result.Vulnerabilities {
-			severityColor := cv.getSeverityColor(vuln.Severity)
-			details.WriteString(fmt.Sprintf("  [%s]%s[::-] - %s",
-				severityColor, strings.ToUpper(vuln.Severity), vuln.Title))
-			if vuln.Port > 0 {
-				details.WriteString(fmt.Sprintf(" (Port %d)", vuln.Port))
+		for _, p := range openPorts {
+			svc := p.Service
+			if svc == "" {
+				svc = "-"
 			}
-			details.WriteString("\n")
-		}
-	}
-	details.WriteString("\n")
-
-	// Recommendations
-	details.WriteString(fmt.Sprintf("[yellow]Recommendations (%d)[::-]\n", len(result.Recommendations)))
-	if len(result.Recommendations) == 0 {
-		details.WriteString("No specific recommendations\n")
-	} else {
-		for i, rec := range result.Recommendations {
-			details.WriteString(fmt.Sprintf("  %d. %s\n", i+1, rec))
+			ver := p.Version
+			if ver == "" {
+				ver = "-"
+			}
+			b.WriteString(fmt.Sprintf("[white]%d/%s[::-]  %-8s  %s\n",
+				p.Number, p.Protocol, svc, ver))
 		}
 	}
 
-	cv.detailsPanel.SetText(details.String())
+	cv.detailsPanel.SetText(b.String())
 }
 
 // updateTimeline updates the timeline list with scan events
@@ -373,33 +472,6 @@ func (cv *CorrelationViewer) updateTimeline() {
 	}
 }
 
-// formatRiskColor returns color name for tview formatting
-func (cv *CorrelationViewer) formatRiskColor(riskScore int) string {
-	if riskScore >= 750 {
-		return "red"
-	} else if riskScore >= 500 {
-		return "orange"
-	} else if riskScore >= 250 {
-		return "yellow"
-	}
-	return "green"
-}
-
-// getSeverityColor returns color for vulnerability severity
-func (cv *CorrelationViewer) getSeverityColor(severity string) string {
-	switch strings.ToLower(severity) {
-	case "critical":
-		return "red"
-	case "high":
-		return "orange"
-	case "medium":
-		return "yellow"
-	case "low":
-		return "lightblue"
-	default:
-		return "gray"
-	}
-}
 
 // showHostDetails focuses on the details panel
 func (cv *CorrelationViewer) showHostDetails() {
@@ -413,86 +485,13 @@ func (cv *CorrelationViewer) showTimeline() {
 	cv.app.SetFocus(cv.timelineList)
 }
 
-// refresh updates all UI components
 func (cv *CorrelationViewer) refresh() {
 	cv.app.QueueUpdateDraw(func() {
+		cv.updateControlsText()
 		cv.updateHostsList()
 		cv.updateDetailsPanel()
 		cv.updateTimeline()
 	})
-}
-
-// sortByRiskScore sorts hosts by risk score
-func (cv *CorrelationViewer) sortByRiskScore() {
-	cv.updateHostsList() // Already sorts by risk score
-}
-
-// filterHighRisk shows only high-risk hosts
-func (cv *CorrelationViewer) filterHighRisk() {
-	highRiskHosts := cv.correlator.GetHighRiskHosts(500)
-
-	// Clear table and reset headers
-	cv.hostsList.Clear()
-	headers := []string{"Host", "Services", "Vulns", "Risk", "Last Scan", "Status"}
-	for i, header := range headers {
-		cv.hostsList.SetCell(0, i, tview.NewTableCell(header).
-			SetTextColor(tcell.ColorYellow).
-			SetAlign(tview.AlignCenter).
-			SetSelectable(false))
-	}
-
-	// Add only high-risk hosts
-	for i, result := range highRiskHosts {
-		row := i + 1
-
-		hostIP := result.Host
-		serviceCount := strconv.Itoa(len(result.Services))
-		vulnCount := strconv.Itoa(len(result.Vulnerabilities))
-		riskScore := strconv.Itoa(result.RiskScore)
-
-		lastScan := "Never"
-		if len(result.Timeline) > 0 {
-			lastEvent := result.Timeline[len(result.Timeline)-1]
-			lastScan = lastEvent.Timestamp.Format("15:04:05")
-		}
-
-		status := cv.getHostStatus(result)
-		statusColor := cv.getStatusColor(result.RiskScore)
-		riskColor := cv.getRiskColor(result.RiskScore)
-
-		cv.hostsList.SetCell(row, 0, tview.NewTableCell(hostIP))
-		cv.hostsList.SetCell(row, 1, tview.NewTableCell(serviceCount))
-		cv.hostsList.SetCell(row, 2, tview.NewTableCell(vulnCount))
-		cv.hostsList.SetCell(row, 3, tview.NewTableCell(riskScore).SetTextColor(riskColor))
-		cv.hostsList.SetCell(row, 4, tview.NewTableCell(lastScan))
-		cv.hostsList.SetCell(row, 5, tview.NewTableCell(status).SetTextColor(statusColor))
-	}
-
-	// Set initial selection to enable navigation (skip header row)
-	if cv.hostsList.GetRowCount() > 1 {
-		cv.hostsList.Select(1, 0)
-	}
-
-	cv.hostsList.SetTitle(fmt.Sprintf("High-Risk Hosts (%d)", len(highRiskHosts)))
-}
-
-// exportCorrelations exports correlation data
-func (cv *CorrelationViewer) exportCorrelations() {
-	// Show export options
-	modal := tview.NewModal().
-		SetText("Export correlation data to file?").
-		AddButtons([]string{"JSON", "CSV", "Cancel"}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			cv.pages.RemovePage("export")
-			switch buttonLabel {
-			case "JSON":
-				cv.showInfo("JSON export not yet implemented")
-			case "CSV":
-				cv.showInfo("CSV export not yet implemented")
-			}
-		})
-
-	cv.pages.AddPage("export", modal, true, true)
 }
 
 // startRefreshTimer starts automatic refresh
