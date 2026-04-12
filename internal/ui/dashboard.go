@@ -105,12 +105,7 @@ func (d *Dashboard) setupUI() {
 	// Create controls panel
 	d.controlsText = tview.NewTextView().SetDynamicColors(true)
 	d.controlsText.SetBorder(true).SetTitle("Controls")
-	d.controlsText.SetText(`[yellow]Dashboard Controls:[::-]
-[white]r[::-]        Refresh all data
-[white]j[::-]        View job manager
-[white]c[::-]        View correlations
-[white]Enter[::-]    View host details
-[white]q[::-]        Close dashboard`)
+	d.controlsText.SetText(`[yellow]Dashboard:[::-] [white]Enter[::-]=Details  [white]q[::-]=Close  [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+N[::-]=Hosts  [white]Ctrl+Z[::-]=Main`)
 
 	// Layout: 3x2 grid
 	topRow := tview.NewFlex().SetDirection(tview.FlexColumn).
@@ -151,19 +146,6 @@ func (d *Dashboard) setupKeyBindings() {
 			case 'q':
 				d.Close()
 				return nil
-			case 'r':
-				d.refresh()
-				return nil
-			case 'j':
-				ShowJobsViewer(d.app, d.pages, d.jobManager, func() {
-					d.app.SetFocus(d.hostsTable)
-				})
-				return nil
-			case 'c':
-				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
-					d.app.SetFocus(d.hostsTable)
-				})
-				return nil
 			}
 		}
 		return event
@@ -179,9 +161,6 @@ func (d *Dashboard) setupKeyBindings() {
 			switch event.Rune() {
 			case 'q':
 				d.Close()
-				return nil
-			case 'r':
-				d.refresh()
 				return nil
 			}
 		}
