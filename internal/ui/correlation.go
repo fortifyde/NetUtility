@@ -302,6 +302,10 @@ func (cv *CorrelationViewer) updateHostsList() {
 		title = "Host Inventory [Unknown]"
 	}
 	cv.hostsList.SetTitle(title)
+
+	// Preserve the currently selected host IP so auto-refresh doesn't reset the cursor.
+	prevSelected := cv.selectedHost
+
 	cv.hostsList.Clear()
 
 	headers := []string{"IP", "Category", "Vendor", "Hostname", "Ports"}
@@ -336,6 +340,7 @@ func (cv *CorrelationViewer) updateHostsList() {
 		return compareIPs(entries[i].ip, entries[j].ip)
 	})
 
+	reSelectRow := 1 // default to first data row
 	for i, e := range entries {
 		row := i + 1
 		cat := hostCategory(e.result)
@@ -344,10 +349,13 @@ func (cv *CorrelationViewer) updateHostsList() {
 		cv.hostsList.SetCell(row, 2, tview.NewTableCell(hostVendor(e.result)))
 		cv.hostsList.SetCell(row, 3, tview.NewTableCell(hostHostname(e.result)))
 		cv.hostsList.SetCell(row, 4, tview.NewTableCell(hostOpenPorts(e.result)))
+		if e.ip == prevSelected {
+			reSelectRow = row
+		}
 	}
 
 	if cv.hostsList.GetRowCount() > 1 {
-		cv.hostsList.Select(1, 0)
+		cv.hostsList.Select(reSelectRow, 0)
 	}
 }
 

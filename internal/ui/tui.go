@@ -31,6 +31,7 @@ type TUI struct {
 
 	// State management
 	currentCategory string
+	workspaceDir    string
 	registry        *metadata.ScriptRegistry
 	jobManager      *jobs.JobManager
 	correlator      *correlation.Correlator
@@ -173,7 +174,7 @@ func (t *TUI) getHardcodedCategories() []Category {
 	}
 }
 
-func NewTUI(scriptsDir string) *TUI {
+func NewTUI(scriptsDir, workspaceDir string) *TUI {
 	app := tview.NewApplication()
 
 	// Initialize script registry with provided scripts directory
@@ -196,12 +197,49 @@ func NewTUI(scriptsDir string) *TUI {
 		taskPane:     tview.NewList(),
 		infoPane:     tview.NewTextView(),
 		registry:     registry,
-		jobManager:   jobs.NewJobManager(3),         // Allow 3 concurrent jobs
-		correlator:   correlation.NewCorrelator(""), // Will be set with workspace dir later
+		workspaceDir: workspaceDir,
+		jobManager:   jobs.NewJobManager(3),
+		correlator:   correlation.NewCorrelator(workspaceDir),
+	}
+
+	if workspaceDir != "" {
+		if err := tui.correlator.LoadResults(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load correlation results: %v\n", err)
+		}
+		tui.loadWorkspaceResults()
 	}
 
 	tui.setupUI()
+	tui.startCorrelationWorker()
 	return tui
+}
+
+// loadWorkspaceResults scans the workspace for existing result files and loads them into the correlator.
+func (t *TUI) loadWorkspaceResults() {
+	parser := correlation.NewResultParser(t.workspaceDir)
+	results, err := parser.ScanWorkspaceForResults()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to scan workspace for results: %v\n", err)
+		return
+	}
+	for _, result := range results {
+		if err := t.correlator.AddScanResult(result); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to load workspace result: %v\n", err)
+		}
+	}
+}
+
+// startCorrelationWorker re-scans the workspace after each completed job to pick up new result files.
+func (t *TUI) startCorrelationWorker() {
+	if t.workspaceDir == "" {
+		return
+	}
+	_, completedChan, _ := t.jobManager.GetJobEventChannels()
+	go func() {
+		for range completedChan {
+			t.loadWorkspaceResults()
+		}
+	}()
 }
 
 func (t *TUI) setupUI() {

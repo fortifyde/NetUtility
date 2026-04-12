@@ -54,6 +54,8 @@ func (rp *ResultParser) ParseJobResult(scriptPath, outputContent string, timesta
 		return rp.parseNetworkCapture(result, outputContent)
 	case ScanTypeServiceScan:
 		return rp.parseServiceScan(result, outputContent)
+	case ScanTypeHostCategorization:
+		return rp.parseCategorizationDetails(result, outputContent)
 	default:
 		return rp.parseGenericOutput(result, outputContent)
 	}
@@ -63,6 +65,11 @@ func (rp *ResultParser) ParseJobResult(scriptPath, outputContent string, timesta
 func (rp *ResultParser) determineScanType(scriptPath, outputContent string) ScanType {
 	scriptName := strings.ToLower(filepath.Base(scriptPath))
 	contentLower := strings.ToLower(outputContent)
+
+	// ph7 categorization details file — must be checked before generic name patterns
+	if strings.Contains(scriptName, "categorization_details") {
+		return ScanTypeHostCategorization
+	}
 
 	// Check script name patterns
 	if strings.Contains(scriptName, "enum") || strings.Contains(scriptName, "discovery") {
@@ -363,6 +370,53 @@ func (rp *ResultParser) parseServiceScan(result *ScanResult, content string) (*S
 	return rp.parsePortScan(result, content)
 }
 
+// parseCategorizationDetails parses ph7 categorization_details.txt files.
+// Format: tab-separated columns IP, Hostname, Category, Vendor, Confidence, Score, Evidence (header row present).
+func (rp *ResultParser) parseCategorizationDetails(result *ScanResult, content string) (*ScanResult, error) {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		fields := strings.Split(line, "\t")
+		if len(fields) < 3 {
+			continue
+		}
+		ip := strings.TrimSpace(fields[0])
+		// Skip header row
+		if ip == "IP" || ip == "" {
+			continue
+		}
+
+		host := Host{
+			IP:         ip,
+			Status:     "up",
+			LastSeen:   result.Timestamp,
+			Ports:      make([]Port, 0),
+			Attributes: make(map[string]string),
+		}
+
+		if len(fields) > 1 {
+			if h := strings.TrimSpace(fields[1]); h != "" && h != "-" {
+				host.Hostname = h
+			}
+		}
+		attrKeys := []string{"category", "vendor", "confidence", "score"}
+		for i, key := range attrKeys {
+			col := i + 2 // columns start at index 2
+			if col < len(fields) {
+				if v := strings.TrimSpace(fields[col]); v != "" && v != "-" {
+					host.Attributes[key] = v
+				}
+			}
+		}
+
+		result.Hosts = append(result.Hosts, host)
+		result.Targets = append(result.Targets, ip)
+	}
+	return result, nil
+}
+
 // parseGenericOutput parses generic script output for IP addresses and basic info
 func (rp *ResultParser) parseGenericOutput(result *ScanResult, content string) (*ScanResult, error) {
 	lines := strings.Split(content, "\n")
@@ -413,17 +467,13 @@ func (rp *ResultParser) ParseResultFile(filePath string) (*ScanResult, error) {
 }
 
 // ScanWorkspaceForResults scans the workspace directory recursively for result files.
+// It processes nmap output files (.nmap, .xml) and the ph7 categorization_details.txt.
+// Generic .txt and .log files are intentionally excluded: they contain human-readable
+// reports that mention every IP in the scan range, which would flood the host inventory
+// with hundreds of spurious "unknown" entries.
 func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 	if rp.workspaceDir == "" {
 		return nil, fmt.Errorf("workspace directory not set")
-	}
-
-	// Extensions we recognise as potential result files.
-	recognizedExts := map[string]bool{
-		".nmap": true,
-		".xml":  true,
-		".txt":  true,
-		".log":  true,
 	}
 
 	var results []*ScanResult
@@ -435,7 +485,12 @@ func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 		if d.IsDir() {
 			return nil
 		}
-		if !recognizedExts[filepath.Ext(path)] {
+
+		base := filepath.Base(path)
+		ext := filepath.Ext(path)
+
+		// Only process nmap output files and the ph7 categorization details file.
+		if ext != ".nmap" && ext != ".xml" && base != "categorization_details.txt" {
 			return nil
 		}
 
