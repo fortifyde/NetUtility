@@ -37,20 +37,18 @@ type Dashboard struct {
 	returnToMainCallback func()
 }
 
-// DashboardStats contains aggregated statistics
+// DashboardStats contains aggregated statistics for the discovery dashboard.
 type DashboardStats struct {
-	TotalHosts           int
-	ActiveHosts          int
-	TotalServices        int
-	TotalVulnerabilities int
-	CriticalVulns        int
-	HighRiskHosts        int
-	RunningJobs          int
-	CompletedJobs        int
-	FailedJobs           int
-	ActiveWorkflows      int
-	AverageRiskScore     float64
-	LastScanTime         time.Time
+	TotalHosts      int
+	ActiveHosts     int
+	TotalServices   int
+	HostsByCategory map[string]int // keyed by category: "windows", "linux", "network_device", "unknown"
+	RunningJobs     int
+	CompletedJobs   int
+	FailedJobs      int
+	ActiveWorkflows int
+	MaxConcurrent   int
+	LastScanTime    time.Time
 }
 
 // ActivityItem represents a recent activity entry
@@ -205,53 +203,35 @@ func (d *Dashboard) updateDashboard() {
 	d.updateHostsTable(correlations)
 }
 
-// calculateStats calculates dashboard statistics
+// calculateStats aggregates discovery statistics from correlations and jobs.
 func (d *Dashboard) calculateStats(correlations map[string]*correlation.CorrelationResult) DashboardStats {
-	stats := DashboardStats{}
+	stats := DashboardStats{
+		HostsByCategory: make(map[string]int),
+	}
 
-	// Job statistics
 	jobStats := d.jobManager.GetStats()
 	stats.RunningJobs = jobStats.RunningJobs
 	stats.CompletedJobs = jobStats.CompletedJobs
 	stats.FailedJobs = jobStats.FailedJobs
+	stats.MaxConcurrent = jobStats.MaxConcurrent
 
-	// Correlation statistics
 	stats.TotalHosts = len(correlations)
 
-	var totalRiskScore int
-	for _, correlation := range correlations {
-		if correlation.HostInfo != nil && correlation.HostInfo.Status == "up" {
+	for _, corr := range correlations {
+		if corr.HostInfo != nil && corr.HostInfo.Status == "up" {
 			stats.ActiveHosts++
 		}
-		stats.TotalServices += len(correlation.Services)
-		stats.TotalVulnerabilities += len(correlation.Vulnerabilities)
+		stats.TotalServices += len(corr.Services)
+		stats.HostsByCategory[hostCategory(corr)]++
 
-		for _, vuln := range correlation.Vulnerabilities {
-			if strings.ToLower(vuln.Severity) == "critical" {
-				stats.CriticalVulns++
-			}
-		}
-
-		if correlation.RiskScore >= 500 {
-			stats.HighRiskHosts++
-		}
-
-		totalRiskScore += correlation.RiskScore
-
-		// Find last scan time
-		if len(correlation.Timeline) > 0 {
-			lastEvent := correlation.Timeline[len(correlation.Timeline)-1]
+		if len(corr.Timeline) > 0 {
+			lastEvent := corr.Timeline[len(corr.Timeline)-1]
 			if lastEvent.Timestamp.After(stats.LastScanTime) {
 				stats.LastScanTime = lastEvent.Timestamp
 			}
 		}
 	}
 
-	if stats.TotalHosts > 0 {
-		stats.AverageRiskScore = float64(totalRiskScore) / float64(stats.TotalHosts)
-	}
-
-	// Workflow statistics
 	if d.workflowEngine != nil {
 		workflows := d.workflowEngine.GetAllWorkflows()
 		for _, wf := range workflows {
@@ -274,17 +254,19 @@ func (d *Dashboard) updateStatsPanel(stats DashboardStats) {
 	content.WriteString(fmt.Sprintf("Services: [white]%d[::-]\n", stats.TotalServices))
 	content.WriteString("\n")
 
-	content.WriteString("[yellow]Security Status[::-]\n")
-	content.WriteString(fmt.Sprintf("Vulnerabilities: [white]%d[::-]\n", stats.TotalVulnerabilities))
-	content.WriteString(fmt.Sprintf("Critical: [red]%d[::-]\n", stats.CriticalVulns))
-	content.WriteString(fmt.Sprintf("High Risk Hosts: [orange]%d[::-]\n", stats.HighRiskHosts))
-	content.WriteString(fmt.Sprintf("Avg Risk Score: [white]%.1f[::-]\n", stats.AverageRiskScore))
+	content.WriteString("[yellow]Host Categories[::-]\n")
+	for _, category := range []string{"windows", "linux", "network_device", "unknown"} {
+		if count, exists := stats.HostsByCategory[category]; exists && count > 0 {
+			content.WriteString(fmt.Sprintf("%s: [white]%d[::-]\n", category, count))
+		}
+	}
 	content.WriteString("\n")
 
 	content.WriteString("[yellow]Activity[::-]\n")
 	content.WriteString(fmt.Sprintf("Running Jobs: [green]%d[::-]\n", stats.RunningJobs))
 	content.WriteString(fmt.Sprintf("Completed: [blue]%d[::-]\n", stats.CompletedJobs))
 	content.WriteString(fmt.Sprintf("Failed: [red]%d[::-]\n", stats.FailedJobs))
+	content.WriteString(fmt.Sprintf("Max Concurrent: [white]%d[::-]\n", stats.MaxConcurrent))
 	content.WriteString(fmt.Sprintf("Active Workflows: [yellow]%d[::-]\n", stats.ActiveWorkflows))
 	content.WriteString("\n")
 
@@ -356,19 +338,6 @@ func (d *Dashboard) updateChartsPanel(stats DashboardStats, correlations map[str
 		content.WriteString("[gray]to populate this chart.[::-]\n")
 	}
 
-	content.WriteString("\n[yellow]Vulnerability Trends[::-]\n")
-	content.WriteString(fmt.Sprintf("Critical: [red]%d[::-] | ", stats.CriticalVulns))
-	content.WriteString(fmt.Sprintf("Total: [white]%d[::-]\n", stats.TotalVulnerabilities))
-
-	// Simple trend indicator
-	if stats.CriticalVulns > 0 {
-		content.WriteString("[red]⚠ Critical vulnerabilities detected[::-]\n")
-	} else if stats.TotalVulnerabilities > 10 {
-		content.WriteString("[yellow]⚡ Multiple vulnerabilities found[::-]\n")
-	} else {
-		content.WriteString("[green]✓ Low vulnerability count[::-]\n")
-	}
-
 	d.chartsPanel.SetText(content.String())
 }
 
@@ -376,21 +345,9 @@ func (d *Dashboard) updateChartsPanel(stats DashboardStats, correlations map[str
 func (d *Dashboard) updateAlertsPanel(stats DashboardStats) {
 	var content strings.Builder
 
-	content.WriteString("[yellow]Security Alerts[::-]\n\n")
+	content.WriteString("[yellow]Status[::-]\n\n")
 
 	alertCount := 0
-
-	// Check for critical vulnerabilities
-	if stats.CriticalVulns > 0 {
-		content.WriteString(fmt.Sprintf("[red]🔥 CRITICAL[::-] %d critical vulnerabilities detected\n", stats.CriticalVulns))
-		alertCount++
-	}
-
-	// Check for high-risk hosts
-	if stats.HighRiskHosts > 0 {
-		content.WriteString(fmt.Sprintf("[orange]⚠ HIGH RISK[::-] %d hosts with risk score ≥500\n", stats.HighRiskHosts))
-		alertCount++
-	}
 
 	// Check for failed jobs
 	if stats.FailedJobs > 0 {
@@ -411,10 +368,10 @@ func (d *Dashboard) updateAlertsPanel(stats DashboardStats) {
 	}
 
 	if alertCount == 0 {
-		content.WriteString("[green]✅ No active alerts[::-]\n")
-		content.WriteString("\nSystem status: [green]Normal[::-]\n")
+		content.WriteString("[green]✅ System operational[::-]\n")
+		content.WriteString("\nStatus: [green]Normal[::-]\n")
 	} else {
-		content.WriteString(fmt.Sprintf("\n[white]Total alerts: %d[::-]", alertCount))
+		content.WriteString(fmt.Sprintf("\n[white]Items: %d[::-]", alertCount))
 	}
 
 	d.alertsPanel.SetText(content.String())
