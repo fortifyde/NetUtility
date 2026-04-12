@@ -1,7 +1,7 @@
 script:
   name: "Setup File Server"
   description: "Configure HTTP file server with authentication for sharing scan results across VLANs"
-  category: "host-config"
+  category: "utilities"
   subcategory: "services"
 
   file: "setup_file_server.sh"
