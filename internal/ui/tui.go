@@ -426,8 +426,13 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 		t.showDashboard()
 		return nil
 	}
-	if event.Key() == tcell.KeyHome && event.Modifiers()&tcell.ModCtrl != 0 {
-		// Global Home - return to main TUI from anywhere (Ctrl+Home)
+	if event.Key() == tcell.KeyCtrlN {
+		// Global Host view access
+		t.showCorrelationViewer()
+		return nil
+	}
+	if event.Key() == tcell.KeyCtrlZ {
+		// Global return to main TUI from anywhere
 		t.returnToMain()
 		return nil
 	}
@@ -481,22 +486,6 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 		case '?':
 			// Show help
 			t.showHelp()
-			return nil
-		case 'r':
-			// Refresh/reload
-			t.refreshCategories()
-			return nil
-		case 'J':
-			// Show jobs manager (capital J)
-			t.showJobsManager()
-			return nil
-		case 'C':
-			// Show correlation viewer (capital C)
-			t.showCorrelationViewer()
-			return nil
-		case 'D':
-			// Show dashboard (capital D)
-			t.showDashboard()
 			return nil
 		default:
 			return event
