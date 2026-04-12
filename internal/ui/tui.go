@@ -557,6 +557,10 @@ func (t *TUI) executeTask(taskName string) {
 		}
 		for _, task := range category.Tasks {
 			if task.Name == taskName {
+				if len(task.SubTasks) > 0 {
+					t.showInterfaceSubMenu(task)
+					return
+				}
 				t.executeTaskWithStreaming(task.Script, taskName)
 				return
 			}
@@ -603,6 +607,34 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 		t.pages.RemovePage("output")
 		return
 	}
+}
+
+// showInterfaceSubMenu shows a modal letting the user pick which interface
+// operation to run. Each sub-task is executed immediately on selection.
+func (t *TUI) showInterfaceSubMenu(task Task) {
+	buttons := make([]string, 0, len(task.SubTasks)+1)
+	for _, sub := range task.SubTasks {
+		buttons = append(buttons, sub.Name)
+	}
+	buttons = append(buttons, "Cancel")
+
+	modal := tview.NewModal().
+		SetText(fmt.Sprintf("%s\n\nSelect an operation:", task.Name)).
+		AddButtons(buttons).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			t.pages.RemovePage("interface-submenu")
+			if buttonLabel == "Cancel" {
+				return
+			}
+			for _, sub := range task.SubTasks {
+				if sub.Name == buttonLabel {
+					t.executeTaskWithStreaming(sub.Script, sub.Name)
+					return
+				}
+			}
+		})
+
+	t.pages.AddPage("interface-submenu", modal, true, true)
 }
 
 // showExecutionOptions shows options for script execution when at capacity
@@ -887,7 +919,7 @@ func (t *TUI) updateInfoPanel() {
 // returnToMain returns to the main TUI from any other view
 func (t *TUI) returnToMain() {
 	// Remove any overlays and return to main page
-	pageNames := []string{"output", "job-output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help"}
+	pageNames := []string{"output", "job-output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help", "interface-submenu"}
 
 	for _, pageName := range pageNames {
 		t.pages.RemovePage(pageName)
