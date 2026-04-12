@@ -415,7 +415,7 @@ func TestGetHighRiskHosts(t *testing.T) {
 
 func TestSaveAndLoadResults(t *testing.T) {
 	tempDir := t.TempDir()
-	correlator := NewCorrelator(tempDir)
+	correlator := newCorrelatorWithDataDir("", tempDir)
 
 	// Add some correlations
 	correlator.correlations["192.168.1.1"] = &CorrelationResult{
@@ -429,14 +429,14 @@ func TestSaveAndLoadResults(t *testing.T) {
 		t.Fatalf("saveResults() error = %v", err)
 	}
 
-	// Verify file was created
+	// Verify file was created in dataDir, not workspaceDir
 	correlationFile := filepath.Join(tempDir, "correlations", "correlations.json")
 	if _, err := os.Stat(correlationFile); os.IsNotExist(err) {
 		t.Error("Correlation file was not created")
 	}
 
 	// Create new correlator and load
-	correlator2 := NewCorrelator(tempDir)
+	correlator2 := newCorrelatorWithDataDir("", tempDir)
 	if err := correlator2.LoadResults(); err != nil {
 		t.Fatalf("LoadResults() error = %v", err)
 	}
@@ -457,7 +457,7 @@ func TestSaveAndLoadResults(t *testing.T) {
 
 func TestLoadResultsNoFile(t *testing.T) {
 	tempDir := t.TempDir()
-	correlator := NewCorrelator(tempDir)
+	correlator := newCorrelatorWithDataDir("", tempDir)
 
 	// Should not error when file doesn't exist
 	if err := correlator.LoadResults(); err != nil {
@@ -465,12 +465,12 @@ func TestLoadResultsNoFile(t *testing.T) {
 	}
 }
 
-func TestSaveResultsNoWorkspace(t *testing.T) {
-	correlator := NewCorrelator("")
+func TestSaveResultsNoDataDir(t *testing.T) {
+	correlator := newCorrelatorWithDataDir("", "")
 
-	// Should not error when workspace is empty
+	// Should not error when dataDir is empty
 	if err := correlator.saveResults(); err != nil {
-		t.Errorf("saveResults() should not error when workspace is empty: %v", err)
+		t.Errorf("saveResults() should not error when dataDir is empty: %v", err)
 	}
 }
 
