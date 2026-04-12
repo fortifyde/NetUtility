@@ -12,6 +12,117 @@ import (
 	"netutil/internal/correlation"
 )
 
+// hostCategory returns the ph7 category from HostInfo.Attributes ("windows",
+// "linux", "net_device", or "unknown"). Falls back to "unknown" if unset.
+func hostCategory(result *correlation.CorrelationResult) string {
+	if result.HostInfo != nil {
+		if cat, ok := result.HostInfo.Attributes["category"]; ok && cat != "" {
+			return cat
+		}
+	}
+	return "unknown"
+}
+
+// hostVendor returns the ph7 vendor string, or "-" if absent.
+func hostVendor(result *correlation.CorrelationResult) string {
+	if result.HostInfo != nil {
+		if v, ok := result.HostInfo.Attributes["vendor"]; ok && v != "" && v != "-" {
+			return v
+		}
+	}
+	return "-"
+}
+
+// hostHostname returns the best available name: DNS hostname, then NetBIOS, then "-".
+func hostHostname(result *correlation.CorrelationResult) string {
+	if result.HostInfo != nil {
+		if result.HostInfo.Hostname != "" {
+			return result.HostInfo.Hostname
+		}
+		if nb, ok := result.HostInfo.Attributes["netbios_name"]; ok && nb != "" {
+			return nb
+		}
+	}
+	return "-"
+}
+
+// hostOpenPorts returns a comma-joined list of open port numbers, truncated to 22 chars.
+func hostOpenPorts(result *correlation.CorrelationResult) string {
+	if result.HostInfo == nil || len(result.HostInfo.Ports) == 0 {
+		return "-"
+	}
+	var ports []string
+	for _, p := range result.HostInfo.Ports {
+		if p.State == "open" {
+			ports = append(ports, strconv.Itoa(p.Number))
+		}
+	}
+	if len(ports) == 0 {
+		return "-"
+	}
+	joined := strings.Join(ports, ",")
+	if len([]rune(joined)) > 22 {
+		return string([]rune(joined)[:21]) + "…"
+	}
+	return joined
+}
+
+// categoryOrder returns a sort key for display order: windows=0, linux=1, net_device=2, unknown=3.
+func categoryOrder(cat string) int {
+	switch cat {
+	case "windows":
+		return 0
+	case "linux":
+		return 1
+	case "net_device":
+		return 2
+	default:
+		return 3
+	}
+}
+
+// categoryTcellColor returns the tcell display color for a category (for table cells).
+func categoryTcellColor(cat string) tcell.Color {
+	switch cat {
+	case "windows":
+		return tcell.ColorGreen
+	case "linux":
+		return tcell.ColorYellow
+	case "net_device":
+		return tcell.ColorBlue
+	default:
+		return tcell.ColorGray
+	}
+}
+
+// categoryTviewColor returns the tview markup color name for a category (for TextView).
+func categoryTviewColor(cat string) string {
+	switch cat {
+	case "windows":
+		return "green"
+	case "linux":
+		return "yellow"
+	case "net_device":
+		return "aqua"
+	default:
+		return "gray"
+	}
+}
+
+// compareIPs returns true if ip1 sorts before ip2 by numeric octet comparison.
+func compareIPs(ip1, ip2 string) bool {
+	p1 := strings.Split(ip1, ".")
+	p2 := strings.Split(ip2, ".")
+	for i := 0; i < 4 && i < len(p1) && i < len(p2); i++ {
+		n1, _ := strconv.Atoi(p1[i])
+		n2, _ := strconv.Atoi(p2[i])
+		if n1 != n2 {
+			return n1 < n2
+		}
+	}
+	return ip1 < ip2
+}
+
 // CorrelationViewer displays correlated scan results
 type CorrelationViewer struct {
 	*tview.Flex
