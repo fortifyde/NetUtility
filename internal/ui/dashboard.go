@@ -85,7 +85,7 @@ func NewDashboard(app *tview.Application, pages *tview.Pages, jobManager *jobs.J
 func (d *Dashboard) setupUI() {
 	// Create stats panel
 	d.statsPanel = tview.NewTextView().SetDynamicColors(true)
-	d.statsPanel.SetBorder(true).SetTitle("System Statistics")
+	d.statsPanel.SetBorder(true).SetTitle("Discovery Stats")
 
 	// Create activity list
 	d.activityList = tview.NewList()
@@ -93,15 +93,15 @@ func (d *Dashboard) setupUI() {
 
 	// Create hosts table
 	d.hostsTable = tview.NewTable().SetBorders(true).SetSelectable(true, false)
-	d.hostsTable.SetBorder(true).SetTitle("Top Risk Hosts")
+	d.hostsTable.SetBorder(true).SetTitle("Discovered Hosts")
 
 	// Create alerts panel
 	d.alertsPanel = tview.NewTextView().SetDynamicColors(true).SetScrollable(true)
-	d.alertsPanel.SetBorder(true).SetTitle("Security Alerts")
+	d.alertsPanel.SetBorder(true).SetTitle("Job Activity")
 
 	// Create charts panel (ASCII charts)
 	d.chartsPanel = tview.NewTextView().SetDynamicColors(true)
-	d.chartsPanel.SetBorder(true).SetTitle("Risk Distribution")
+	d.chartsPanel.SetBorder(true).SetTitle("Category Breakdown")
 
 	// Create controls panel
 	d.controlsText = tview.NewTextView().SetDynamicColors(true)
@@ -197,8 +197,8 @@ func (d *Dashboard) updateDashboard() {
 	stats := d.calculateStats(correlations)
 
 	d.updateStatsPanel(stats)
-	d.updateChartsPanel(stats, correlations)
-	d.updateAlertsPanel(stats)
+	d.updateChartsPanel(stats)
+	d.updateActivityPanel()
 	d.updateActivityList(correlations)
 	d.updateHostsTable(correlations)
 }
@@ -244,134 +244,124 @@ func (d *Dashboard) calculateStats(correlations map[string]*correlation.Correlat
 	return stats
 }
 
-// updateStatsPanel updates the statistics panel
+// updateStatsPanel renders the discovery statistics panel.
 func (d *Dashboard) updateStatsPanel(stats DashboardStats) {
 	var content strings.Builder
 
-	content.WriteString("[yellow]Network Overview[::-]\n")
-	content.WriteString(fmt.Sprintf("Total Hosts: [white]%d[::-]\n", stats.TotalHosts))
-	content.WriteString(fmt.Sprintf("Active Hosts: [green]%d[::-]\n", stats.ActiveHosts))
-	content.WriteString(fmt.Sprintf("Services: [white]%d[::-]\n", stats.TotalServices))
+	content.WriteString("[yellow]Discovery Stats[::-]\n\n")
+	content.WriteString(fmt.Sprintf("Hosts Discovered:  [white]%d[::-]\n", stats.TotalHosts))
+	content.WriteString(fmt.Sprintf("  Windows:         [green]%d[::-]\n", stats.HostsByCategory["windows"]))
+	content.WriteString(fmt.Sprintf("  Linux:           [yellow]%d[::-]\n", stats.HostsByCategory["linux"]))
+	content.WriteString(fmt.Sprintf("  Net Devices:     [blue]%d[::-]\n", stats.HostsByCategory["network_device"]))
+	content.WriteString(fmt.Sprintf("  Unknown:         [gray]%d[::-]\n", stats.HostsByCategory["unknown"]))
 	content.WriteString("\n")
-
-	content.WriteString("[yellow]Host Categories[::-]\n")
-	for _, category := range []string{"windows", "linux", "network_device", "unknown"} {
-		if count, exists := stats.HostsByCategory[category]; exists && count > 0 {
-			content.WriteString(fmt.Sprintf("%s: [white]%d[::-]\n", category, count))
-		}
-	}
+	content.WriteString(fmt.Sprintf("Services Found:    [white]%d[::-]\n", stats.TotalServices))
 	content.WriteString("\n")
-
-	content.WriteString("[yellow]Activity[::-]\n")
-	content.WriteString(fmt.Sprintf("Running Jobs: [green]%d[::-]\n", stats.RunningJobs))
+	content.WriteString("[yellow]Jobs[::-]\n")
+	content.WriteString(fmt.Sprintf("Running:   [green]%d[::-]/%d max\n", stats.RunningJobs, stats.MaxConcurrent))
 	content.WriteString(fmt.Sprintf("Completed: [blue]%d[::-]\n", stats.CompletedJobs))
-	content.WriteString(fmt.Sprintf("Failed: [red]%d[::-]\n", stats.FailedJobs))
-	content.WriteString(fmt.Sprintf("Max Concurrent: [white]%d[::-]\n", stats.MaxConcurrent))
-	content.WriteString(fmt.Sprintf("Active Workflows: [yellow]%d[::-]\n", stats.ActiveWorkflows))
-	content.WriteString("\n")
-
+	content.WriteString(fmt.Sprintf("Failed:    [red]%d[::-]\n", stats.FailedJobs))
 	if !stats.LastScanTime.IsZero() {
-		content.WriteString(fmt.Sprintf("Last Scan: [white]%s[::-]\n",
-			stats.LastScanTime.Format("15:04:05")))
+		content.WriteString(fmt.Sprintf("\nLast Scan: [white]%s[::-]\n", stats.LastScanTime.Format("15:04")))
 	}
 
 	d.statsPanel.SetText(content.String())
 }
 
-// updateChartsPanel updates the charts panel with ASCII visualizations
-func (d *Dashboard) updateChartsPanel(stats DashboardStats, correlations map[string]*correlation.CorrelationResult) {
+// updateChartsPanel renders a category breakdown bar chart.
+func (d *Dashboard) updateChartsPanel(stats DashboardStats) {
 	var content strings.Builder
 
-	content.WriteString("[yellow]Risk Level Distribution[::-]\n\n")
+	categories := []string{"windows", "linux", "network_device", "unknown"}
+	labels := []string{"Windows   ", "Linux     ", "Net Device", "Unknown   "}
 
-	// Get risk distribution
-	riskBuckets := map[string]int{
-		"Critical": 0,
-		"High":     0,
-		"Medium":   0,
-		"Low":      0,
-		"None":     0,
-	}
-
-	for _, correlation := range correlations {
-		switch {
-		case correlation.RiskScore >= 750:
-			riskBuckets["Critical"]++
-		case correlation.RiskScore >= 500:
-			riskBuckets["High"]++
-		case correlation.RiskScore >= 250:
-			riskBuckets["Medium"]++
-		case correlation.RiskScore >= 100:
-			riskBuckets["Low"]++
-		default:
-			riskBuckets["None"]++
-		}
-	}
-
-	// Create simple ASCII bar chart
 	maxCount := 0
-	for _, count := range riskBuckets {
-		if count > maxCount {
-			maxCount = count
+	for _, cat := range categories {
+		if n := stats.HostsByCategory[cat]; n > maxCount {
+			maxCount = n
 		}
 	}
 
-	if maxCount > 0 {
-		// Risk levels in order
-		levels := []string{"Critical", "High", "Medium", "Low", "None"}
-		colors := []string{"red", "orange", "yellow", "green", "gray"}
-
-		for i, level := range levels {
-			count := riskBuckets[level]
-			barLength := 0
-			if maxCount > 0 {
-				barLength = (count * 20) / maxCount
-			}
-
-			bar := strings.Repeat("█", barLength)
-			content.WriteString(fmt.Sprintf("[%s]%-8s[::-] [%s]%s[::-] [white]%d[::-]\n",
-				colors[i], level, colors[i], bar, count))
-		}
+	if maxCount == 0 {
+		content.WriteString("[gray]No hosts discovered yet.[::-]\n\n")
+		content.WriteString("[gray]Run Network Discovery from[::-]\n")
+		content.WriteString("[gray]the Scripts menu to populate.[::-]\n")
 	} else {
-		content.WriteString("[gray]No scan data yet.[::-]\n")
-		content.WriteString("[gray]Run Network Discovery[::-]\n")
-		content.WriteString("[gray]to populate this chart.[::-]\n")
+		const barWidth = 15
+		for i, cat := range categories {
+			count := stats.HostsByCategory[cat]
+			filled := count * barWidth / maxCount
+			if filled > barWidth {
+				filled = barWidth
+			}
+			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
+			color := categoryTviewColor(cat)
+			content.WriteString(fmt.Sprintf("[%s]%s[::-]  [%s]%s[::-]  [white]%d[::-]\n",
+				color, labels[i], color, bar, count))
+		}
 	}
 
 	d.chartsPanel.SetText(content.String())
 }
 
-// updateAlertsPanel updates the security alerts panel
-func (d *Dashboard) updateAlertsPanel(stats DashboardStats) {
+// updateActivityPanel renders recent job activity in the Job Activity panel.
+func (d *Dashboard) updateActivityPanel() {
 	var content strings.Builder
 
-	content.WriteString("[yellow]Status[::-]\n\n")
+	allJobs := d.jobManager.GetAllJobs()
 
-	alertCount := 0
+	// Running jobs first, then by start time descending
+	sort.Slice(allJobs, func(i, j int) bool {
+		si := allJobs[i].GetStatus()
+		sj := allJobs[j].GetStatus()
+		if (si == jobs.JobStatusRunning) != (sj == jobs.JobStatusRunning) {
+			return si == jobs.JobStatusRunning
+		}
+		return allJobs[i].StartTime.After(allJobs[j].StartTime)
+	})
 
-	// Check for failed jobs
-	if stats.FailedJobs > 0 {
-		content.WriteString(fmt.Sprintf("[red]❌ JOBS[::-] %d jobs failed\n", stats.FailedJobs))
-		alertCount++
+	maxItems := 8
+	if len(allJobs) < maxItems {
+		maxItems = len(allJobs)
 	}
 
-	// Check for stale data
-	if !stats.LastScanTime.IsZero() && time.Since(stats.LastScanTime) > 24*time.Hour {
-		content.WriteString("[yellow]⏰ STALE[::-] Last scan >24h ago\n")
-		alertCount++
+	for i := 0; i < maxItems; i++ {
+		job := allJobs[i]
+		status := job.GetStatus()
+		var prefix, color string
+		switch status {
+		case jobs.JobStatusRunning:
+			prefix, color = "●", "green"
+		case jobs.JobStatusCompleted:
+			prefix, color = "✓", "blue"
+		case jobs.JobStatusFailed:
+			prefix, color = "✗", "red"
+		case jobs.JobStatusCancelled:
+			prefix, color = "⊘", "gray"
+		default:
+			prefix, color = "○", "yellow"
+		}
+
+		var dur time.Duration
+		if job.IsRunning() {
+			dur = time.Since(job.StartTime)
+		} else {
+			dur = job.GetDuration()
+		}
+
+		name := job.Name
+		if len([]rune(name)) > 22 {
+			name = string([]rune(name)[:21]) + "…"
+		}
+
+		content.WriteString(fmt.Sprintf("[%s]%s %s  %s[::-]\n",
+			color, prefix, name, formatJobDuration(dur)))
 	}
 
-	// Check for unusual activity
-	if stats.TotalHosts > 100 {
-		content.WriteString("[blue]📊 INFO[::-] Large network detected\n")
-		alertCount++
-	}
-
-	if alertCount == 0 {
-		content.WriteString("[green]✅ System operational[::-]\n")
-		content.WriteString("\nStatus: [green]Normal[::-]\n")
-	} else {
-		content.WriteString(fmt.Sprintf("\n[white]Items: %d[::-]", alertCount))
+	if len(allJobs) == 0 {
+		content.WriteString("[gray]No jobs run yet.[::-]\n")
+		content.WriteString("[gray]Start a discovery from[::-]\n")
+		content.WriteString("[gray]the Scripts menu.[::-]\n")
 	}
 
 	d.alertsPanel.SetText(content.String())
@@ -661,6 +651,17 @@ func (d *Dashboard) showInfo(message string) {
 		})
 
 	d.pages.AddPage("info", modal, true, true)
+}
+
+// formatJobDuration formats a duration for the activity panel display.
+func formatJobDuration(d time.Duration) string {
+	if d == 0 {
+		return "-"
+	}
+	if d < time.Minute {
+		return fmt.Sprintf("%.0fs", d.Seconds())
+	}
+	return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 // ShowDashboard creates and displays a dashboard page.
