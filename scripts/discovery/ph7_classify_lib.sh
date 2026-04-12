@@ -53,9 +53,9 @@ ph7_collect_evidence() {
         | awk -F'\t' '{print $3}' | head -1)
     [ -n "$_p7_mac_vendor" ] && printf 'mac_vendor:%s\n' "$_p7_mac_vendor" >> "$_p7_ev_file"
 
-    # --- DNS hostname (Phase 3, literal \t separator) ---
+    # --- DNS hostname (Phase 3, tab-separated: IP<TAB>HOSTNAME) ---
     _p7_dns_hostname=$(grep "^${_p7_ip}" "$PHASE3_DIR/dns_results.txt" 2>/dev/null \
-        | sed 's/.*\\t//' | head -1)
+        | awk -F'\t' '{print $2}' | head -1)
     if [ -n "$_p7_dns_hostname" ] && [ "$_p7_dns_hostname" != "<no hostname>" ]; then
         printf 'dns_hostname:%s\n' "$_p7_dns_hostname" >> "$_p7_ev_file"
     fi
