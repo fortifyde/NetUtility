@@ -1,7 +1,7 @@
 script:
   name: "Network Config Gatherer"
   description: "Extract configurations and compliance data from network devices with vendor auto-detection"
-  category: "config"
+  category: "advanced"
   subcategory: "backup"
 
   file: "gather_network_configs.sh"
