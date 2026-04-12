@@ -13,7 +13,7 @@ import (
 )
 
 // hostCategory returns the ph7 category from HostInfo.Attributes ("windows",
-// "linux", "net_device", or "unknown"). Falls back to "unknown" if unset.
+// "linux", "network_device", or "unknown"). Falls back to "unknown" if unset.
 func hostCategory(result *correlation.CorrelationResult) string {
 	if result != nil && result.HostInfo != nil {
 		if cat, ok := result.HostInfo.Attributes["category"]; ok && cat != "" {
@@ -72,14 +72,14 @@ func hostOpenPorts(result *correlation.CorrelationResult) string {
 	return joined
 }
 
-// categoryOrder returns a sort key for display order: windows=0, linux=1, net_device=2, unknown=3.
+// categoryOrder returns a sort key for display order: windows=0, linux=1, network_device=2, unknown=3.
 func categoryOrder(cat string) int {
 	switch cat {
 	case "windows":
 		return 0
 	case "linux":
 		return 1
-	case "net_device":
+	case "network_device":
 		return 2
 	default:
 		return 3
@@ -93,7 +93,7 @@ func categoryTcellColor(cat string) tcell.Color {
 		return tcell.ColorGreen
 	case "linux":
 		return tcell.ColorYellow
-	case "net_device":
+	case "network_device":
 		return tcell.ColorBlue
 	default:
 		return tcell.ColorGray
@@ -107,7 +107,7 @@ func categoryTviewColor(cat string) string {
 		return "green"
 	case "linux":
 		return "yellow"
-	case "net_device":
+	case "network_device":
 		return "aqua"
 	default:
 		return "gray"
@@ -129,7 +129,7 @@ func compareIPs(ip1, ip2 string) bool {
 }
 
 // filterCategories defines the cycling order for the category filter.
-var filterCategories = []string{"", "windows", "linux", "net_device", "unknown"}
+var filterCategories = []string{"", "windows", "linux", "network_device", "unknown"}
 
 // cycleCategoryFilter advances filterCategory to the next value in the cycle.
 func (cv *CorrelationViewer) cycleCategoryFilter() {
@@ -159,7 +159,7 @@ type CorrelationViewer struct {
 	// State
 	selectedHost         string
 	currentView          string // "hosts", "details", "timeline"
-	filterCategory       string // "" = all; "windows"/"linux"/"net_device"/"unknown" = filtered
+	filterCategory       string // "" = all; "windows"/"linux"/"network_device"/"unknown" = filtered
 	refreshTicker        *time.Ticker
 	stopChan             chan struct{}
 	returnToMainCallback func()
@@ -296,7 +296,7 @@ func (cv *CorrelationViewer) updateHostsList() {
 		title = "Host Inventory [Windows]"
 	case "linux":
 		title = "Host Inventory [Linux]"
-	case "net_device":
+	case "network_device":
 		title = "Host Inventory [Network Devices]"
 	case "unknown":
 		title = "Host Inventory [Unknown]"

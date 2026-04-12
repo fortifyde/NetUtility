@@ -99,11 +99,11 @@ func TestCategoryOrder(t *testing.T) {
 	if categoryOrder("windows") >= categoryOrder("linux") {
 		t.Error("windows should sort before linux")
 	}
-	if categoryOrder("linux") >= categoryOrder("net_device") {
-		t.Error("linux should sort before net_device")
+	if categoryOrder("linux") >= categoryOrder("network_device") {
+		t.Error("linux should sort before network_device")
 	}
-	if categoryOrder("net_device") >= categoryOrder("unknown") {
-		t.Error("net_device should sort before unknown")
+	if categoryOrder("network_device") >= categoryOrder("unknown") {
+		t.Error("network_device should sort before unknown")
 	}
 }
 
