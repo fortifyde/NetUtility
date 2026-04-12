@@ -352,105 +352,101 @@ func (cv *CorrelationViewer) updateHostsList() {
 }
 
 
-// updateDetailsPanel updates the details panel with information about the selected host
+// updateDetailsPanel renders host identity, classification, and port data for the selected host.
 func (cv *CorrelationViewer) updateDetailsPanel() {
 	if cv.selectedHost == "" {
-		cv.detailsPanel.SetText("Select a host to view details")
+		cv.detailsPanel.SetText("[gray]Select a host to view details[::-]")
 		return
 	}
 
 	result, exists := cv.correlator.GetCorrelationForHost(cv.selectedHost)
 	if !exists {
-		cv.detailsPanel.SetText("No correlation data found for selected host")
+		cv.detailsPanel.SetText("[gray]No data found for selected host[::-]")
 		return
 	}
 
-	var details strings.Builder
+	var b strings.Builder
 
-	// Host information
-	details.WriteString(fmt.Sprintf("[yellow]Host Information[::-]\n"))
-	details.WriteString(fmt.Sprintf("IP Address: [white]%s[::-]\n", result.Host))
-
+	// --- Identity ---
+	b.WriteString("[yellow]Identity[::-]\n")
+	b.WriteString(fmt.Sprintf("IP:       [white]%s[::-]\n", result.Host))
+	mac := "-"
+	hostname := "-"
+	netbios := "-"
+	osStr := "-"
 	if result.HostInfo != nil {
-		if result.HostInfo.Hostname != "" {
-			details.WriteString(fmt.Sprintf("Hostname: [white]%s[::-]\n", result.HostInfo.Hostname))
-		}
-		if result.HostInfo.OS != "" {
-			details.WriteString(fmt.Sprintf("OS: [white]%s[::-]\n", result.HostInfo.OS))
-		}
 		if result.HostInfo.MACAddress != "" {
-			details.WriteString(fmt.Sprintf("MAC: [white]%s[::-]\n", result.HostInfo.MACAddress))
+			mac = result.HostInfo.MACAddress
 		}
-		details.WriteString(fmt.Sprintf("Status: [white]%s[::-]\n", result.HostInfo.Status))
-		details.WriteString(fmt.Sprintf("Last Seen: [white]%s[::-]\n", result.HostInfo.LastSeen.Format("2006-01-02 15:04:05")))
+		if result.HostInfo.Hostname != "" {
+			hostname = result.HostInfo.Hostname
+		}
+		if nb, ok := result.HostInfo.Attributes["netbios_name"]; ok && nb != "" {
+			netbios = nb
+		}
+		if result.HostInfo.OSDetails != "" {
+			osStr = result.HostInfo.OSDetails
+		} else if result.HostInfo.OS != "" {
+			osStr = result.HostInfo.OS
+		}
 	}
+	b.WriteString(fmt.Sprintf("MAC:      [white]%s[::-]\n", mac))
+	b.WriteString(fmt.Sprintf("Hostname: [white]%s[::-]\n", hostname))
+	b.WriteString(fmt.Sprintf("NetBIOS:  [white]%s[::-]\n", netbios))
+	b.WriteString(fmt.Sprintf("OS:       [white]%s[::-]\n", osStr))
+	b.WriteString("\n")
 
-	riskColorName := "green"
-	if result.RiskScore >= 750 {
-		riskColorName = "red"
-	} else if result.RiskScore >= 500 {
-		riskColorName = "orange"
-	} else if result.RiskScore >= 250 {
-		riskColorName = "yellow"
+	// --- Classification ---
+	b.WriteString("[yellow]Classification[::-]\n")
+	cat := hostCategory(result)
+	vendor := hostVendor(result)
+	confidence := "-"
+	score := "-"
+	if result.HostInfo != nil {
+		if c, ok := result.HostInfo.Attributes["confidence"]; ok && c != "" {
+			confidence = c
+		}
+		if s, ok := result.HostInfo.Attributes["score"]; ok && s != "" {
+			score = s
+		}
 	}
-	details.WriteString(fmt.Sprintf("Risk Score: [%s]%d[::-]\n\n", riskColorName, result.RiskScore))
-
-	// Services
-	details.WriteString(fmt.Sprintf("[yellow]Services (%d)[::-]\n", len(result.Services)))
-	if len(result.Services) == 0 {
-		details.WriteString("No services discovered\n")
+	b.WriteString(fmt.Sprintf("Category:   [%s]%s[::-]\n", categoryTviewColor(cat), cat))
+	b.WriteString(fmt.Sprintf("Vendor:     [white]%s[::-]\n", vendor))
+	if score != "-" {
+		b.WriteString(fmt.Sprintf("Confidence: [white]%s[::-]  (score %s)\n", confidence, score))
 	} else {
-		for _, service := range result.Services {
-			details.WriteString(fmt.Sprintf("  %d/%s - [white]%s[::-]",
-				service.Port, service.Protocol, service.Name))
-			if service.Version != "" {
-				details.WriteString(fmt.Sprintf(" (%s)", service.Version))
+		b.WriteString(fmt.Sprintf("Confidence: [white]%s[::-]\n", confidence))
+	}
+	b.WriteString("\n")
+
+	// --- Ports & Services ---
+	var openPorts []correlation.Port
+	if result.HostInfo != nil {
+		for _, p := range result.HostInfo.Ports {
+			if p.State == "open" {
+				openPorts = append(openPorts, p)
 			}
-			details.WriteString("\n")
 		}
 	}
-	details.WriteString("\n")
-
-	// Vulnerabilities
-	details.WriteString(fmt.Sprintf("[yellow]Vulnerabilities (%d)[::-]\n", len(result.Vulnerabilities)))
-	if len(result.Vulnerabilities) == 0 {
-		details.WriteString("No vulnerabilities found\n")
+	b.WriteString(fmt.Sprintf("[yellow]Ports & Services (%d)[::-]\n", len(openPorts)))
+	if len(openPorts) == 0 {
+		b.WriteString("[gray]No open ports found[::-]\n")
 	} else {
-		for _, vuln := range result.Vulnerabilities {
-			var severityColor string
-			switch strings.ToLower(vuln.Severity) {
-			case "critical":
-				severityColor = "red"
-			case "high":
-				severityColor = "orange"
-			case "medium":
-				severityColor = "yellow"
-			case "low":
-				severityColor = "lightblue"
-			default:
-				severityColor = "gray"
+		for _, p := range openPorts {
+			svc := p.Service
+			if svc == "" {
+				svc = "-"
 			}
-			details.WriteString(fmt.Sprintf("  [%s]%s[::-] - %s",
-				severityColor, strings.ToUpper(vuln.Severity), vuln.Title))
-			if vuln.Port > 0 {
-				details.WriteString(fmt.Sprintf(" (Port %d)", vuln.Port))
+			ver := p.Version
+			if ver == "" {
+				ver = "-"
 			}
-			details.WriteString("\n")
-		}
-	}
-	details.WriteString("\n")
-
-	// Recommendations
-	details.WriteString(fmt.Sprintf("[yellow]Recommendations (%d)[::-]\n", len(result.Recommendations)))
-	if len(result.Recommendations) == 0 {
-		details.WriteString("No specific recommendations\n")
-	} else {
-		for i, rec := range result.Recommendations {
-			details.WriteString(fmt.Sprintf("  %d. %s\n", i+1, rec))
+			b.WriteString(fmt.Sprintf("[white]%d/%s[::-]  %-8s  %s\n",
+				p.Number, p.Protocol, svc, ver))
 		}
 	}
 
-	cv.detailsPanel.SetText(details.String())
+	cv.detailsPanel.SetText(b.String())
 }
 
 // updateTimeline updates the timeline list with scan events
