@@ -558,7 +558,7 @@ func (t *TUI) executeTask(taskName string) {
 		for _, task := range category.Tasks {
 			if task.Name == taskName {
 				if len(task.SubTasks) > 0 {
-					t.showInterfaceSubMenu(task)
+					t.showSubTaskMenu(task)
 					return
 				}
 				t.executeTaskWithStreaming(task.Script, taskName)
@@ -609,9 +609,9 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 	}
 }
 
-// showInterfaceSubMenu shows a modal letting the user pick which interface
+// showSubTaskMenu shows a modal letting the user pick which sub-task
 // operation to run. Each sub-task is executed immediately on selection.
-func (t *TUI) showInterfaceSubMenu(task Task) {
+func (t *TUI) showSubTaskMenu(task Task) {
 	buttons := make([]string, 0, len(task.SubTasks)+1)
 	for _, sub := range task.SubTasks {
 		buttons = append(buttons, sub.Name)
@@ -624,6 +624,7 @@ func (t *TUI) showInterfaceSubMenu(task Task) {
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			t.pages.RemovePage("interface-submenu")
 			if buttonLabel == "Cancel" {
+				t.setActiveFocus(t.taskPane)
 				return
 			}
 			for _, sub := range task.SubTasks {
