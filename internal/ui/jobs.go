@@ -76,9 +76,9 @@ func (jv *JobsViewer) setupUI() {
 [white]Enter[::-]    View job output
 [white]c[::-]        Cancel selected job
 [white]C[::-]        Clear completed jobs
-[white]r[::-]        Refresh view
-[white]q[::-]        Close jobs viewer
-[white]1-9[::-]      Set max concurrent jobs`)
+[white]1-9[::-]      Set max concurrent jobs
+[white]q[::-]        Close
+[yellow]Global:[::-] [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+N[::-]=Hosts  [white]Ctrl+Z[::-]=Main`)
 
 	// Layout: Left panel (table), Right panel (stats + controls)
 	rightPanel := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -117,9 +117,6 @@ func (jv *JobsViewer) setupKeyBindings() {
 				return nil
 			case 'C':
 				jv.clearCompletedJobs()
-				return nil
-			case 'r':
-				jv.refresh()
 				return nil
 			case '1', '2', '3', '4', '5', '6', '7', '8', '9':
 				maxConcurrent, _ := strconv.Atoi(string(event.Rune()))
