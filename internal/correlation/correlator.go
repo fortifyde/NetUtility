@@ -18,12 +18,13 @@ import (
 type ScanType string
 
 const (
-	ScanTypeNetworkEnum   ScanType = "network_enumeration"
-	ScanTypeVulnerability ScanType = "vulnerability_scan"
-	ScanTypeCapture       ScanType = "network_capture"
-	ScanTypePortScan      ScanType = "port_scan"
-	ScanTypeServiceScan   ScanType = "service_scan"
-	ScanTypeOSDetection   ScanType = "os_detection"
+	ScanTypeNetworkEnum         ScanType = "network_enumeration"
+	ScanTypeVulnerability       ScanType = "vulnerability_scan"
+	ScanTypeCapture             ScanType = "network_capture"
+	ScanTypePortScan            ScanType = "port_scan"
+	ScanTypeServiceScan         ScanType = "service_scan"
+	ScanTypeOSDetection         ScanType = "os_detection"
+	ScanTypeHostCategorization  ScanType = "host_categorization"
 )
 
 // ScanResult represents the result of a network scan
