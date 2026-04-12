@@ -123,7 +123,7 @@ func (jv *JobsViewer) setupKeyBindings() {
 				return nil
 			case '1', '2', '3', '4', '5', '6', '7', '8', '9':
 				maxConcurrent, _ := strconv.Atoi(string(event.Rune()))
-				jv.setMaxConcurrent(maxConcurrent)
+				jv.confirmSetMaxConcurrent(maxConcurrent)
 				return nil
 			}
 		}
@@ -374,6 +374,21 @@ func (jv *JobsViewer) clearCompletedJobs() {
 	removed := jv.jobManager.ClearCompletedJobs()
 	jv.showInfo(fmt.Sprintf("Removed %d completed jobs", removed))
 	jv.refresh()
+}
+
+// confirmSetMaxConcurrent shows a modal asking the user to confirm the new
+// maximum concurrent job limit before applying it.
+func (jv *JobsViewer) confirmSetMaxConcurrent(max int) {
+	modal := tview.NewModal().
+		SetText(fmt.Sprintf("Set max concurrent jobs to %d?", max)).
+		AddButtons([]string{"Yes", "No"}).
+		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
+			jv.pages.RemovePage("confirm-concurrency")
+			if buttonLabel == "Yes" {
+				jv.setMaxConcurrent(max)
+			}
+		})
+	jv.pages.AddPage("confirm-concurrency", modal, true, true)
 }
 
 // setMaxConcurrent sets the maximum number of concurrent jobs
