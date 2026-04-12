@@ -110,11 +110,9 @@ func (t *TUI) formatCategoryName(category string) string {
 	case "discovery":
 		return "Network Discovery"
 	case "scanning":
-		return "Port and Security Scans"
+		return "Port Scanning"
 	case "advanced":
-		return "Automation"
-	case "config":
-		return "Configuration Gathering"
+		return "Advanced Tools"
 	default:
 		if len(category) > 0 {
 			return strings.ToUpper(category[:1]) + category[1:]
