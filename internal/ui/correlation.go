@@ -128,6 +128,21 @@ func compareIPs(ip1, ip2 string) bool {
 	return ip1 < ip2
 }
 
+// filterCategories defines the cycling order for the category filter.
+var filterCategories = []string{"", "windows", "linux", "net_device", "unknown"}
+
+// cycleCategoryFilter advances filterCategory to the next value in the cycle.
+func (cv *CorrelationViewer) cycleCategoryFilter() {
+	for i, cat := range filterCategories {
+		if cv.filterCategory == cat {
+			cv.filterCategory = filterCategories[(i+1)%len(filterCategories)]
+			break
+		}
+	}
+	cv.updateHostsList()
+	cv.updateControlsText()
+}
+
 // CorrelationViewer displays correlated scan results
 type CorrelationViewer struct {
 	*tview.Flex
@@ -144,7 +159,7 @@ type CorrelationViewer struct {
 	// State
 	selectedHost         string
 	currentView          string // "hosts", "details", "timeline"
-	filterActive         bool   // true when high-risk filter is applied
+	filterCategory       string // "" = all; "windows"/"linux"/"net_device"/"unknown" = filtered
 	refreshTicker        *time.Ticker
 	stopChan             chan struct{}
 	returnToMainCallback func()
@@ -171,10 +186,10 @@ func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator
 func (cv *CorrelationViewer) setupUI() {
 	// Create hosts table
 	cv.hostsList = tview.NewTable().SetBorders(true).SetSelectable(true, false)
-	cv.hostsList.SetBorder(true).SetTitle("Correlated Hosts")
+	cv.hostsList.SetBorder(true).SetTitle("Host Inventory")
 
 	// Set table headers
-	headers := []string{"Host", "Services", "Vulns", "Risk", "Last Scan", "Status"}
+	headers := []string{"IP", "Category", "Vendor", "Hostname", "Ports"}
 	for i, header := range headers {
 		cv.hostsList.SetCell(0, i, tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
@@ -214,17 +229,16 @@ func (cv *CorrelationViewer) setupUI() {
 
 // updateControlsText re-renders the controls panel to reflect current filter state.
 func (cv *CorrelationViewer) updateControlsText() {
-	filterLine := "[white]f[::-]        Filter high-risk hosts"
-	if cv.filterActive {
-		filterLine = "[yellow]f[::-]        Clear filter [ACTIVE]"
+	filterLine := "[white]f[::-]        Cycle category filter"
+	if cv.filterCategory != "" {
+		filterLine = fmt.Sprintf("[yellow]f[::-]        Cycle filter [%s]", cv.filterCategory)
 	}
 	cv.controlsText.SetText(fmt.Sprintf(`[yellow]Controls:[::-]
 [white]Enter[::-]    View host details
 [white]t[::-]        View timeline
-[white]r[::-]        Refresh correlations
-[white]s[::-]        Sort by risk score
+[white]r[::-]        Refresh
 %s
-[white]q[::-]        Close correlation viewer`, filterLine))
+[white]q[::-]        Close`, filterLine))
 }
 
 // setupKeyBindings configures keyboard shortcuts
@@ -248,11 +262,8 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 			case 'r':
 				cv.refresh()
 				return nil
-			case 's':
-				cv.sortByRiskScore()
-				return nil
 			case 'f':
-				cv.toggleFilterHighRisk()
+				cv.cycleCategoryFilter()
 				return nil
 			}
 		}
@@ -277,14 +288,23 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 
 }
 
-// updateHostsList refreshes the hosts table
+// updateHostsList refreshes the hosts table with category-sorted inventory data.
 func (cv *CorrelationViewer) updateHostsList() {
-	cv.hostsList.SetTitle("Correlated Hosts")
-	// Clear existing rows (except header)
+	title := "Host Inventory"
+	switch cv.filterCategory {
+	case "windows":
+		title = "Host Inventory [Windows]"
+	case "linux":
+		title = "Host Inventory [Linux]"
+	case "net_device":
+		title = "Host Inventory [Network Devices]"
+	case "unknown":
+		title = "Host Inventory [Unknown]"
+	}
+	cv.hostsList.SetTitle(title)
 	cv.hostsList.Clear()
 
-	// Reset headers
-	headers := []string{"Host", "Services", "Vulns", "Risk", "Last Scan", "Status"}
+	headers := []string{"IP", "Category", "Vendor", "Hostname", "Ports"}
 	for i, header := range headers {
 		cv.hostsList.SetCell(0, i, tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
@@ -292,104 +312,45 @@ func (cv *CorrelationViewer) updateHostsList() {
 			SetSelectable(false))
 	}
 
-	// Get all correlations
 	correlations := cv.correlator.GetAllCorrelations()
 
-	// Convert to sorted slice
-	type hostCorrelation struct {
-		host   string
+	type hostEntry struct {
+		ip     string
 		result *correlation.CorrelationResult
 	}
 
-	hosts := make([]hostCorrelation, 0, len(correlations))
-	for host, result := range correlations {
-		hosts = append(hosts, hostCorrelation{host, result})
+	var entries []hostEntry
+	for ip, result := range correlations {
+		cat := hostCategory(result)
+		if cv.filterCategory == "" || cat == cv.filterCategory {
+			entries = append(entries, hostEntry{ip, result})
+		}
 	}
 
-	// Sort by risk score (highest first)
-	sort.Slice(hosts, func(i, j int) bool {
-		return hosts[i].result.RiskScore > hosts[j].result.RiskScore
+	sort.Slice(entries, func(i, j int) bool {
+		ci := categoryOrder(hostCategory(entries[i].result))
+		cj := categoryOrder(hostCategory(entries[j].result))
+		if ci != cj {
+			return ci < cj
+		}
+		return compareIPs(entries[i].ip, entries[j].ip)
 	})
 
-	// Add host rows
-	for i, hc := range hosts {
+	for i, e := range entries {
 		row := i + 1
-		result := hc.result
-
-		// Format data
-		hostIP := hc.host
-		serviceCount := strconv.Itoa(len(result.Services))
-		vulnCount := strconv.Itoa(len(result.Vulnerabilities))
-		riskScore := strconv.Itoa(result.RiskScore)
-
-		// Determine last scan time
-		lastScan := "Never"
-		if len(result.Timeline) > 0 {
-			lastEvent := result.Timeline[len(result.Timeline)-1]
-			lastScan = lastEvent.Timestamp.Format("15:04:05")
-		}
-
-		// Determine status
-		status := cv.getHostStatus(result)
-		statusColor := cv.getStatusColor(result.RiskScore)
-		riskColor := cv.getRiskColor(result.RiskScore)
-
-		// Set table cells
-		cv.hostsList.SetCell(row, 0, tview.NewTableCell(hostIP))
-		cv.hostsList.SetCell(row, 1, tview.NewTableCell(serviceCount))
-		cv.hostsList.SetCell(row, 2, tview.NewTableCell(vulnCount))
-		cv.hostsList.SetCell(row, 3, tview.NewTableCell(riskScore).SetTextColor(riskColor))
-		cv.hostsList.SetCell(row, 4, tview.NewTableCell(lastScan))
-		cv.hostsList.SetCell(row, 5, tview.NewTableCell(status).SetTextColor(statusColor))
+		cat := hostCategory(e.result)
+		cv.hostsList.SetCell(row, 0, tview.NewTableCell(e.ip))
+		cv.hostsList.SetCell(row, 1, tview.NewTableCell(cat).SetTextColor(categoryTcellColor(cat)))
+		cv.hostsList.SetCell(row, 2, tview.NewTableCell(hostVendor(e.result)))
+		cv.hostsList.SetCell(row, 3, tview.NewTableCell(hostHostname(e.result)))
+		cv.hostsList.SetCell(row, 4, tview.NewTableCell(hostOpenPorts(e.result)))
 	}
 
-	// Set initial selection to enable navigation (skip header row)
 	if cv.hostsList.GetRowCount() > 1 {
 		cv.hostsList.Select(1, 0)
 	}
 }
 
-// getHostStatus determines the status of a host based on correlation data
-func (cv *CorrelationViewer) getHostStatus(result *correlation.CorrelationResult) string {
-	if result.RiskScore >= 750 {
-		return "Critical"
-	} else if result.RiskScore >= 500 {
-		return "High Risk"
-	} else if result.RiskScore >= 250 {
-		return "Medium Risk"
-	} else if result.RiskScore >= 100 {
-		return "Low Risk"
-	} else if len(result.Services) > 0 {
-		return "Active"
-	}
-	return "Scanned"
-}
-
-// getStatusColor returns appropriate color for host status
-func (cv *CorrelationViewer) getStatusColor(riskScore int) tcell.Color {
-	if riskScore >= 750 {
-		return tcell.ColorRed
-	} else if riskScore >= 500 {
-		return tcell.ColorOrange
-	} else if riskScore >= 250 {
-		return tcell.ColorYellow
-	} else if riskScore >= 100 {
-		return tcell.ColorLightBlue
-	}
-	return tcell.ColorGreen
-}
-
-// getRiskColor returns appropriate color for risk score
-func (cv *CorrelationViewer) getRiskColor(riskScore int) tcell.Color {
-	if riskScore >= 750 {
-		return tcell.ColorRed
-	} else if riskScore >= 500 {
-		return tcell.ColorOrange
-	} else if riskScore >= 250 {
-		return tcell.ColorYellow
-	}
-	return tcell.ColorGreen
-}
 
 // updateDetailsPanel updates the details panel with information about the selected host
 func (cv *CorrelationViewer) updateDetailsPanel() {
@@ -424,8 +385,15 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 		details.WriteString(fmt.Sprintf("Last Seen: [white]%s[::-]\n", result.HostInfo.LastSeen.Format("2006-01-02 15:04:05")))
 	}
 
-	details.WriteString(fmt.Sprintf("Risk Score: [%s]%d[::-]\n\n",
-		cv.formatRiskColor(result.RiskScore), result.RiskScore))
+	riskColorName := "green"
+	if result.RiskScore >= 750 {
+		riskColorName = "red"
+	} else if result.RiskScore >= 500 {
+		riskColorName = "orange"
+	} else if result.RiskScore >= 250 {
+		riskColorName = "yellow"
+	}
+	details.WriteString(fmt.Sprintf("Risk Score: [%s]%d[::-]\n\n", riskColorName, result.RiskScore))
 
 	// Services
 	details.WriteString(fmt.Sprintf("[yellow]Services (%d)[::-]\n", len(result.Services)))
@@ -449,7 +417,19 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 		details.WriteString("No vulnerabilities found\n")
 	} else {
 		for _, vuln := range result.Vulnerabilities {
-			severityColor := cv.getSeverityColor(vuln.Severity)
+			var severityColor string
+			switch strings.ToLower(vuln.Severity) {
+			case "critical":
+				severityColor = "red"
+			case "high":
+				severityColor = "orange"
+			case "medium":
+				severityColor = "yellow"
+			case "low":
+				severityColor = "lightblue"
+			default:
+				severityColor = "gray"
+			}
 			details.WriteString(fmt.Sprintf("  [%s]%s[::-] - %s",
 				severityColor, strings.ToUpper(vuln.Severity), vuln.Title))
 			if vuln.Port > 0 {
@@ -496,33 +476,6 @@ func (cv *CorrelationViewer) updateTimeline() {
 	}
 }
 
-// formatRiskColor returns color name for tview formatting
-func (cv *CorrelationViewer) formatRiskColor(riskScore int) string {
-	if riskScore >= 750 {
-		return "red"
-	} else if riskScore >= 500 {
-		return "orange"
-	} else if riskScore >= 250 {
-		return "yellow"
-	}
-	return "green"
-}
-
-// getSeverityColor returns color for vulnerability severity
-func (cv *CorrelationViewer) getSeverityColor(severity string) string {
-	switch strings.ToLower(severity) {
-	case "critical":
-		return "red"
-	case "high":
-		return "orange"
-	case "medium":
-		return "yellow"
-	case "low":
-		return "lightblue"
-	default:
-		return "gray"
-	}
-}
 
 // showHostDetails focuses on the details panel
 func (cv *CorrelationViewer) showHostDetails() {
@@ -536,86 +489,14 @@ func (cv *CorrelationViewer) showTimeline() {
 	cv.app.SetFocus(cv.timelineList)
 }
 
-// refresh clears any active filter and reloads all UI components.
 func (cv *CorrelationViewer) refresh() {
 	cv.app.QueueUpdateDraw(func() {
-		cv.filterActive = false
-		cv.hostsList.SetTitle("Correlated Hosts")
+		cv.filterCategory = ""
 		cv.updateControlsText()
 		cv.updateHostsList()
 		cv.updateDetailsPanel()
 		cv.updateTimeline()
 	})
-}
-
-// sortByRiskScore sorts hosts by risk score, respecting any active filter.
-func (cv *CorrelationViewer) sortByRiskScore() {
-	if cv.filterActive {
-		cv.applyHighRiskFilter()
-	} else {
-		cv.updateHostsList()
-	}
-}
-
-// applyHighRiskFilter populates the hosts table with only hosts having risk score ≥ 500.
-// Call toggleFilterHighRisk rather than this method directly.
-func (cv *CorrelationViewer) applyHighRiskFilter() {
-	highRiskHosts := cv.correlator.GetHighRiskHosts(500)
-
-	cv.hostsList.Clear()
-	headers := []string{"Host", "Services", "Vulns", "Risk", "Last Scan", "Status"}
-	for i, header := range headers {
-		cv.hostsList.SetCell(0, i, tview.NewTableCell(header).
-			SetTextColor(tcell.ColorYellow).
-			SetAlign(tview.AlignCenter).
-			SetSelectable(false))
-	}
-
-	for i, result := range highRiskHosts {
-		row := i + 1
-
-		hostIP := result.Host
-		serviceCount := strconv.Itoa(len(result.Services))
-		vulnCount := strconv.Itoa(len(result.Vulnerabilities))
-		riskScore := strconv.Itoa(result.RiskScore)
-
-		lastScan := "Never"
-		if len(result.Timeline) > 0 {
-			lastEvent := result.Timeline[len(result.Timeline)-1]
-			lastScan = lastEvent.Timestamp.Format("15:04:05")
-		}
-
-		status := cv.getHostStatus(result)
-		statusColor := cv.getStatusColor(result.RiskScore)
-		riskColor := cv.getRiskColor(result.RiskScore)
-
-		cv.hostsList.SetCell(row, 0, tview.NewTableCell(hostIP))
-		cv.hostsList.SetCell(row, 1, tview.NewTableCell(serviceCount))
-		cv.hostsList.SetCell(row, 2, tview.NewTableCell(vulnCount))
-		cv.hostsList.SetCell(row, 3, tview.NewTableCell(riskScore).SetTextColor(riskColor))
-		cv.hostsList.SetCell(row, 4, tview.NewTableCell(lastScan))
-		cv.hostsList.SetCell(row, 5, tview.NewTableCell(status).SetTextColor(statusColor))
-	}
-
-	if cv.hostsList.GetRowCount() > 1 {
-		cv.hostsList.Select(1, 0)
-	}
-
-	cv.hostsList.SetTitle(fmt.Sprintf("[FILTERED] High-Risk Hosts (%d)", len(highRiskHosts)))
-}
-
-// toggleFilterHighRisk toggles the high-risk filter on or off.
-// When turned on, only hosts with risk score ≥ 500 are shown.
-// When turned off, all hosts are shown and the title is restored.
-func (cv *CorrelationViewer) toggleFilterHighRisk() {
-	cv.filterActive = !cv.filterActive
-	if cv.filterActive {
-		cv.applyHighRiskFilter()
-	} else {
-		cv.hostsList.SetTitle("Correlated Hosts")
-		cv.updateHostsList()
-	}
-	cv.updateControlsText()
 }
 
 // startRefreshTimer starts automatic refresh
