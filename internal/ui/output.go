@@ -64,7 +64,7 @@ func NewOutputViewer(app *tview.Application, pages *tview.Pages, jobManager *job
 
 	statusLine := tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("[green]Ready[::-] - Tab=Switch | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home | Esc=Close")
+		SetText("[green]Ready[::-] - Tab=Switch | Ctrl+J=Jobs | Ctrl+D=Dashboard | Ctrl+N=Hosts | Ctrl+B=Background | Ctrl+Z=Main | Esc=Close")
 
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -114,7 +114,7 @@ func (ov *OutputViewer) setupKeyBindings() {
 			return nil
 		case tcell.KeyTab:
 			ov.app.SetFocus(ov.inputField)
-			ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
+			ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Z=Main")
 			return nil
 		}
 
@@ -154,7 +154,7 @@ func (ov *OutputViewer) setupKeyBindings() {
 				return nil
 			case 'l':
 				ov.app.SetFocus(ov.inputField)
-				ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home")
+				ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Z=Main")
 				return nil
 			}
 		}
@@ -182,7 +182,7 @@ func (ov *OutputViewer) setupInputField() {
 			return nil
 		case tcell.KeyTab:
 			ov.app.SetFocus(ov.outputView)
-			ov.statusLine.SetText("[green]View Mode[::-] - Tab=Input | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Home=Home | Esc=Close")
+			ov.statusLine.SetText("[green]View Mode[::-] - Tab=Input | Ctrl+J=Jobs | Ctrl+D=Dashboard | Ctrl+N=Hosts | Ctrl+B=Background | Ctrl+Z=Main | Esc=Close")
 			return nil
 		case tcell.KeyEnter:
 			ov.mu.RLock()
