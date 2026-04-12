@@ -303,7 +303,7 @@ func (t *TUI) setupUI() {
 	headerText := fmt.Sprintf(`[cyan::b]%s[white::-] [green]%s[white]
 [gray]Network Assessment Toolkit[-]
 
-[yellow]Keys:[white] [cyan]Tab[white]=Switch [cyan]hjkl[white]=Navigate [cyan]/[white]=Search [cyan]J[white]=Jobs [cyan]C[white]=Correlate [cyan]D[white]=Dashboard [cyan]q[white]=Quit`, AppName, AppVersion)
+[yellow]Keys:[white] [cyan]Tab[white]=Switch [cyan]hjkl[white]=Navigate [cyan]/[white]=Search [cyan]Ctrl+J[white]=Jobs [cyan]Ctrl+N[white]=Hosts [cyan]Ctrl+D[white]=Dashboard [cyan]q[white]=Quit`, AppName, AppVersion)
 	t.headerPane.SetText(headerText)
 	t.headerPane.SetTextAlign(tview.AlignCenter)
 
@@ -655,10 +655,10 @@ func (t *TUI) queueJob(scriptPath, taskName string) {
 	// Try to start it immediately (in case a slot opened up)
 	if err := t.jobManager.StartJob(job.ID); err != nil {
 		// Job was queued, show confirmation
-		t.showInfoModal("Job Queued", fmt.Sprintf("'%s' has been queued for execution.\n\nPress 'J' to view job manager.", taskName))
+		t.showInfoModal("Job Queued", fmt.Sprintf("'%s' has been queued for execution.\n\nPress Ctrl+J to view job manager.", taskName))
 	} else {
 		// Job started immediately
-		t.showInfoModal("Job Started", fmt.Sprintf("'%s' has been started in the background.\n\nPress 'J' to view job manager.", taskName))
+		t.showInfoModal("Job Started", fmt.Sprintf("'%s' has been started in the background.\n\nPress Ctrl+J to view job manager.", taskName))
 	}
 }
 
