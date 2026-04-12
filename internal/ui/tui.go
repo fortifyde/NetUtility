@@ -51,7 +51,7 @@ type Task struct {
 	Name        string
 	Description string
 	Script      string
-	SubTasks    []Task // non-nil: selecting this task shows a sub-menu modal
+	SubTasks    []Task // len > 0: selecting this task shows a sub-menu modal
 }
 
 // getCategories returns the list of available categories and their tasks.
@@ -194,8 +194,8 @@ func mergeInterfaceTasks(categories []Category) []Category {
 				vlanTask = task
 			}
 		}
-		if ifaceIdx == -1 {
-			break // neither task found — nothing to merge
+		if ifaceIdx == -1 || vlanTask.Name == "" {
+			continue // one or both source tasks missing — skip this category
 		}
 		// Build new task list without the two interface tasks
 		newTasks := make([]Task, 0, len(cat.Tasks)-1)

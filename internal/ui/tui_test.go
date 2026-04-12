@@ -78,6 +78,26 @@ func TestMergeInterfaceTasks(t *testing.T) {
 	}
 }
 
+func TestMergeInterfaceTasksPartialMatch(t *testing.T) {
+	// Only the iface task present, no VLAN task — should be a no-op
+	input := []Category{
+		{
+			Name: "Host Configuration",
+			Tasks: []Task{
+				{Name: "Manage Network Interfaces", Script: "/scripts/network_interfaces.sh"},
+				{Name: "Configure IP Addresses", Script: "/scripts/configure_ip.sh"},
+			},
+		},
+	}
+	result := mergeInterfaceTasks(input)
+	if len(result[0].Tasks) != 2 {
+		t.Fatalf("expected 2 tasks (no merge), got %d", len(result[0].Tasks))
+	}
+	if result[0].Tasks[0].Name != "Manage Network Interfaces" {
+		t.Errorf("first task = %q, want %q", result[0].Tasks[0].Name, "Manage Network Interfaces")
+	}
+}
+
 func TestMergeInterfaceTasksNoOp(t *testing.T) {
 	// Category without the interface tasks — should pass through unchanged
 	input := []Category{
