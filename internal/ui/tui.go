@@ -98,7 +98,7 @@ func (t *TUI) getCategoriesFromMetadata() []Category {
 		}
 	}
 
-	return categories
+	return mergeInterfaceTasks(categories)
 }
 
 // formatCategoryName converts metadata category names to display names
@@ -133,9 +133,15 @@ func (t *TUI) getHardcodedCategories() []Category {
 			Name: "System Configuration",
 			Tasks: []Task{
 				{Name: "Select Working Directory", Description: "Choose working directory for operations", Script: s("system", "select_workdir.sh")},
-				{Name: "Network Interfaces", Description: "View and toggle network interfaces", Script: s("system", "network_interfaces.sh")},
+				{
+					Name:        "Configure Interfaces",
+					Description: "Manage interface states or configure VLAN subinterfaces",
+					SubTasks: []Task{
+						{Name: "Interface States", Description: "View and toggle network interfaces", Script: s("system", "network_interfaces.sh")},
+						{Name: "VLAN Interfaces", Description: "Create VLAN subinterfaces", Script: s("system", "add_vlan.sh")},
+					},
+				},
 				{Name: "Configure IP Addresses", Description: "Set IP addresses on interfaces", Script: s("system", "configure_ip.sh")},
-				{Name: "Add VLAN Interfaces", Description: "Create VLAN subinterfaces", Script: s("system", "add_vlan.sh")},
 				{Name: "Configure Routes", Description: "View and configure IP routes", Script: s("system", "configure_routes.sh")},
 				{Name: "Configure Nameservers", Description: "Set DNS nameservers", Script: s("system", "configure_dns.sh")},
 				{Name: "Backup Configuration", Description: "Backup current network configuration", Script: s("system", "backup_config.sh")},
