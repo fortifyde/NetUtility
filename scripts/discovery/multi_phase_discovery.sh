@@ -275,6 +275,7 @@ if [ "$_network_count" -ge 2 ]; then
 
     # FIFO semaphore (FD 8)
     _mnet_fifo="/tmp/.mnet_sem_${TIMESTAMP}_$$"
+    trap 'rm -f "$_mnet_fifo" /tmp/.mnet_st_*_"${TIMESTAMP}_$$"; trap - INT TERM EXIT' INT TERM EXIT
     mkfifo "$_mnet_fifo"
     exec 8<>"$_mnet_fifo"
     _i=0
@@ -327,6 +328,12 @@ if [ "$_network_count" -ge 2 ]; then
     _net_idx=0
     for _net in $_all_scan_networks; do
         _net_idx=$((_net_idx + 1))
+        if [ "$_net" = "$network_range" ] && [ "$scan_local_network" = "true" ]; then
+            _net_label="local_network"
+        else
+            _net_label="routed_$(echo "$_net" | sed 's|/|_|g')"
+        fi
+        _net_dir="$SESSION_ROOT_DIR/$_net_label"
         _net_status="/tmp/.mnet_st_${_net_idx}_${TIMESTAMP}_$$"
         _exit=$(cat "$_net_status" 2>/dev/null || echo 1)
         rm -f "$_net_status"
@@ -335,7 +342,7 @@ if [ "$_network_count" -ge 2 ]; then
             _success_count=$((_success_count + 1))
             echo "$_net: SUCCESS" >> "$SESSION_METADATA"
         else
-            echo "  ✗ $_net failed" >&2
+            echo "  ✗ $_net failed (see $_net_dir/discovery_output.txt)" >&2
             echo "$_net: FAILED" >> "$SESSION_METADATA"
         fi
     done
