@@ -2059,9 +2059,9 @@ if [ -x "$discovery_script" ]; then
         rm -f "$_poll_sentinel"
         # Remove phase_progress files now that all VLANs have finished
         for _cleanup_id in $_poll_ids; do
-            _pp_file="$SESSION_DISCOVERY_DIR/vlan_${_cleanup_id}/phase_progress"
-            [ -f "$_pp_file" ] || _pp_file="$SESSION_DISCOVERY_DIR/${_cleanup_id}/phase_progress"
-            rm -f "$_pp_file" 2>/dev/null || true
+            rm -f "$SESSION_DISCOVERY_DIR/vlan_${_cleanup_id}/phase_progress" \
+                  "$SESSION_DISCOVERY_DIR/${_cleanup_id}/phase_progress" \
+                  2>/dev/null || true
         done
 
         # Collect results now that all background jobs have finished
