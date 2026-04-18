@@ -1703,10 +1703,10 @@ categorize_services_enhanced() {
         echo "RDP Services: $([ -f "$SERVICE_TARGETS_DIR/rdp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/rdp_targets.txt" || echo 0)"
         echo "VNC Services: $([ -f "$SERVICE_TARGETS_DIR/vnc_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/vnc_targets.txt" || echo 0)"
         echo "SNMP Services: $([ -f "$SERVICE_TARGETS_DIR/snmp_targets.txt" ] && wc -l < "$SERVICE_TARGETS_DIR/snmp_targets.txt" || echo 0)"
-    } > service_summary.txt
+    } > "$META_DIR/service_summary.txt"
 
     echo "Service categorization completed" >> "$REPORT_FILE"
-    cat service_summary.txt >> "$REPORT_FILE"
+    cat "$META_DIR/service_summary.txt" >> "$REPORT_FILE"
 }
 
 # Function to create enriched service target files (called after service enumeration)
@@ -2843,14 +2843,9 @@ else
     echo "Phase 7: Host Categorization - Analyzing discovered hosts..."
 fi
 
-# Create categorized host lists
-mkdir -p "$SESSION_DIR/categorized"
+# Create host classification lists
 mkdir -p "$PHASE7_DIR"
-
-# Category files and team assignment files will be created on-demand when data is written
-
-# Create network device subdirectory
-mkdir -p "$SESSION_DIR/categorized/network_devices"
+# HOSTFILES_DIR already created at session init; vendor files are flat inside it
 
 # Create categorization details file header
 printf 'IP\tHostname\tCategory\tVendor\tConfidence\tScore\tEvidence\n' \
@@ -2883,64 +2878,64 @@ while read -r host; do
         # Add to appropriate category files (files created on first write)
         case "$category" in
             windows)
-                echo "$host" >> "$SESSION_DIR/categorized/windows_hosts.txt"
+                echo "$host" >> "$HOSTFILES_DIR/windows_hosts.txt"
                 ;;
             linux)
-                echo "$host" >> "$SESSION_DIR/categorized/linux_hosts.txt"
+                echo "$host" >> "$HOSTFILES_DIR/linux_hosts.txt"
                 ;;
             network_device|switch_router|firewall)
-                echo "$host" >> "$SESSION_DIR/categorized/network_devices.txt"
+                echo "$host" >> "$HOSTFILES_DIR/network_devices.txt"
 
                 # Add to vendor-specific file if vendor detected (file created on first write)
                 case "$vendor" in
                     cisco)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/cisco.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/cisco.txt"
                         ;;
                     cisco_asa)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/cisco_asa.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/cisco_asa.txt"
                         ;;
                     hp_aruba)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/hp_aruba.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/hp_aruba.txt"
                         ;;
                     checkpoint)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/checkpoint.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/checkpoint.txt"
                         ;;
                     juniper)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/juniper.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/juniper.txt"
                         ;;
                     genua)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/genua.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/genua.txt"
                         ;;
                     fortinet)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/fortinet.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/fortinet.txt"
                         ;;
                     ups)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/ups.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/ups.txt"
                         ;;
                     storage)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/storage.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/storage.txt"
                         ;;
                     mgmt_interface)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/management_interfaces.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/management_interfaces.txt"
                         ;;
                     printer)
-                        echo "$host" >> "$SESSION_DIR/categorized/network_devices/printers.txt"
+                        echo "$host" >> "$HOSTFILES_DIR/printers.txt"
                         ;;
                 esac
 
                 # Add to subcategory files (file created on first write)
                 if [ "$category" = "switch_router" ]; then
-                    echo "$host" >> "$SESSION_DIR/categorized/network_devices/switches_routers.txt"
+                    echo "$host" >> "$HOSTFILES_DIR/switches_routers.txt"
                 elif [ "$category" = "firewall" ]; then
-                    echo "$host" >> "$SESSION_DIR/categorized/network_devices/firewalls.txt"
+                    echo "$host" >> "$HOSTFILES_DIR/firewalls.txt"
                 fi
                 ;;
             printer)
-                echo "$host" >> "$SESSION_DIR/categorized/network_devices.txt"
-                echo "$host" >> "$SESSION_DIR/categorized/network_devices/printers.txt"
+                echo "$host" >> "$HOSTFILES_DIR/network_devices.txt"
+                echo "$host" >> "$HOSTFILES_DIR/printers.txt"
                 ;;
             unknown|*)
-                echo "$host" >> "$SESSION_DIR/categorized/unknown.txt"
+                echo "$host" >> "$HOSTFILES_DIR/unknown.txt"
                 ;;
         esac
 
@@ -2951,10 +2946,10 @@ done < "$PHASE2_DIR/all_hosts.txt"
 
 # Generate enriched categorized host files
 echo "  Creating enriched categorized host files..." >> "$REPORT_FILE"
-create_enriched_categorized_hosts "windows" "$SESSION_DIR/categorized/windows_hosts.txt"
-create_enriched_categorized_hosts "linux" "$SESSION_DIR/categorized/linux_hosts.txt"
-create_enriched_categorized_hosts "network_devices" "$SESSION_DIR/categorized/network_devices.txt"
-create_enriched_categorized_hosts "unknown" "$SESSION_DIR/categorized/unknown.txt"
+create_enriched_categorized_hosts "windows" "$HOSTFILES_DIR/windows_hosts.txt"
+create_enriched_categorized_hosts "linux" "$HOSTFILES_DIR/linux_hosts.txt"
+create_enriched_categorized_hosts "network_devices" "$HOSTFILES_DIR/network_devices.txt"
+create_enriched_categorized_hosts "unknown" "$HOSTFILES_DIR/unknown.txt"
 echo "  Enriched categorized host files created" >> "$REPORT_FILE"
 
 # Generate enriched service target files (now that Phase 6 enumeration is complete)
@@ -3004,16 +2999,26 @@ echo "  Creating evidence manifest..." >> "$REPORT_FILE"
     echo "    ├── categorization_details.txt (full per-host category/vendor/confidence table)"
     echo "    └── categorization_debug/ (per-host scoring trace)"
     echo ""
-    echo "categorized/ (hosts by OS/device type — windows, linux, network_devices, unknown)"
+    echo "hostfiles/ (categorized hosts, flat)"
+    echo "  ├── windows_hosts.txt  linux_hosts.txt  network_devices.txt  unknown.txt"
+    echo "  ├── all_discovered_hosts.txt (master host list)"
+    echo "  ├── <vendor>.txt (cisco, hp_aruba, fortinet, etc.)"
+    echo "  └── categorization_debug/ (per-host scoring trace)"
     echo "service_targets/ (hosts by service type — web, ssh, smb, database, …)"
-    echo "discovery_report.txt (final analysis and summaries)"
+    echo "meta/ (reports and manifests)"
+    echo "  ├── discovery_report.txt  EVIDENCE_MANIFEST.txt"
+    echo "  ├── comprehensive_service_inventory.csv  service_summary.txt"
+    echo "  └── session_metadata.txt"
     echo ""
     echo "=== File Checksums ==="
     find "$EVIDENCE_DIR" -type f -exec sha256sum {} \; 2>/dev/null | sort
     echo ""
+    echo "=== Hostfiles Checksums ==="
+    find "$HOSTFILES_DIR" -maxdepth 1 -type f -exec sha256sum {} \; 2>/dev/null | sort
+    echo ""
     echo "=== Service Targets Checksums ==="
     find "$SERVICE_TARGETS_DIR" -type f -exec sha256sum {} \; 2>/dev/null | sort
-} > "$SESSION_DIR/EVIDENCE_MANIFEST.txt"
+} > "$META_DIR/EVIDENCE_MANIFEST.txt"
 
 # Create comprehensive service inventory
 echo "  Consolidating scan data..." >> "$REPORT_FILE"
@@ -3068,9 +3073,9 @@ echo "  Consolidating scan data..." >> "$REPORT_FILE"
             done < "$scan_file" 2>/dev/null || true
         fi
     done | sort -t',' -k1,1V -k2,2n -u
-} > "$SESSION_DIR/comprehensive_service_inventory.csv"
+} > "$META_DIR/comprehensive_service_inventory.csv"
 
-echo "  Evidence processing completed - $(wc -l < "$SESSION_DIR/comprehensive_service_inventory.csv") services cataloged" >> "$REPORT_FILE"
+echo "  Evidence processing completed - $(wc -l < "$META_DIR/comprehensive_service_inventory.csv") services cataloged" >> "$REPORT_FILE"
 
 echo >> "$REPORT_FILE"
 
@@ -3078,10 +3083,10 @@ echo >> "$REPORT_FILE"
 echo "--- DISCOVERY SUMMARY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
-windows_count=$([ -f "$SESSION_DIR/categorized/windows_hosts.txt" ] && wc -l < "$SESSION_DIR/categorized/windows_hosts.txt" || echo 0)
-linux_count=$([ -f "$SESSION_DIR/categorized/linux_hosts.txt" ] && wc -l < "$SESSION_DIR/categorized/linux_hosts.txt" || echo 0)
-network_count=$([ -f "$SESSION_DIR/categorized/network_devices.txt" ] && wc -l < "$SESSION_DIR/categorized/network_devices.txt" || echo 0)
-unknown_count=$([ -f "$SESSION_DIR/categorized/unknown.txt" ] && wc -l < "$SESSION_DIR/categorized/unknown.txt" || echo 0)
+windows_count=$([ -f "$HOSTFILES_DIR/windows_hosts.txt" ] && wc -l < "$HOSTFILES_DIR/windows_hosts.txt" || echo 0)
+linux_count=$([ -f "$HOSTFILES_DIR/linux_hosts.txt" ] && wc -l < "$HOSTFILES_DIR/linux_hosts.txt" || echo 0)
+network_count=$([ -f "$HOSTFILES_DIR/network_devices.txt" ] && wc -l < "$HOSTFILES_DIR/network_devices.txt" || echo 0)
+unknown_count=$([ -f "$HOSTFILES_DIR/unknown.txt" ] && wc -l < "$HOSTFILES_DIR/unknown.txt" || echo 0)
 
 echo "Discovery Statistics:" >> "$REPORT_FILE"
 echo "  Total hosts discovered: $all_hosts_count" >> "$REPORT_FILE"
@@ -3110,7 +3115,7 @@ echo "Discovery completed at $(date)" >> "$REPORT_FILE"
 
 # Create summary files
 echo "Creating summary files..."
-cp "$PHASE2_DIR/all_hosts.txt" "$SESSION_DIR/all_discovered_hosts.txt"
+cp "$PHASE2_DIR/all_hosts.txt" "$HOSTFILES_DIR/all_discovered_hosts.txt"
 
 echo "Final reporting complete" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
@@ -3146,13 +3151,14 @@ else
 
     echo >&2
     echo "Key Files Created:"
-    echo "  discovery_report.txt (detailed technical report)"
-    echo "  comprehensive_service_inventory.csv (complete service catalog)"
-    echo "  all_discovered_hosts.txt (master host list)"
-    echo "  dns_results.txt (hostname resolutions)"
-    echo "  categorized/ (hosts by OS/device type, with enriched details)"
+    echo "  hostfiles/ (categorized hosts — windows, linux, network devices, unknown)"
+    echo "    hostfiles/all_discovered_hosts.txt (master host list)"
+    echo "    hostfiles/categorization_debug/ (per-host scoring trace)"
+    echo "  meta/discovery_report.txt (detailed technical report)"
+    echo "  meta/comprehensive_service_inventory.csv (complete service catalog)"
+    echo "  meta/EVIDENCE_MANIFEST.txt (file inventory with checksums)"
+    echo "  meta/service_summary.txt (service distribution counts)"
     echo "  service_targets/ (hosts by service type, with enriched details)"
-    echo "  EVIDENCE_MANIFEST.txt (file inventory with checksums)"
     echo "  evidence/ (raw scan artifacts organized by phase)"
 
     if [ -f "$SESSION_DIR/smb_hosts.txt" ]; then
