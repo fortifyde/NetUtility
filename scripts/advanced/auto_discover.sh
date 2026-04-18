@@ -1981,6 +1981,7 @@ if [ -x "$discovery_script" ]; then
             (
                 export MANUAL_NETWORK_RANGE="$vlan_discovery_network"
                 export AUTO_DISCOVERY_SESSION="true"
+                export AUTO_DISCOVERY_LIGHTWEIGHT="true"
                 export AUTO_DISCOVERY_VLAN_ID="$vlan_id"
                 export AUTO_DISCOVERY_VLAN_DIR="$vlan_discovery_dir"
                 export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
