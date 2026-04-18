@@ -153,7 +153,8 @@ run_tshark_capture "$CAPTURE_FILE"
 capture_exit_code=$?
 
 # If tshark failed and we're running as root, try fallback location
-if [ $capture_exit_code -ne 0 ] && [ "$(id -u)" -eq 0 ]; then
+# Exit code 124 means timeout expired normally — not a failure
+if [ $capture_exit_code -ne 0 ] && [ $capture_exit_code -ne 124 ] && [ "$(id -u)" -eq 0 ]; then
     echo "Capture failed in workspace directory, trying fallback location..."
     FALLBACK_DIR="/tmp/netutil-captures"
     mkdir -p "$FALLBACK_DIR"
