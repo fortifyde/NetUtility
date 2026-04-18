@@ -1686,23 +1686,26 @@ if [ -x "$discovery_script" ]; then
         echo "VLAN-aware discovery initiated" >&2 >> "$WORKFLOW_REPORT"
         
         # Create session-based discovery structure with VLAN organization
-        DISCOVERY_DIR="$WORKDIR/discovery"
-        SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery_${TIMESTAMP}"
-        mkdir -p "$SESSION_DISCOVERY_DIR"
+        if [ -z "$SESSION_DISCOVERY_DIR" ]; then
+            DISCOVERY_DIR="$WORKDIR/discovery"
+            SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery_${TIMESTAMP}"
+            mkdir -p "$SESSION_DISCOVERY_DIR"
+
+            # Create session metadata (L2 mode — L3 metadata was written during network collection)
+            SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
+            {
+                echo "=== Auto-Discovery Session Metadata ==="
+                echo "Session ID: auto_discovery_${TIMESTAMP}"
+                echo "Started: $(date)"
+                echo "Interface: $target_interface"
+                echo "VLANs discovered: $selected_vlan_count"
+                echo "Session directory: $SESSION_DISCOVERY_DIR"
+                echo ""
+            } > "$SESSION_METADATA"
+        fi
         discovery_success=0
         
-        # Create session metadata
-        SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
-        {
-            echo "=== Auto-Discovery Session Metadata ==="
-            echo "Session ID: auto_discovery_${TIMESTAMP}"
-            echo "Started: $(date)"
-            echo "Interface: $target_interface"
-            echo "VLANs discovered: $selected_vlan_count"
-            echo "Session directory: $SESSION_DISCOVERY_DIR"
-            echo ""
-        } > "$SESSION_METADATA"
-        
+        if [ "$discovery_mode" = "l2" ]; then
         # Stage 4a: Network Collection
         # Collect all VLAN networks upfront before starting discoveries
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
@@ -1860,8 +1863,14 @@ if [ -x "$discovery_script" ]; then
             log_warn "No VLANs configured for discovery"
         fi
 
+        fi  # end L2 Stage 4a
+
         # Stage 4b: Network Discovery Execution
         # Execute discoveries using pre-collected network ranges
+        # In L3 mode Stage 4a is skipped; derive vlan_network_count from the already-populated file
+        if [ "$discovery_mode" = "l3" ]; then
+            vlan_network_count=$(wc -l < "$VLAN_NETWORKS_FILE" | tr -d ' ')
+        fi
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
             printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4b: NETWORK DISCOVERY EXECUTION — Running network discovery on configured VLANs" "$COLOR_RESET"
         elif command -v print_phase_header >/dev/null 2>&1; then
@@ -1919,7 +1928,11 @@ if [ -x "$discovery_script" ]; then
 
             _vlan_current=$((_vlan_current + 1))
             vlan_interface="${target_interface}.${vlan_id}"
-            vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
+            if [ "$discovery_mode" = "l3" ]; then
+                vlan_discovery_dir="$SESSION_DISCOVERY_DIR/$vlan_id"
+            else
+                vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
+            fi
             _disc_status="$TEMP_DIR/status_${vlan_id}.txt"
 
             mkdir -p "$vlan_discovery_dir"
@@ -1942,7 +1955,13 @@ if [ -x "$discovery_script" ]; then
                 export AUTO_DISCOVERY_VLAN_ID="$vlan_id"
                 export AUTO_DISCOVERY_VLAN_DIR="$vlan_discovery_dir"
                 export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
-                { "$discovery_script" "$vlan_interface" "1" 3<&- 9>&-; echo $? > "$_disc_status"; } 2>&1 | \
+                if [ "$discovery_mode" = "l3" ]; then
+                    export ROUTED_VLAN_MODE="true"
+                    _subinv_iface="$l3_source_interface"
+                else
+                    _subinv_iface="$vlan_interface"
+                fi
+                { "$discovery_script" "$_subinv_iface" "1" 3<&- 9>&-; echo $? > "$_disc_status"; } 2>&1 | \
                     tee "$vlan_discovery_dir/discovery_output.txt" > /dev/null
                 printf 'x\n' >&9  # release token
             ) &
