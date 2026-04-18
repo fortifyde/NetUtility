@@ -1482,8 +1482,8 @@ print_vlan_discovery_overview() {
         host_count=0
         status="⊘ SKIP"
         if [ -d "$vlan_dir" ]; then
-            if [ -f "$vlan_dir/all_discovered_hosts.txt" ]; then
-                host_count=$(wc -l < "$vlan_dir/all_discovered_hosts.txt" 2>/dev/null || echo 0)
+            if [ -f "$vlan_dir/hostfiles/all_discovered_hosts.txt" ]; then
+                host_count=$(wc -l < "$vlan_dir/hostfiles/all_discovered_hosts.txt" 2>/dev/null || echo 0)
                 status="✓ OK"
             else
                 status="✗ FAIL"
@@ -1557,8 +1557,8 @@ create_session_consolidation_reports() {
                 echo "  $net_name:"
                 
                 # Count hosts if file exists
-                if [ -f "$net_dir/all_discovered_hosts.txt" ]; then
-                    host_count=$(wc -l < "$net_dir/all_discovered_hosts.txt" 2>/dev/null || echo 0)
+                if [ -f "$net_dir/hostfiles/all_discovered_hosts.txt" ]; then
+                    host_count=$(wc -l < "$net_dir/hostfiles/all_discovered_hosts.txt" 2>/dev/null || echo 0)
                     echo "    Hosts: $host_count"
                     total_hosts=$((total_hosts + host_count))
                 fi
@@ -1626,7 +1626,7 @@ create_session_consolidation_reports() {
             total_targets=0
             
             for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network "$SESSION_DISCOVERY_DIR"/network_*; do
-                if [ -d "$net_dir/categorized" ]; then
+                if [ -d "$net_dir/hostfiles" ]; then
                     net_name=$(basename "$net_dir")
                     echo "$net_name targets:"
                     
@@ -1634,24 +1634,24 @@ create_session_consolidation_reports() {
                     case "$team" in
                         "windows")
                             windows_count=0
-                            if [ -f "$net_dir/categorized/windows_hosts.txt" ]; then
-                                windows_count=$(wc -l < "$net_dir/categorized/windows_hosts.txt" 2>/dev/null || echo 0)
+                            if [ -f "$net_dir/hostfiles/windows_hosts.txt" ]; then
+                                windows_count=$(wc -l < "$net_dir/hostfiles/windows_hosts.txt" 2>/dev/null || echo 0)
                                 echo "  Windows hosts: $windows_count"
                                 total_targets=$((total_targets + windows_count))
                             fi
                             ;;
                         "linux")
                             linux_count=0
-                            if [ -f "$net_dir/categorized/linux_hosts.txt" ]; then
-                                linux_count=$(wc -l < "$net_dir/categorized/linux_hosts.txt" 2>/dev/null || echo 0)
+                            if [ -f "$net_dir/hostfiles/linux_hosts.txt" ]; then
+                                linux_count=$(wc -l < "$net_dir/hostfiles/linux_hosts.txt" 2>/dev/null || echo 0)
                                 echo "  Linux/Unix hosts: $linux_count"
                                 total_targets=$((total_targets + linux_count))
                             fi
                             ;;
                         "network")
                             network_count=0
-                            if [ -f "$net_dir/categorized/network_devices.txt" ]; then
-                                network_count=$(wc -l < "$net_dir/categorized/network_devices.txt" 2>/dev/null || echo 0)
+                            if [ -f "$net_dir/hostfiles/network_devices.txt" ]; then
+                                network_count=$(wc -l < "$net_dir/hostfiles/network_devices.txt" 2>/dev/null || echo 0)
                                 echo "  Network devices: $network_count"
                                 total_targets=$((total_targets + network_count))
                             fi
@@ -1667,16 +1667,16 @@ create_session_consolidation_reports() {
         echo "== MANUAL ASSIGNMENT COORDINATION =="
         echo "Web and database services requiring manual assignment:"
         for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network "$SESSION_DISCOVERY_DIR"/network_*; do
-            if [ -d "$net_dir/categorized" ]; then
+            if [ -d "$net_dir/hostfiles" ]; then
                 net_name=$(basename "$net_dir")
                 web_count=0
                 db_count=0
                 
-                if [ -f "$net_dir/categorized/web_servers.txt" ]; then
-                    web_count=$(wc -l < "$net_dir/categorized/web_servers.txt" 2>/dev/null || echo 0)
+                if [ -f "$net_dir/hostfiles/web_servers.txt" ]; then
+                    web_count=$(wc -l < "$net_dir/hostfiles/web_servers.txt" 2>/dev/null || echo 0)
                 fi
-                if [ -f "$net_dir/categorized/database_servers.txt" ]; then
-                    db_count=$(wc -l < "$net_dir/categorized/database_servers.txt" 2>/dev/null || echo 0)
+                if [ -f "$net_dir/hostfiles/database_servers.txt" ]; then
+                    db_count=$(wc -l < "$net_dir/hostfiles/database_servers.txt" 2>/dev/null || echo 0)
                 fi
                 
                 if [ $web_count -gt 0 ] || [ $db_count -gt 0 ]; then
@@ -2057,6 +2057,12 @@ if [ -x "$discovery_script" ]; then
         touch "$_poll_sentinel"
         wait "$_poll_pid" 2>/dev/null
         rm -f "$_poll_sentinel"
+        # Remove phase_progress files now that all VLANs have finished
+        for _cleanup_id in $_poll_ids; do
+            _pp_file="$SESSION_DISCOVERY_DIR/vlan_${_cleanup_id}/phase_progress"
+            [ -f "$_pp_file" ] || _pp_file="$SESSION_DISCOVERY_DIR/${_cleanup_id}/phase_progress"
+            rm -f "$_pp_file" 2>/dev/null || true
+        done
 
         # Collect results now that all background jobs have finished
         while read -r vlan_id vlan_discovery_network <&3; do
@@ -2464,5 +2470,6 @@ echo "        ├── captures -> (latest capture file)"
 echo "        └── reports -> (latest reports session)"
 echo
 
+fix_ownership "$WORKDIR/discovery" "$REPORT_SESSION_DIR"
 log_info "Auto-discovery workflow completed successfully"
 log_script_end "auto_discover.sh" 0
