@@ -632,6 +632,51 @@ echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
 echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
+# L3 mode: identify source VLAN/interface after traffic analysis
+l3_source_vlan=""
+l3_source_interface="$target_interface"
+
+if [ "$discovery_mode" = "l3" ]; then
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%s=== L3 Source VLAN Selection ===%s\n" "$COLOR_MINTCREAM" "$COLOR_RESET" >&2
+    else
+        echo "=== L3 Source VLAN Selection ===" >&2
+    fi
+
+    if [ "$vlan_count" -gt 0 ]; then
+        echo "Discovered VLANs (with sample IPs):" >&2
+        while read -r _sv_id; do
+            [ -n "$_sv_id" ] || continue
+            _sv_ips=$(tshark -r "$capture_file" -Y "vlan.id == $_sv_id" -T fields -e ip.src 2>/dev/null | \
+                filter_valid_unicast_ips | sort -u | head -3 | tr '\n' ' ')
+            echo "  VLAN $_sv_id: ${_sv_ips:-no IPs captured}" >&2
+        done < "$TEMP_DIR/discovered_vlans.txt"
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sWhich VLAN is your source (routed access)? Enter VLAN ID or press Enter for main interface: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Which VLAN is your source (routed access)? Enter VLAN ID or press Enter for main interface: \n" >&2
+        fi
+        read -r l3_source_vlan
+        if [ -n "$l3_source_vlan" ]; then
+            if ! grep -q "^${l3_source_vlan}$" "$TEMP_DIR/discovered_vlans.txt" 2>/dev/null; then
+                echo "⚠ VLAN $l3_source_vlan not in discovered list — proceeding anyway." >&2
+            fi
+            l3_source_interface="${target_interface}.${l3_source_vlan}"
+            echo "  ✓ Source interface: $l3_source_interface" >&2
+            log_info "L3 source interface: $l3_source_interface"
+        else
+            l3_source_interface="$target_interface"
+            echo "  ✓ Using main interface: $target_interface" >&2
+            log_info "L3 source interface: main ($target_interface)"
+        fi
+    else
+        echo "No VLANs discovered — using main interface $target_interface as source." >&2
+        l3_source_interface="$target_interface"
+    fi
+fi
+
 # Stage 3: Interface Configuration
 if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
     printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 3/5: INTERFACE CONFIGURATION — VLAN interface setup" "$COLOR_RESET"
@@ -648,6 +693,140 @@ log_info "Starting Stage 3: Interface configuration"
 
 interfaces_configured=0
 
+if [ "$discovery_mode" = "l3" ]; then
+    # L3: configure source interface only
+    echo "Configuring source interface: $l3_source_interface" >&2
+
+    if [ -n "$l3_source_vlan" ]; then
+        # Create VLAN sub-interface if needed
+        if ! ip link show "$l3_source_interface" >/dev/null 2>&1; then
+            echo "Creating source VLAN interface: $l3_source_interface" >&2
+            if ip link add link "$target_interface" name "$l3_source_interface" type vlan id "$l3_source_vlan" 2>/dev/null; then
+                ip link set "$l3_source_interface" up
+                ip -6 addr flush dev "$l3_source_interface" scope link 2>/dev/null || true
+                echo "✓ $l3_source_interface created and brought up" >&2
+                log_config_change "Source VLAN interface created" "$l3_source_interface"
+            else
+                echo "✗ Failed to create $l3_source_interface" >&2
+                log_error "Failed to create source VLAN interface $l3_source_interface"
+                exit 1
+            fi
+        else
+            echo "  ✓ $l3_source_interface already exists" >&2
+        fi
+
+        # Assign IP to source interface (reuse captured traffic for suggestion)
+        _src_existing_ip=$(ip addr show "$l3_source_interface" 2>/dev/null | grep "inet " | head -1 | awk '{print $2}')
+        if [ -n "$_src_existing_ip" ]; then
+            echo "  ✓ $l3_source_interface already has IP: $_src_existing_ip" >&2
+            l3_source_cidr="$_src_existing_ip"
+        else
+            _src_vlan_ips=$(tshark -r "$capture_file" -Y "vlan.id == $l3_source_vlan" -T fields -e ip.src -e ip.dst 2>/dev/null | \
+                tr '\t' '\n' | grep -v "^$" | filter_valid_unicast_ips | sort -u)
+            if [ -n "$_src_vlan_ips" ]; then
+                _src_first=$(echo "$_src_vlan_ips" | head -1)
+                _src_base=$(echo "$_src_first" | cut -d'.' -f1-3)
+                _src_max=$(echo "$_src_vlan_ips" | cut -d'.' -f4 | sort -n | tail -1)
+                _src_min=$(echo "$_src_vlan_ips" | cut -d'.' -f4 | sort -n | head -1)
+                if [ "$_src_max" -gt 200 ] || [ "$_src_min" -lt 50 ]; then
+                    _src_suggested="${_src_base}.253/24"
+                else
+                    _src_suggested="${_src_base}.$(( _src_max + 10 > 253 ? 253 : _src_max + 10 ))/24"
+                fi
+                echo "  Suggested IP: $_src_suggested" >&2
+                _src_chosen=$(prompt_ip_choice "$_src_suggested" "$_src_base" "$l3_source_interface")
+            else
+                echo "  No IPs captured for VLAN $l3_source_vlan — enter IP manually." >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%s  Enter IP for %s (CIDR, e.g. 192.168.66.10/24): %s\n" "$PROMPT_COLOR" "$l3_source_interface" "$COLOR_RESET" >&2
+                else
+                    printf "  Enter IP for %s (CIDR, e.g. 192.168.66.10/24): \n" "$l3_source_interface" >&2
+                fi
+                read -r _src_chosen
+            fi
+            if ip addr add "$_src_chosen" dev "$l3_source_interface" 2>/dev/null; then
+                echo "✓ IP $_src_chosen assigned to $l3_source_interface" >&2
+                log_config_change "IP assigned to source VLAN interface" "$l3_source_interface: $_src_chosen"
+                l3_source_cidr="$_src_chosen"
+            else
+                echo "✗ Failed to assign IP to $l3_source_interface — cannot continue." >&2
+                log_error "Failed to assign IP to source VLAN interface $l3_source_interface"
+                exit 1
+            fi
+        fi
+    else
+        # Main interface — get existing IP
+        l3_source_cidr=$(ip addr show "$target_interface" 2>/dev/null | grep "inet " | head -1 | awk '{print $2}')
+        if [ -z "$l3_source_cidr" ]; then
+            echo "✗ Main interface $target_interface has no IP — cannot proceed in L3 mode." >&2
+            log_error "Main interface has no IP for L3 routed mode"
+            exit 1
+        fi
+        echo "  ✓ Source interface $target_interface has IP: $l3_source_cidr" >&2
+    fi
+
+    # Gateway configuration
+    echo >&2
+    _gw_assigned=false
+    _existing_gw=$(ip route show default 2>/dev/null | awk '/^default/ {print $3}' | head -1)
+    if [ -n "$_existing_gw" ]; then
+        echo "  Existing default route: via $_existing_gw" >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s  Replace with new gateway? [y/N]: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "  Replace with new gateway? [y/N]: \n" >&2
+        fi
+        read -r _gw_replace
+        case "$_gw_replace" in
+            y|Y|yes|YES) ;;
+            *) _gw_assigned=true ;;  # keep existing
+        esac
+    fi
+
+    if [ "$_gw_assigned" = "false" ]; then
+        while true; do
+            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                printf "%s  Enter gateway IP for routed access (must be within %s): %s\n" "$PROMPT_COLOR" "$l3_source_cidr" "$COLOR_RESET" >&2
+            else
+                printf "  Enter gateway IP for routed access (must be within %s): \n" "$l3_source_cidr" >&2
+            fi
+            read -r _gw_ip
+
+            # Validate format
+            if ! echo "$_gw_ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+                echo "⚠ Invalid IP format." >&2
+                continue
+            fi
+
+            # Validate gateway is within source subnet
+            if ! is_ip_in_cidr "$_gw_ip" "$l3_source_cidr"; then
+                echo "⚠ $_gw_ip is not within $l3_source_cidr — must use a gateway in the same subnet." >&2
+                continue
+            fi
+
+            # Remove existing default route if replacing
+            if [ -n "$_existing_gw" ]; then
+                ip route del default 2>/dev/null || true
+            fi
+
+            if ip route add default via "$_gw_ip" 2>/dev/null; then
+                echo "✓ Default route set via $_gw_ip" >&2
+                log_config_change "Default gateway configured" "$_gw_ip (via $l3_source_interface)"
+                echo "    Gateway: $_gw_ip" >> "$WORKFLOW_REPORT"
+                _gw_assigned=true
+                break
+            else
+                echo "✗ Failed to add route via $_gw_ip — try another gateway." >&2
+            fi
+        done
+    fi
+
+    interfaces_configured=1
+    echo "✓ L3 source interface configuration complete" >&2
+    echo "  Source interface: $l3_source_interface" >> "$WORKFLOW_REPORT"
+    echo "  Source IP: $l3_source_cidr" >> "$WORKFLOW_REPORT"
+
+else
 if [ "$selected_vlan_count" -gt 0 ]; then
 echo "Creating VLAN interfaces for selected VLANs..." >&2
 echo "Creating VLAN interfaces..." >> "$WORKFLOW_REPORT"
@@ -1086,6 +1265,7 @@ echo "    Suggested IP: $suggested_ip" >&2
         fi
     fi
 fi
+fi  # end L2/L3 Stage 3 branch
 
 echo "✓ Interface configuration completed" >&2
 echo "VLAN interfaces configured: $interfaces_configured" >&2
