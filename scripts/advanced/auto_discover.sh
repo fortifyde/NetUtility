@@ -5,7 +5,7 @@
 # 1. Interface UP verification → 2. Promiscuous capture → 3. VLAN analysis → 4. User VLAN selection → 5. Smart IP configuration → 6. VLAN-specific discovery
 
 # shellcheck source=../common/utils.sh
-. "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/utils.sh" 2>/dev/null || true
 # shellcheck source=../common/logging.sh
 . "$(dirname "$0")/../common/logging.sh"
 # shellcheck source=../common/colors.sh
