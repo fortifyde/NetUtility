@@ -1354,7 +1354,7 @@ if [ "$discovery_mode" = "l3" ]; then
                     else
                         printf "  VLAN %s — enter network range (CIDR) or s=skip: \n" "$_ov_id" >&2
                     fi
-                    read -r _ov_answer
+                    read -r _ov_answer </dev/tty
                     case "$_ov_answer" in
                         s|S|skip|SKIP)
                             echo "  Skipping VLAN $_ov_id" >&2
@@ -1377,7 +1377,7 @@ if [ "$discovery_mode" = "l3" ]; then
                 continue  # next VLAN in outer while loop
             fi
 
-            read -r _ov_answer
+            read -r _ov_answer </dev/tty
             case "$_ov_answer" in
                 s|S|skip|SKIP)
                     echo "  Skipping VLAN $_ov_id" >&2
