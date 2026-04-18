@@ -383,7 +383,7 @@ mkdir -p "$META_DIR" "$HOSTFILES_DIR"
 
 # Create session metadata file (only for standalone mode, not auto-discovery)
 if [ "$AUTO_DISCOVERY_SESSION" != "true" ]; then
-    SESSION_METADATA="$SESSION_DIR/meta/session_metadata.txt"
+    SESSION_METADATA="$META_DIR/session_metadata.txt"
     {
         echo "=== Multi-Phase Discovery Session Metadata ==="
         echo "Session ID: discovery_${TIMESTAMP}"
