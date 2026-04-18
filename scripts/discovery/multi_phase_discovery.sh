@@ -2951,6 +2951,9 @@ create_enriched_categorized_hosts "linux" "$HOSTFILES_DIR/linux_hosts.txt"
 create_enriched_categorized_hosts "network_devices" "$HOSTFILES_DIR/network_devices.txt"
 create_enriched_categorized_hosts "unknown" "$HOSTFILES_DIR/unknown.txt"
 echo "  Enriched categorized host files created" >> "$REPORT_FILE"
+if [ -d "$PHASE7_DIR/categorization_debug" ]; then
+    cp -r "$PHASE7_DIR/categorization_debug" "$HOSTFILES_DIR/categorization_debug"
+fi
 
 # Generate enriched service target files (now that Phase 6 enumeration is complete)
 echo "  Creating enriched service target files..." >> "$REPORT_FILE"
