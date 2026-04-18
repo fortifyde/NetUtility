@@ -7,7 +7,7 @@
 # Phase 3: DNS lookup → Phase 4: Windows Discovery → Phase 5: Progressive Port Scan
 # Phase 6: Service Enumeration → Phase 7: Host Categorization → Phase 8: Evidence Processing
 
-. "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/utils.sh" 2>/dev/null || true
 . "$(dirname "$0")/../common/logging.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 . "$(dirname "$0")/ph7_registry.sh"
@@ -377,6 +377,10 @@ fi
 # Ensure session directory exists
 mkdir -p "$SESSION_DIR"
 
+META_DIR="$SESSION_DIR/meta"
+HOSTFILES_DIR="$SESSION_DIR/hostfiles"
+mkdir -p "$META_DIR" "$HOSTFILES_DIR"
+
 # Create session metadata file (only for standalone mode, not auto-discovery)
 if [ "$AUTO_DISCOVERY_SESSION" != "true" ]; then
     SESSION_METADATA="$SESSION_DIR/meta/session_metadata.txt"
@@ -397,10 +401,6 @@ if [ "$AUTO_DISCOVERY_SESSION" != "true" ]; then
         echo ""
     } > "$SESSION_METADATA"
 fi
-
-META_DIR="$SESSION_DIR/meta"
-HOSTFILES_DIR="$SESSION_DIR/hostfiles"
-mkdir -p "$META_DIR" "$HOSTFILES_DIR"
 
 # Create professional evidence directory structure
 EVIDENCE_DIR="$SESSION_DIR/evidence"
