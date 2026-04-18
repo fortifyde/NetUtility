@@ -40,7 +40,7 @@ if [ -n "$provided_interface" ]; then
     echo "Using provided interface: $selected_interface"
 else
     echo "Available network interfaces (including VLANs):"
-    selected_interface=$(select_interface "Select interface or VLAN to scan" "" "false")
+    selected_interface=$(select_interface "Select scan-interface" "" "false")
 
     if [ -z "$selected_interface" ]; then
         echo "No interface selected"
@@ -101,9 +101,9 @@ else
         echo "Detected local network: $network_range" >&2
         echo >&2
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%s  Include local network? (Enter=yes / custom CIDR / n=skip): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            printf "%s  Scan local network? (Enter=yes / custom CIDR / n=skip): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
         else
-            printf "  Include local network? (Enter=yes / custom CIDR / n=skip): \n" >&2
+            printf "  Scan local network? (Enter=yes / custom CIDR / n=skip): \n" >&2
         fi
         read -r _local_choice
         case "$_local_choice" in
@@ -180,9 +180,9 @@ if [ "${ROUTED_VLAN_MODE:-false}" != "true" ] && [ "${AUTO_DISCOVERY_SESSION:-fa
     echo >&2
     while true; do
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sAdd routed network to scan? (enter CIDR or press Enter to finish): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            printf "%sAdd a routed network to scan? (enter CIDR or press Enter to finish): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
         else
-            printf "Add routed network to scan? (enter CIDR or press Enter to finish): \n" >&2
+            printf "Add a routed network to scan? (enter CIDR or press Enter to finish): \n" >&2
         fi
         read -r _routed_cidr
         [ -z "$_routed_cidr" ] && break
@@ -227,8 +227,7 @@ fi
 
 if [ "$_network_count" -ge 2 ]; then
     # --- Multi-network concurrent dispatch ---
-    SESSION_ROOT_DIR="$DISCOVERY_DIR/discovery_${TIMESTAMP}"
-    mkdir -p "$SESSION_ROOT_DIR"
+    SESSION_ROOT_DIR="$DISCOVERY_DIR"
 
     echo >&2
     if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
@@ -246,19 +245,6 @@ if [ "$_network_count" -ge 2 ]; then
             ;;
     esac
     echo "  Concurrency: $_net_cap of $_network_count networks at a time" >&2
-
-    # Session metadata
-    SESSION_METADATA="$SESSION_ROOT_DIR/session_metadata.txt"
-    {
-        echo "=== Multi-Phase Routed Discovery Session Metadata ==="
-        echo "Session ID: discovery_${TIMESTAMP}"
-        echo "Started: $(date)"
-        echo "Interface: $selected_interface"
-        echo "Discovery Mode: Routed Multi-Network"
-        echo "Networks: $_all_scan_networks"
-        echo "Session directory: $SESSION_ROOT_DIR"
-        echo ""
-    } > "$SESSION_METADATA"
 
     # FIFO semaphore (FD 8)
     _mnet_fifo="/tmp/.mnet_sem_${TIMESTAMP}_$$"
@@ -281,7 +267,7 @@ if [ "$_network_count" -ge 2 ]; then
         else
             _net_label="routed_$(echo "$_net" | sed 's|/|_|g')"
         fi
-        _net_dir="$SESSION_ROOT_DIR/$_net_label"
+        _net_dir="$DISCOVERY_DIR/${_net_label}_${TIMESTAMP}"
         _net_status="/tmp/.mnet_st_${_net_idx}_${TIMESTAMP}_$$"
         mkdir -p "$_net_dir"
 
@@ -293,7 +279,7 @@ if [ "$_network_count" -ge 2 ]; then
             export MANUAL_NETWORK_RANGE="$_net"
             [ "$_net_label" != "local_network" ] && export ROUTED_VLAN_MODE="true"
             export AUTO_DISCOVERY_SESSION="true"
-            export AUTO_DISCOVERY_SESSION_DIR="$SESSION_ROOT_DIR"
+            export AUTO_DISCOVERY_SESSION_DIR="$DISCOVERY_DIR"
             export AUTO_DISCOVERY_VLAN_ID="$_net_label"
             export AUTO_DISCOVERY_VLAN_DIR="$_net_dir"
             { "$0" "$selected_interface" 8>&-; echo $? > "$_net_status"; } 2>&1 | \
@@ -326,17 +312,14 @@ if [ "$_network_count" -ge 2 ]; then
         if [ "$_exit" -eq 0 ]; then
             echo "  ✓ $_net completed" >&2
             _success_count=$((_success_count + 1))
-            echo "$_net: SUCCESS" >> "$SESSION_METADATA"
         else
             echo "  ✗ $_net failed (see $_net_dir/discovery_output.txt)" >&2
-            echo "$_net: FAILED" >> "$SESSION_METADATA"
         fi
     done
-    echo "Session completed: $(date)" >> "$SESSION_METADATA"
     rm -f "$_mnet_fifo"
 
     echo "Multi-network discovery complete: $_success_count/$_network_count successful" >&2
-    echo "Results in: $SESSION_ROOT_DIR" >&2
+    echo "Results in: $DISCOVERY_DIR" >&2
     exit 0
 
 elif [ "$scan_local_network" = "false" ] && [ -n "$additional_networks" ]; then
@@ -371,34 +354,24 @@ if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
         mkdir -p "$SESSION_DIR"
     fi
 else
-    # Standalone multiphase discovery - create VLAN-aware structure
-    SESSION_ROOT_DIR="$DISCOVERY_DIR/discovery_${TIMESTAMP}"
-    mkdir -p "$SESSION_ROOT_DIR"
-
-    # Determine subfolder: routed-only uses CIDR name; local uses interface VLAN
+    # Standalone multiphase discovery — session dir sits directly under discovery/
     if [ "${ROUTED_VLAN_MODE:-false}" = "true" ]; then
-        # Routed-only scan — name after the target network, not the local interface
         _ronly_san=$(echo "$network_range" | sed 's|[./]|_|g')
-        SESSION_DIR="$SESSION_ROOT_DIR/routed_${_ronly_san}"
-        mkdir -p "$SESSION_DIR"
+        SESSION_DIR="$DISCOVERY_DIR/routed_${_ronly_san}_${TIMESTAMP}"
         echo "Standalone routed discovery mode: $network_range"
-        echo "Results will be organized in: $SESSION_DIR"
         log_info "Multiphase discovery running in standalone routed mode: $network_range"
     elif [ "$IS_VLAN_INTERFACE" = "true" ]; then
-        # VLAN interface detected - create VLAN-specific subfolder
-        SESSION_DIR="$SESSION_ROOT_DIR/vlan_$DETECTED_VLAN_ID"
-        mkdir -p "$SESSION_DIR"
+        SESSION_DIR="$DISCOVERY_DIR/vlan${DETECTED_VLAN_ID}_${TIMESTAMP}"
         echo "Standalone discovery mode: VLAN $DETECTED_VLAN_ID"
-        echo "Results will be organized in: $SESSION_DIR"
         log_info "Multiphase discovery running in standalone VLAN mode: VLAN $DETECTED_VLAN_ID"
     else
-        # Non-VLAN interface - create main_network subfolder
-        SESSION_DIR="$SESSION_ROOT_DIR/main_network"
-        mkdir -p "$SESSION_DIR"
+        SESSION_DIR="$DISCOVERY_DIR/main_network_${TIMESTAMP}"
         echo "Standalone discovery mode: Main network"
-        echo "Results will be organized in: $SESSION_DIR"
         log_info "Multiphase discovery running in standalone main network mode"
     fi
+    SESSION_ROOT_DIR="$SESSION_DIR"
+    mkdir -p "$SESSION_DIR"
+    echo "Results will be organized in: $SESSION_DIR"
 fi
 
 # Ensure session directory exists
@@ -406,7 +379,7 @@ mkdir -p "$SESSION_DIR"
 
 # Create session metadata file (only for standalone mode, not auto-discovery)
 if [ "$AUTO_DISCOVERY_SESSION" != "true" ]; then
-    SESSION_METADATA="$SESSION_ROOT_DIR/session_metadata.txt"
+    SESSION_METADATA="$SESSION_DIR/meta/session_metadata.txt"
     {
         echo "=== Multi-Phase Discovery Session Metadata ==="
         echo "Session ID: discovery_${TIMESTAMP}"
@@ -424,6 +397,10 @@ if [ "$AUTO_DISCOVERY_SESSION" != "true" ]; then
         echo ""
     } > "$SESSION_METADATA"
 fi
+
+META_DIR="$SESSION_DIR/meta"
+HOSTFILES_DIR="$SESSION_DIR/hostfiles"
+mkdir -p "$META_DIR" "$HOSTFILES_DIR"
 
 # Create professional evidence directory structure
 EVIDENCE_DIR="$SESSION_DIR/evidence"
@@ -453,7 +430,7 @@ SERVICE_TARGETS_DIR="$SESSION_DIR/service_targets"
 NMAP_FAST_SCAN="$PHASE5_DIR/raw_scans/nmap_fast_scan.txt"
 
 # Discovery report (at session root for direct access)
-REPORT_FILE="$SESSION_DIR/discovery_report.txt"
+REPORT_FILE="$META_DIR/discovery_report.txt"
 
 echo "=== Multi-Phase Network Discovery Report ===" > "$REPORT_FILE"
 echo "Interface: $selected_interface" >> "$REPORT_FILE"
