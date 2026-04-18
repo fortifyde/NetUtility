@@ -176,7 +176,7 @@ additional_networks=""
 # scan_local_network may already be set by the local-network prompt above; default true
 scan_local_network="${scan_local_network:-true}"
 
-if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
+if [ "${ROUTED_VLAN_MODE:-false}" != "true" ] && [ "${AUTO_DISCOVERY_SESSION:-false}" != "true" ]; then
     echo >&2
     while true; do
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
@@ -375,8 +375,16 @@ else
     SESSION_ROOT_DIR="$DISCOVERY_DIR/discovery_${TIMESTAMP}"
     mkdir -p "$SESSION_ROOT_DIR"
 
-    # Determine subfolder based on VLAN detection
-    if [ "$IS_VLAN_INTERFACE" = "true" ]; then
+    # Determine subfolder: routed-only uses CIDR name; local uses interface VLAN
+    if [ "${ROUTED_VLAN_MODE:-false}" = "true" ]; then
+        # Routed-only scan — name after the target network, not the local interface
+        _ronly_san=$(echo "$network_range" | sed 's|[./]|_|g')
+        SESSION_DIR="$SESSION_ROOT_DIR/routed_${_ronly_san}"
+        mkdir -p "$SESSION_DIR"
+        echo "Standalone routed discovery mode: $network_range"
+        echo "Results will be organized in: $SESSION_DIR"
+        log_info "Multiphase discovery running in standalone routed mode: $network_range"
+    elif [ "$IS_VLAN_INTERFACE" = "true" ]; then
         # VLAN interface detected - create VLAN-specific subfolder
         SESSION_DIR="$SESSION_ROOT_DIR/vlan_$DETECTED_VLAN_ID"
         mkdir -p "$SESSION_DIR"
@@ -2785,7 +2793,7 @@ if command -v nmap >/dev/null 2>&1; then
         OPEN_UDP_PORTS=""
     fi
 
-    if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
+    if [ "$AUTO_DISCOVERY_LIGHTWEIGHT" = "true" ]; then
         # Inventory mode: single lightweight pass — version strings + OS detection
         echo "  Auto-discovery mode: lightweight inventory scan..." >> "$REPORT_FILE"
         printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.1: Lightweight inventory scan" "$COLOR_RESET"
