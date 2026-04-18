@@ -3,7 +3,7 @@
 # Sourced by multi_phase_discovery.sh after ph7_registry.sh.
 # Depends on: PHASE1_DIR, PHASE2_DIR, PHASE3_DIR, PHASE4_DIR, PHASE5_DIR,
 #             PHASE6_DIR, PHASE7_DIR, NMAP_FAST_SCAN,
-#             extract_host_data(), detect_device_vendor()
+#             extract_host_data(), detect_device_vendor(), get_mac_vendor()
 
 # Build a normalized evidence record for a single host.
 # Output: $PHASE7_DIR/evidence/${ip}.ev (one TYPE:VALUE per line)
