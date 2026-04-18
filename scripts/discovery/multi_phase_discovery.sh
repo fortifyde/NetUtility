@@ -98,29 +98,29 @@ else
         fi
     else
         # Network detected - prompt user for confirmation
-        echo "Detected network: $network_range" >&2
+        echo "Detected local network: $network_range" >&2
         echo >&2
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sScan this network? (Y/n/custom): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            printf "%s  Include local network? (Enter=yes / custom CIDR / n=skip): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
         else
-            printf "Scan this network? (Y/n/custom): \n" >&2
+            printf "  Include local network? (Enter=yes / custom CIDR / n=skip): \n" >&2
         fi
-        read -r confirm
-        case "$confirm" in
+        read -r _local_choice
+        case "$_local_choice" in
             n|N|no|NO)
-                echo "Scan cancelled by user."
-                exit 0
+                scan_local_network="false"
+                echo "  Local network will not be scanned." >&2
                 ;;
-            c|C|custom|CUSTOM)
-                echo "Enter custom network range:"
-                network_range=$(prompt_network_range)
-                if [ -z "$network_range" ]; then
-                    echo "No network range provided. Exiting."
-                    exit 1
-                fi
+            "")
+                echo "  ✓ Will scan local network: $network_range" >&2
                 ;;
             *)
-                echo "Using detected network: $network_range" >&2
+                if echo "$_local_choice" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+                    network_range="$_local_choice"
+                    echo "  ✓ Will scan custom network: $network_range" >&2
+                else
+                    echo "  ⚠ Invalid CIDR — using detected network: $network_range" >&2
+                fi
                 ;;
         esac
     fi
@@ -173,15 +173,16 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 # Routed VLAN network collection — suppressed in sub-invocations
 additional_networks=""
-scan_local_network="true"
+# scan_local_network may already be set by the local-network prompt above; default true
+scan_local_network="${scan_local_network:-true}"
 
 if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
     echo >&2
     while true; do
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sAdd routed VLAN network to scan? (enter CIDR or press Enter to finish): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            printf "%sAdd routed network to scan? (enter CIDR or press Enter to finish): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
         else
-            printf "Add routed VLAN network to scan? (enter CIDR or press Enter to finish): \n" >&2
+            printf "Add routed network to scan? (enter CIDR or press Enter to finish): \n" >&2
         fi
         read -r _routed_cidr
         [ -z "$_routed_cidr" ] && break
@@ -193,7 +194,7 @@ if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
         fi
 
         # Duplicate check against local network and already-collected list
-        if [ "$_routed_cidr" = "$network_range" ]; then
+        if [ "$scan_local_network" = "true" ] && [ "$_routed_cidr" = "$network_range" ]; then
             echo "⚠ $_routed_cidr matches local network — skipping duplicate." >&2
             continue
         fi
@@ -205,26 +206,6 @@ if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
         additional_networks="$additional_networks $_routed_cidr"
         echo "  ✓ Added $_routed_cidr" >&2
     done
-
-    # If any routed networks collected, ask whether to also scan local
-    if [ -n "$additional_networks" ]; then
-        echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sAlso scan local network (%s)? [Y/n]: %s\n" "$PROMPT_COLOR" "$network_range" "$COLOR_RESET" >&2
-        else
-            printf "Also scan local network (%s)? [Y/n]: \n" "$network_range" >&2
-        fi
-        read -r _scan_local_answer
-        case "$_scan_local_answer" in
-            n|N|no|NO)
-                scan_local_network="false"
-                echo "  Local network excluded from scan." >&2
-                ;;
-            *)
-                scan_local_network="true"
-                ;;
-        esac
-    fi
 fi
 
 # Build full network list; dispatch concurrently if more than one network
@@ -236,7 +217,13 @@ for _n in $additional_networks; do
     _all_scan_networks="$_all_scan_networks $_n"
 done
 _all_scan_networks="${_all_scan_networks# }"  # strip leading space
-_network_count=$(echo "$_all_scan_networks" | wc -w)
+_network_count=$(echo "$_all_scan_networks" | wc -w | tr -d ' ')
+
+# No networks selected at all — exit cleanly
+if [ "$_network_count" -eq 0 ]; then
+    echo "No networks selected. Exiting." >&2
+    exit 0
+fi
 
 if [ "$_network_count" -ge 2 ]; then
     # --- Multi-network concurrent dispatch ---
@@ -304,7 +291,7 @@ if [ "$_network_count" -ge 2 ]; then
         read -r _tok <&8  # acquire semaphore token
         (
             export MANUAL_NETWORK_RANGE="$_net"
-            export ROUTED_VLAN_MODE="true"
+            [ "$_net_label" != "local_network" ] && export ROUTED_VLAN_MODE="true"
             export AUTO_DISCOVERY_SESSION="true"
             export AUTO_DISCOVERY_SESSION_DIR="$SESSION_ROOT_DIR"
             export AUTO_DISCOVERY_VLAN_ID="$_net_label"
@@ -353,8 +340,10 @@ if [ "$_network_count" -ge 2 ]; then
     exit 0
 
 elif [ "$scan_local_network" = "false" ] && [ -n "$additional_networks" ]; then
-    # Single routed-only network — override local network_range and fall through
+    # Single routed-only network — override network_range, mark as L3 routed
     network_range=$(echo "$additional_networks" | awk '{print $1}')
+    ROUTED_VLAN_MODE="true"
+    export ROUTED_VLAN_MODE
     log_info "Routed-only single-network mode: scanning $network_range"
 fi
 # Single-network path continues below unchanged
