@@ -48,9 +48,9 @@ ph7_collect_evidence() {
         | cut -f2- | head -1)
     [ -n "$_p7_snmp_sysdescr" ] && printf 'snmp_sysdescr:%s\n' "$_p7_snmp_sysdescr" >> "$_p7_ev_file"
 
-    # --- MAC vendor (Phase 1 ARP scan, tab-separated: IP<TAB>MAC<TAB>VENDOR) ---
-    _p7_mac_vendor=$(grep "^${_p7_ip}	" "$PHASE1_DIR/raw_scans/arp_scan_full.txt" 2>/dev/null \
-        | awk -F'\t' '{print $3}' | head -1)
+    # --- MAC vendor (ouihelper via ARP cache or nmap scan data) ---
+    _p7_mac_vendor=$(get_mac_vendor "$_p7_ip")
+    [ "$_p7_mac_vendor" = "Unknown" ] && _p7_mac_vendor=""
     [ -n "$_p7_mac_vendor" ] && printf 'mac_vendor:%s\n' "$_p7_mac_vendor" >> "$_p7_ev_file"
 
     # --- DNS hostname (Phase 3, tab-separated: IP<TAB>HOSTNAME) ---
