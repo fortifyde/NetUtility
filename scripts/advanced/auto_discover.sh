@@ -72,10 +72,10 @@ is_ip_in_cidr() {
     _iic_net_int=$(ip_to_int "$_iic_net")
     _iic_bits=$((32 - _iic_prefix))
     _iic_size=1
-    _n=0
-    while [ "$_n" -lt "$_iic_bits" ]; do
+    _iic_n=0
+    while [ "$_iic_n" -lt "$_iic_bits" ]; do
         _iic_size=$((_iic_size * 2))
-        _n=$((_n + 1))
+        _iic_n=$((_iic_n + 1))
     done
     _iic_mask=$((_iic_size - 1))
     _iic_network=$((_iic_net_int & ~_iic_mask))
