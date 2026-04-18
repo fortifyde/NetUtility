@@ -2021,7 +2021,11 @@ if [ -x "$discovery_script" ]; then
         # Collect results now that all background jobs have finished
         while read -r vlan_id vlan_discovery_network <&3; do
             [ -n "$vlan_id" ] || continue
-            vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
+            if [ "$discovery_mode" = "l3" ]; then
+                vlan_discovery_dir="$SESSION_DISCOVERY_DIR/$vlan_id"
+            else
+                vlan_discovery_dir="$SESSION_DISCOVERY_DIR/vlan_$vlan_id"
+            fi
             _disc_status="$TEMP_DIR/status_${vlan_id}.txt"
 
             vlan_discovery_exit=$(cat "$_disc_status" 2>/dev/null || echo 1)
@@ -2054,7 +2058,11 @@ if [ -x "$discovery_script" ]; then
             # Create overall summary
             discovery_summary="$REPORT_SESSION_DIR/vlan_discovery_summary.txt"
             echo "VLAN Discovery Summary:" > "$discovery_summary"
-            find "$SESSION_DISCOVERY_DIR" -name "vlan_*" -type d | while read -r vlan_dir; do
+            if [ "$discovery_mode" = "l3" ]; then
+                find "$SESSION_DISCOVERY_DIR" -mindepth 1 -maxdepth 1 -type d
+            else
+                find "$SESSION_DISCOVERY_DIR" -name "vlan_*" -type d
+            fi | while read -r vlan_dir; do
                 vlan_name=$(basename "$vlan_dir")
                 echo "- $vlan_name: $([ -f "$vlan_dir/discovery_output.txt" ] && echo "SUCCESS" || echo "FAILED")" >> "$discovery_summary"
             done
