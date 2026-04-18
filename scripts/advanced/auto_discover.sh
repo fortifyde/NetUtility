@@ -63,6 +63,29 @@ int_to_ip() {
         $(( $1 % 256 ))
 }
 
+is_ip_in_cidr() {
+    _iic_ip="$1"
+    _iic_cidr="$2"
+    _iic_net=$(echo "$_iic_cidr" | cut -d/ -f1)
+    _iic_prefix=$(echo "$_iic_cidr" | cut -d/ -f2)
+    _iic_ip_int=$(ip_to_int "$_iic_ip")
+    _iic_net_int=$(ip_to_int "$_iic_net")
+    _iic_bits=$((32 - _iic_prefix))
+    _iic_size=1
+    _n=0
+    while [ "$_n" -lt "$_iic_bits" ]; do
+        _iic_size=$((_iic_size * 2))
+        _n=$((_n + 1))
+    done
+    _iic_mask=$((_iic_size - 1))
+    _iic_network=$((_iic_net_int & ~_iic_mask))
+    _iic_broadcast=$((_iic_network + _iic_size - 1))
+    if [ "$_iic_ip_int" -ge "$_iic_network" ] && [ "$_iic_ip_int" -le "$_iic_broadcast" ]; then
+        return 0
+    fi
+    return 1
+}
+
 # Function to prompt user for IP address choice with validation
 prompt_ip_choice() {
     suggested_ip="$1"
@@ -206,6 +229,28 @@ else
     echo "✓ Interface $target_interface is already UP" >&2
     log_info "Interface $target_interface is already UP"
 fi
+
+# ── Discovery mode selection ──────────────────────────────────────────────────
+discovery_mode="l2"
+echo >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sDiscovery mode:%s\n" "$SECTION_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Discovery mode:\n" >&2
+fi
+printf "  1) L2 — Create VLAN sub-interfaces (tag into each VLAN)\n" >&2
+printf "  2) L3 — Routed access from a single source VLAN\n" >&2
+if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+    printf "%sSelect mode [1-2, default 1]: %s" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+else
+    printf "Select mode [1-2, default 1]: " >&2
+fi
+read -r _mode_input
+case "$_mode_input" in
+    2) discovery_mode="l3" ;;
+    *) discovery_mode="l2" ;;
+esac
+echo >&2
 
 # Workflow configuration
 echo
