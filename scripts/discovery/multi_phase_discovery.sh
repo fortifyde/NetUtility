@@ -1672,10 +1672,16 @@ collect_ttl_values() {
                     | grep -v '^\s*\*' | tail -1 | awk '{print $1}')
                 case "$hops" in
                     [0-9]|[0-9][0-9]|[0-9][0-9][0-9])
-                        starting_ttl=$((ttl + hops)) ;;
+                        starting_ttl=$((ttl + hops - 1)) ;;
                     *)
                         starting_ttl="$ttl" ;;
                 esac
+                # Snap to nearest standard starting TTL (64, 128, 255) if within 3
+                for _snap in 64 128 255; do
+                    _d=$((starting_ttl - _snap))
+                    [ "$_d" -lt 0 ] && _d=$((-_d))
+                    if [ "$_d" -le 3 ]; then starting_ttl=$_snap; break; fi
+                done
                 printf "%s %s %s\n" "$ip" "$ttl" "$starting_ttl" > "$ttl_tmp_dir/$ip_key"
             fi
         ) &
