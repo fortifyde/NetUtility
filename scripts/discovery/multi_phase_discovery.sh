@@ -3176,5 +3176,7 @@ else
     cat "$REPORT_FILE"
 fi
 
+fix_ownership "$SESSION_DIR"
+
 # Log script completion
 log_script_end "multi_phase_discovery.sh" 0
