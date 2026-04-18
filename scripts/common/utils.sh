@@ -1440,3 +1440,15 @@ run_nmap_filtered() {
 
     return $_rnf_status
 }
+
+# Fix ownership of paths to the invoking user when running as root via sudo.
+# Silently skips if not root or no sudo context.
+# Usage: fix_ownership <path> [<path> ...]
+fix_ownership() {
+    [ "$(id -u)" -eq 0 ] || return 0
+    if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
+        chown -R "$SUDO_UID:$SUDO_GID" "$@" 2>/dev/null || true
+    elif [ -n "$SUDO_USER" ]; then
+        chown -R "$SUDO_USER:$SUDO_USER" "$@" 2>/dev/null || true
+    fi
+}
