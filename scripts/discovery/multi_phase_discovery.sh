@@ -263,7 +263,11 @@ if [ "$_network_count" -ge 2 ]; then
         _net_idx=$((_net_idx + 1))
         # Determine directory label
         if [ "$_net" = "$network_range" ] && [ "$scan_local_network" = "true" ]; then
-            _net_label="local_network"
+            if [ "$IS_VLAN_INTERFACE" = "true" ]; then
+                _net_label="vlan${DETECTED_VLAN_ID}"
+            else
+                _net_label="local_network"
+            fi
         else
             _net_label="routed_$(echo "$_net" | sed 's|/|_|g')"
         fi
@@ -301,7 +305,11 @@ if [ "$_network_count" -ge 2 ]; then
     for _net in $_all_scan_networks; do
         _net_idx=$((_net_idx + 1))
         if [ "$_net" = "$network_range" ] && [ "$scan_local_network" = "true" ]; then
-            _net_label="local_network"
+            if [ "$IS_VLAN_INTERFACE" = "true" ]; then
+                _net_label="vlan${DETECTED_VLAN_ID}"
+            else
+                _net_label="local_network"
+            fi
         else
             _net_label="routed_$(echo "$_net" | sed 's|/|_|g')"
         fi
