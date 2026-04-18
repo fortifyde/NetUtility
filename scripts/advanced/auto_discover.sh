@@ -1450,6 +1450,7 @@ print_vlan_discovery_overview() {
         [ -n "$vlan_net" ] || vlan_net="(no network)"
 
         vlan_dir="$disc_dir/vlan_$vlan_id"
+        [ -d "$vlan_dir" ] || vlan_dir="$disc_dir/$vlan_id"
         host_count=0
         status="⊘ SKIP"
         if [ -d "$vlan_dir" ]; then
@@ -1522,7 +1523,7 @@ create_session_consolidation_reports() {
         total_services=0
         
         # Process each VLAN/network directory
-        for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
+        for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network "$SESSION_DISCOVERY_DIR"/network_*; do
             if [ -d "$net_dir" ]; then
                 net_name=$(basename "$net_dir")
                 echo "  $net_name:"
@@ -1553,7 +1554,7 @@ create_session_consolidation_reports() {
         echo "CROSS-VLAN SERVICE DISTRIBUTION:"
         for service_type in ssh smb web database dns snmp rdp; do
             service_total=0
-            for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
+            for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network "$SESSION_DISCOVERY_DIR"/network_*; do
                 if [ -f "$net_dir/service_targets/${service_type}_targets.txt" ]; then
                     count=$(wc -l < "$net_dir/service_targets/${service_type}_targets.txt" 2>/dev/null || echo 0)
                     service_total=$((service_total + count))
@@ -1567,7 +1568,7 @@ create_session_consolidation_reports() {
 
         echo "DIRECTORY STRUCTURE:"
         echo "  Session Directory: $SESSION_DISCOVERY_DIR"
-        for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
+        for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network "$SESSION_DISCOVERY_DIR"/network_*; do
             if [ -d "$net_dir" ]; then
                 echo "    $(basename "$net_dir")/: Individual network results"
             fi
@@ -1596,7 +1597,7 @@ create_session_consolidation_reports() {
             echo "== ${team^^} TEAM SESSION SUMMARY =="
             total_targets=0
             
-            for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
+            for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network "$SESSION_DISCOVERY_DIR"/network_*; do
                 if [ -d "$net_dir/categorized" ]; then
                     net_name=$(basename "$net_dir")
                     echo "$net_name targets:"
@@ -1637,7 +1638,7 @@ create_session_consolidation_reports() {
         
         echo "== MANUAL ASSIGNMENT COORDINATION =="
         echo "Web and database services requiring manual assignment:"
-        for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network; do
+        for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network "$SESSION_DISCOVERY_DIR"/network_*; do
             if [ -d "$net_dir/categorized" ]; then
                 net_name=$(basename "$net_dir")
                 web_count=0
@@ -2061,7 +2062,7 @@ if [ -x "$discovery_script" ]; then
             if [ "$discovery_mode" = "l3" ]; then
                 find "$SESSION_DISCOVERY_DIR" -mindepth 1 -maxdepth 1 -type d
             else
-                find "$SESSION_DISCOVERY_DIR" -name "vlan_*" -type d
+                find "$SESSION_DISCOVERY_DIR" -maxdepth 1 \( -name "vlan_*" -o -name "main_network" -o -name "network_*" \) -type d
             fi | while read -r vlan_dir; do
                 vlan_name=$(basename "$vlan_dir")
                 echo "- $vlan_name: $([ -f "$vlan_dir/discovery_output.txt" ] && echo "SUCCESS" || echo "FAILED")" >> "$discovery_summary"
@@ -2375,7 +2376,16 @@ else
     echo >&2
     echo "=== Auto-Discovery Complete ===" >&2
 fi
-if [ -f "$TEMP_DIR/selected_vlans.txt" ]; then
+if [ "$discovery_mode" = "l3" ] && [ -f "$VLAN_NETWORKS_FILE" ]; then
+    echo
+    echo "L3 Network Discovery Overview:"
+    # Extract labels column for overview function
+    cut -d' ' -f1 "$VLAN_NETWORKS_FILE" > "$TEMP_DIR/l3_labels.txt"
+    print_vlan_discovery_overview \
+        "$TEMP_DIR/l3_labels.txt" \
+        "$VLAN_NETWORKS_FILE" \
+        "$SESSION_DISCOVERY_DIR"
+elif [ -f "$TEMP_DIR/selected_vlans.txt" ]; then
     echo
     echo "VLAN Discovery Overview:"
     print_vlan_discovery_overview \
