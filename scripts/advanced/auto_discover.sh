@@ -438,7 +438,8 @@ echo "VLANs discovered: $vlan_count" >&2
 if [ "$vlan_count" -gt 0 ]; then
     echo "VLAN IDs found:" >> "$WORKFLOW_REPORT"
     cat "$TEMP_DIR/discovered_vlans.txt" | sed 's/^/  /' >> "$WORKFLOW_REPORT"
-    
+
+    if [ "$discovery_mode" = "l2" ]; then
     # Display discovered VLANs to user for selection
     echo >&2
     echo "=== VLAN Discovery Results ===" >&2
@@ -612,6 +613,11 @@ if [ "$vlan_count" -gt 0 ]; then
         selected_vlan_count=0
         echo "No VLANs will be configured"
     fi
+    else
+        # L3 mode: no sub-interface selection needed; source VLAN selected later
+        touch "$TEMP_DIR/selected_vlans.txt"
+        selected_vlan_count=0
+    fi  # end L2 VLAN selection
 else
     echo "No VLANs detected in capture" >&2 >> "$WORKFLOW_REPORT"
     touch "$TEMP_DIR/selected_vlans.txt"  # Create empty file
@@ -1341,12 +1347,34 @@ if [ "$discovery_mode" = "l3" ]; then
                 fi
             else
                 echo "  VLAN $_ov_id: no IPs captured" >&2
-                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-                    printf "%s  VLAN %s — enter network range (CIDR) or s=skip: %s\n" "$PROMPT_COLOR" "$_ov_id" "$COLOR_RESET" >&2
-                else
-                    printf "  VLAN %s — enter network range (CIDR) or s=skip: \n" "$_ov_id" >&2
-                fi
-                _ov_inferred=""
+                # No IPs — loop until user provides CIDR or explicitly skips
+                while true; do
+                    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                        printf "%s  VLAN %s — enter network range (CIDR) or s=skip: %s\n" "$PROMPT_COLOR" "$_ov_id" "$COLOR_RESET" >&2
+                    else
+                        printf "  VLAN %s — enter network range (CIDR) or s=skip: \n" "$_ov_id" >&2
+                    fi
+                    read -r _ov_answer
+                    case "$_ov_answer" in
+                        s|S|skip|SKIP)
+                            echo "  Skipping VLAN $_ov_id" >&2
+                            break
+                            ;;
+                        "")
+                            echo "  Enter a CIDR (e.g. 10.20.0.0/24) or type 's' to skip." >&2
+                            ;;
+                        *)
+                            if echo "$_ov_answer" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+                                echo "vlan_${_ov_id} $_ov_answer" >> "$L3_NETWORKS_FILE"
+                                echo "  ✓ VLAN $_ov_id: $_ov_answer" >&2
+                                break
+                            else
+                                echo "  ⚠ Invalid CIDR — try again." >&2
+                            fi
+                            ;;
+                    esac
+                done
+                continue  # next VLAN in outer while loop
             fi
 
             read -r _ov_answer
@@ -1360,7 +1388,7 @@ if [ "$discovery_mode" = "l3" ]; then
                         echo "vlan_${_ov_id} $_ov_inferred" >> "$L3_NETWORKS_FILE"
                         echo "  ✓ VLAN $_ov_id: $_ov_inferred" >&2
                     else
-                        echo "  No network provided — skipping VLAN $_ov_id." >&2
+                        echo "  ⚠ No inferred network and no input — skipping VLAN $_ov_id." >&2
                     fi
                     ;;
                 *)
@@ -1989,9 +2017,14 @@ if [ -x "$discovery_script" ]; then
                 _pv_done=0
                 _pv_parts=""
                 for _pv_id in $_poll_ids; do
+                    case "$_pv_id" in
+                        vlan_*) _pv_short="V${_pv_id#vlan_}" ;;
+                        network_*) _pv_short="net:$(echo "${_pv_id#network_}" | sed 's/_\([0-9]*\)$/\/\1/')" ;;
+                        *) _pv_short="$_pv_id" ;;
+                    esac
                     if [ -f "$TEMP_DIR/status_${_pv_id}.txt" ]; then
                         _pv_done=$((_pv_done + 1))
-                        _pv_parts="$_pv_parts V${_pv_id}:done"
+                        _pv_parts="$_pv_parts ${_pv_short}:done"
                     elif [ -f "$SESSION_DISCOVERY_DIR/vlan_${_pv_id}/phase_progress" ] || \
                          [ -f "$SESSION_DISCOVERY_DIR/${_pv_id}/phase_progress" ]; then
                         _pp_file="$SESSION_DISCOVERY_DIR/vlan_${_pv_id}/phase_progress"
@@ -2000,9 +2033,9 @@ if [ -x "$discovery_script" ]; then
                         _pv_cur="${_pv_line%% *}"
                         _pv_rest="${_pv_line#* }"
                         _pv_tot="${_pv_rest%% *}"
-                        _pv_parts="$_pv_parts V${_pv_id}:${_pv_cur}/${_pv_tot}"
+                        _pv_parts="$_pv_parts ${_pv_short}:${_pv_cur}/${_pv_tot}"
                     else
-                        _pv_parts="$_pv_parts V${_pv_id}:0/8"
+                        _pv_parts="$_pv_parts ${_pv_short}:0/8"
                     fi
                 done
                 printf '##NETUTIL:PROGRESS## [%s/%s VLANs]%s\n' \
