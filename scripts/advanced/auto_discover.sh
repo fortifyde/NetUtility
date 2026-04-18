@@ -1964,7 +1964,7 @@ if [ -x "$discovery_script" ]; then
             fi
             _disc_status="$TEMP_DIR/status_${vlan_id}.txt"
 
-            mkdir -p "$vlan_discovery_dir"
+            mkdir -p "$vlan_discovery_dir/meta"
 
             read -r _tok <&9  # acquire token — blocks here when cap is reached
 
@@ -1994,7 +1994,7 @@ if [ -x "$discovery_script" ]; then
                     _subinv_iface="$vlan_interface"
                 fi
                 { "$discovery_script" "$_subinv_iface" "1" 3<&- 9>&-; echo $? > "$_disc_status"; } 2>&1 | \
-                    tee "$vlan_discovery_dir/discovery_output.txt" > /dev/null
+                    tee "$vlan_discovery_dir/meta/discovery_output.txt" > /dev/null
                 printf 'x\n' >&9  # release token
             ) &
             _vlan_pids="$_vlan_pids $!"
@@ -2089,7 +2089,7 @@ if [ -x "$discovery_script" ]; then
             fi
 
             echo "    Output summary:" >> "$WORKFLOW_REPORT"
-            head -20 "$vlan_discovery_dir/discovery_output.txt" 2>/dev/null | sed 's/^/      /' >> "$WORKFLOW_REPORT"
+            head -20 "$vlan_discovery_dir/meta/discovery_output.txt" 2>/dev/null | sed 's/^/      /' >> "$WORKFLOW_REPORT"
         done 3< "$VLAN_NETWORKS_FILE"
         
         # Summary
@@ -2110,7 +2110,7 @@ if [ -x "$discovery_script" ]; then
                 find "$SESSION_DISCOVERY_DIR" -maxdepth 1 \( -name "vlan_*" -o -name "main_network" -o -name "network_*" \) -type d
             fi | while read -r vlan_dir; do
                 vlan_name=$(basename "$vlan_dir")
-                echo "- $vlan_name: $([ -f "$vlan_dir/discovery_output.txt" ] && echo "SUCCESS" || echo "FAILED")" >> "$discovery_summary"
+                echo "- $vlan_name: $([ -f "$vlan_dir/meta/discovery_output.txt" ] && echo "SUCCESS" || echo "FAILED")" >> "$discovery_summary"
             done
             echo "VLAN discovery summary: $discovery_summary"
             
@@ -2266,7 +2266,7 @@ if [ -x "$discovery_script" ]; then
         DISCOVERY_DIR="$WORKDIR/discovery"
         SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery_${TIMESTAMP}"
         MAIN_NETWORK_DIR="$SESSION_DISCOVERY_DIR/main_network"
-        mkdir -p "$MAIN_NETWORK_DIR"
+        mkdir -p "$MAIN_NETWORK_DIR/meta"
 
         # Create session metadata
         SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
@@ -2304,7 +2304,7 @@ if [ -x "$discovery_script" ]; then
 
         _disc_status=$(mktemp)
         { "$discovery_script" "$target_interface" "1"; echo $? > "$_disc_status"; } 2>&1 | \
-            tee "$MAIN_NETWORK_DIR/discovery_output.txt"
+            tee "$MAIN_NETWORK_DIR/meta/discovery_output.txt"
         discovery_exit_code=$(cat "$_disc_status" 2>/dev/null || echo 1)
         rm -f "$_disc_status"
         
@@ -2332,7 +2332,7 @@ if [ -x "$discovery_script" ]; then
             
             # Include discovery output in report (first 50 lines)
             echo "Discovery output (summary):" >> "$WORKFLOW_REPORT"
-            head -50 "$MAIN_NETWORK_DIR/discovery_output.txt" >> "$WORKFLOW_REPORT"
+            head -50 "$MAIN_NETWORK_DIR/meta/discovery_output.txt" >> "$WORKFLOW_REPORT"
             echo "... (full output in session results)" >> "$WORKFLOW_REPORT"
         else
             echo "✗ Network discovery failed"

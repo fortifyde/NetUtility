@@ -248,7 +248,8 @@ if [ "$_network_count" -ge 2 ]; then
 
     # FIFO semaphore (FD 8)
     _mnet_fifo="/tmp/.mnet_sem_${TIMESTAMP}_$$"
-    trap 'rm -f "$_mnet_fifo" /tmp/.mnet_st_*_"${TIMESTAMP}_$$"; trap - INT TERM EXIT' INT TERM EXIT
+    _mnet_dirs_file="/tmp/.mnet_dirs_${TIMESTAMP}_$$"
+    trap 'rm -f "$_mnet_fifo" "$_mnet_dirs_file" /tmp/.mnet_st_*_"${TIMESTAMP}_$$"; trap - INT TERM EXIT' INT TERM EXIT
     mkfifo "$_mnet_fifo"
     exec 8<>"$_mnet_fifo"
     _i=0
@@ -273,7 +274,8 @@ if [ "$_network_count" -ge 2 ]; then
         fi
         _net_dir="$DISCOVERY_DIR/${_net_label}_${TIMESTAMP}"
         _net_status="/tmp/.mnet_st_${_net_idx}_${TIMESTAMP}_$$"
-        mkdir -p "$_net_dir"
+        mkdir -p "$_net_dir/meta"
+        echo "$_net_dir" >> "$_mnet_dirs_file"
 
         echo "  Launching: $_net → $_net_label" >&2
         log_info "Routed multi-network: launching $_net → $_net_dir"
@@ -281,13 +283,13 @@ if [ "$_network_count" -ge 2 ]; then
         read -r _tok <&8  # acquire semaphore token
         (
             export MANUAL_NETWORK_RANGE="$_net"
-            [ "$_net_label" != "local_network" ] && export ROUTED_VLAN_MODE="true"
+            [ "$_net_label" != "local_network" ] && [ "$_net_label" != "vlan${DETECTED_VLAN_ID}" ] && export ROUTED_VLAN_MODE="true"
             export AUTO_DISCOVERY_SESSION="true"
             export AUTO_DISCOVERY_SESSION_DIR="$DISCOVERY_DIR"
             export AUTO_DISCOVERY_VLAN_ID="$_net_label"
             export AUTO_DISCOVERY_VLAN_DIR="$_net_dir"
             { "$0" "$selected_interface" 8>&-; echo $? > "$_net_status"; } 2>&1 | \
-                tee "$_net_dir/discovery_output.txt" > /dev/null
+                tee "$_net_dir/meta/discovery_output.txt" > /dev/null
             printf 'x\n' >&8  # release semaphore token
         ) &
         _net_pids="$_net_pids $!"
@@ -298,6 +300,12 @@ if [ "$_network_count" -ge 2 ]; then
         wait "$_npid" 2>/dev/null
     done
     exec 8>&-
+
+    # Clean up phase_progress files now that all sub-invocations have finished
+    while IFS= read -r _cleanup_dir; do
+        rm -f "$_cleanup_dir/phase_progress" 2>/dev/null || true
+    done < "$_mnet_dirs_file"
+    rm -f "$_mnet_dirs_file"
 
     # Collect results
     _success_count=0
@@ -321,7 +329,7 @@ if [ "$_network_count" -ge 2 ]; then
             echo "  ✓ $_net completed" >&2
             _success_count=$((_success_count + 1))
         else
-            echo "  ✗ $_net failed (see $_net_dir/discovery_output.txt)" >&2
+            echo "  ✗ $_net failed (see $_net_dir/meta/discovery_output.txt)" >&2
         fi
     done
     rm -f "$_mnet_fifo"
