@@ -1326,7 +1326,7 @@ if [ "$discovery_mode" = "l3" ]; then
 
     # 2. Other discovered VLANs — infer network from captured IPs
     if [ -f "$TEMP_DIR/discovered_vlans.txt" ]; then
-        while read -r _ov_id; do
+        while read -r _ov_id <&3; do
             [ -n "$_ov_id" ] || continue
             [ "$_ov_id" = "$l3_source_vlan" ] && continue  # skip source VLAN
 
@@ -1354,7 +1354,7 @@ if [ "$discovery_mode" = "l3" ]; then
                     else
                         printf "  VLAN %s — enter network range (CIDR) or s=skip: \n" "$_ov_id" >&2
                     fi
-                    read -r _ov_answer </dev/tty
+                    read -r _ov_answer
                     case "$_ov_answer" in
                         s|S|skip|SKIP)
                             echo "  Skipping VLAN $_ov_id" >&2
@@ -1377,7 +1377,7 @@ if [ "$discovery_mode" = "l3" ]; then
                 continue  # next VLAN in outer while loop
             fi
 
-            read -r _ov_answer </dev/tty
+            read -r _ov_answer
             case "$_ov_answer" in
                 s|S|skip|SKIP)
                     echo "  Skipping VLAN $_ov_id" >&2
@@ -1400,7 +1400,7 @@ if [ "$discovery_mode" = "l3" ]; then
                     fi
                     ;;
             esac
-        done < "$TEMP_DIR/discovered_vlans.txt"
+        done 3< "$TEMP_DIR/discovered_vlans.txt"
     fi
 
     # 3. Manual additional networks
@@ -1985,8 +1985,10 @@ if [ -x "$discovery_script" ]; then
                 export AUTO_DISCOVERY_VLAN_DIR="$vlan_discovery_dir"
                 export AUTO_DISCOVERY_SESSION_DIR="$SESSION_DISCOVERY_DIR"
                 if [ "$discovery_mode" = "l3" ]; then
-                    export ROUTED_VLAN_MODE="true"
                     _subinv_iface="$l3_source_interface"
+                    if [ "$vlan_id" != "${_l3_src_label:-}" ]; then
+                        export ROUTED_VLAN_MODE="true"
+                    fi
                 else
                     _subinv_iface="$vlan_interface"
                 fi
