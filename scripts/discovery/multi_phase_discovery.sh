@@ -309,7 +309,6 @@ if [ "$_network_count" -ge 2 ]; then
             export AUTO_DISCOVERY_SESSION_DIR="$SESSION_ROOT_DIR"
             export AUTO_DISCOVERY_VLAN_ID="$_net_label"
             export AUTO_DISCOVERY_VLAN_DIR="$_net_dir"
-            export ROUTED_SCAN_LABEL="$_net_label"
             { "$0" "$selected_interface" 8>&-; echo $? > "$_net_status"; } 2>&1 | \
                 tee "$_net_dir/discovery_output.txt" > /dev/null
             printf 'x\n' >&8  # release semaphore token
