@@ -1279,6 +1279,155 @@ echo "Interfaces configured: $interfaces_configured" >> "$WORKFLOW_REPORT"
 echo "Completed: $(date)" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
+# L3 mode: collect target networks from discovered VLANs + manual input
+if [ "$discovery_mode" = "l3" ]; then
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%s=== L3 Network Collection ===%s\n" "$COLOR_MINTCREAM" "$COLOR_RESET" >&2
+    else
+        echo "=== L3 Network Collection ===" >&2
+    fi
+    echo "Building list of networks to scan from source interface $l3_source_interface..." >&2
+
+    # Build L3-specific VLAN_NETWORKS_FILE using same "label network" format as L2
+    L3_NETWORKS_FILE="$TEMP_DIR/vlan_networks.txt"
+    > "$L3_NETWORKS_FILE"
+
+    # 1. Source VLAN local network — always first
+    _l3_src_net=$(get_network_range "$l3_source_interface")
+    if [ -n "$_l3_src_net" ]; then
+        _l3_src_label="vlan_${l3_source_vlan:-main}"
+        echo >&2
+        echo "  Source network: $_l3_src_net" >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%s  Use this as first scan target? (Enter=yes / custom CIDR): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "  Use this as first scan target? (Enter=yes / custom CIDR): \n" >&2
+        fi
+        read -r _l3_src_confirm
+        if [ -z "$_l3_src_confirm" ]; then
+            echo "$_l3_src_label $_l3_src_net" >> "$L3_NETWORKS_FILE"
+            echo "  ✓ Added source network: $_l3_src_net" >&2
+        elif echo "$_l3_src_confirm" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+            echo "$_l3_src_label $_l3_src_confirm" >> "$L3_NETWORKS_FILE"
+            echo "  ✓ Added custom source network: $_l3_src_confirm" >&2
+        else
+            echo "  ⚠ Invalid CIDR — skipping source network." >&2
+        fi
+    else
+        echo "  ⚠ Could not determine network for $l3_source_interface." >&2
+    fi
+
+    # 2. Other discovered VLANs — infer network from captured IPs
+    if [ -f "$TEMP_DIR/discovered_vlans.txt" ]; then
+        while read -r _ov_id; do
+            [ -n "$_ov_id" ] || continue
+            [ "$_ov_id" = "$l3_source_vlan" ] && continue  # skip source VLAN
+
+            # Infer network from captured IPs for this VLAN
+            _ov_ips=$(tshark -r "$capture_file" -Y "vlan.id == $_ov_id" -T fields -e ip.src -e ip.dst 2>/dev/null | \
+                tr '\t' '\n' | grep -v "^$" | filter_valid_unicast_ips | sort -u)
+
+            echo >&2
+            if [ -n "$_ov_ips" ]; then
+                _ov_first=$(echo "$_ov_ips" | head -1)
+                _ov_base=$(echo "$_ov_first" | cut -d'.' -f1-3)
+                _ov_inferred="${_ov_base}.0/24"
+                echo "  VLAN $_ov_id: inferred $_ov_inferred" >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%s  VLAN %s — use %s? (Enter=yes / custom CIDR / s=skip): %s\n" "$PROMPT_COLOR" "$_ov_id" "$_ov_inferred" "$COLOR_RESET" >&2
+                else
+                    printf "  VLAN %s — use %s? (Enter=yes / custom CIDR / s=skip): \n" "$_ov_id" "$_ov_inferred" >&2
+                fi
+            else
+                echo "  VLAN $_ov_id: no IPs captured" >&2
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%s  VLAN %s — enter network range (CIDR) or s=skip: %s\n" "$PROMPT_COLOR" "$_ov_id" "$COLOR_RESET" >&2
+                else
+                    printf "  VLAN %s — enter network range (CIDR) or s=skip: \n" "$_ov_id" >&2
+                fi
+                _ov_inferred=""
+            fi
+
+            read -r _ov_answer
+            case "$_ov_answer" in
+                s|S|skip|SKIP)
+                    echo "  Skipping VLAN $_ov_id" >&2
+                    continue
+                    ;;
+                "")
+                    if [ -n "$_ov_inferred" ]; then
+                        echo "vlan_${_ov_id} $_ov_inferred" >> "$L3_NETWORKS_FILE"
+                        echo "  ✓ VLAN $_ov_id: $_ov_inferred" >&2
+                    else
+                        echo "  No network provided — skipping VLAN $_ov_id." >&2
+                    fi
+                    ;;
+                *)
+                    if echo "$_ov_answer" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+                        echo "vlan_${_ov_id} $_ov_answer" >> "$L3_NETWORKS_FILE"
+                        echo "  ✓ VLAN $_ov_id: $_ov_answer" >&2
+                    else
+                        echo "  ⚠ Invalid CIDR — skipping VLAN $_ov_id." >&2
+                    fi
+                    ;;
+            esac
+        done < "$TEMP_DIR/discovered_vlans.txt"
+    fi
+
+    # 3. Manual additional networks
+    echo >&2
+    while true; do
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sAdd another network? (enter CIDR or press Enter to finish): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Add another network? (enter CIDR or press Enter to finish): \n" >&2
+        fi
+        read -r _extra_cidr
+        [ -z "$_extra_cidr" ] && break
+        if echo "$_extra_cidr" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+            _extra_label="network_$(echo "$_extra_cidr" | sed 's|/|_|g')"
+            echo "$_extra_label $_extra_cidr" >> "$L3_NETWORKS_FILE"
+            echo "  ✓ Added: $_extra_cidr" >&2
+        else
+            echo "  ⚠ Invalid CIDR — try again." >&2
+        fi
+    done
+
+    VLAN_NETWORKS_FILE="$L3_NETWORKS_FILE"
+    selected_vlan_count=$(wc -l < "$VLAN_NETWORKS_FILE" | tr -d ' ')
+
+    # Summary
+    echo >&2
+    echo "Networks to scan ($selected_vlan_count):" >&2
+    while read -r _lbl _net; do
+        printf "  %-30s %s\n" "$_lbl" "$_net" >&2
+    done < "$VLAN_NETWORKS_FILE"
+
+    # Create session discovery directory for L3
+    DISCOVERY_DIR="$WORKDIR/discovery"
+    SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery_${TIMESTAMP}"
+    mkdir -p "$SESSION_DISCOVERY_DIR"
+
+    SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
+    {
+        echo "=== Auto-Discovery L3 Session Metadata ==="
+        echo "Session ID: auto_discovery_${TIMESTAMP}"
+        echo "Started: $(date)"
+        echo "Mode: L3 Routed"
+        echo "Interface: $target_interface"
+        echo "Source VLAN: ${l3_source_vlan:-main}"
+        echo "Source interface: $l3_source_interface"
+        echo "Networks: $selected_vlan_count"
+        echo "Session directory: $SESSION_DISCOVERY_DIR"
+        echo ""
+    } > "$SESSION_METADATA"
+
+    echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
+    echo "Networks collected: $selected_vlan_count" >> "$WORKFLOW_REPORT"
+    log_info "L3 network collection complete: $selected_vlan_count networks"
+fi
+
 # Print a per-VLAN at-a-glance table for the final summary
 print_vlan_discovery_overview() {
     sel_file="$1"
