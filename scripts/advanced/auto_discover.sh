@@ -1852,7 +1852,7 @@ if [ -x "$discovery_script" ]; then
                 printf "  VLAN %-3s: %s\n" "$vlan_id" "$network" >&2
             done 3< "$VLAN_NETWORKS_FILE"
             echo >&2
-            vlan_network_count=$(wc -l < "$VLAN_NETWORKS_FILE")
+            vlan_network_count=$(wc -l < "$VLAN_NETWORKS_FILE" | tr -d ' ')
             echo "Ready to begin discovery on $vlan_network_count VLAN(s)" >&2
             echo >&2
             echo "Discovery will now begin. This may take some time." >&2
@@ -1992,8 +1992,11 @@ if [ -x "$discovery_script" ]; then
                     if [ -f "$TEMP_DIR/status_${_pv_id}.txt" ]; then
                         _pv_done=$((_pv_done + 1))
                         _pv_parts="$_pv_parts V${_pv_id}:done"
-                    elif [ -f "$SESSION_DISCOVERY_DIR/vlan_${_pv_id}/phase_progress" ]; then
-                        read -r _pv_line < "$SESSION_DISCOVERY_DIR/vlan_${_pv_id}/phase_progress"
+                    elif [ -f "$SESSION_DISCOVERY_DIR/vlan_${_pv_id}/phase_progress" ] || \
+                         [ -f "$SESSION_DISCOVERY_DIR/${_pv_id}/phase_progress" ]; then
+                        _pp_file="$SESSION_DISCOVERY_DIR/vlan_${_pv_id}/phase_progress"
+                        [ -f "$_pp_file" ] || _pp_file="$SESSION_DISCOVERY_DIR/${_pv_id}/phase_progress"
+                        read -r _pv_line < "$_pp_file"
                         _pv_cur="${_pv_line%% *}"
                         _pv_rest="${_pv_line#* }"
                         _pv_tot="${_pv_rest%% *}"
