@@ -434,7 +434,7 @@ EOF
 
     # TTL hard inhibitor: normalized TTL=64 is never Windows
     if [ -n "$_p7_ttl_normalized" ] && [ "$_p7_ttl_normalized" = "64" ]; then
-        _p7_score_windows=0
+        _p7_score_windows=0; _p7_ev_win=""
         printf '  INHIBIT: ttl_normalized=64 → windows score zeroed\n' >> "$_p7_debug_file"
     fi
 
