@@ -744,6 +744,11 @@ if [ "$discovery_mode" = "l3" ]; then
                 fi
                 read -r _src_chosen
             fi
+            if [ -z "$_src_chosen" ] || ! echo "$_src_chosen" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+                echo "✗ Invalid or empty IP/CIDR: '$_src_chosen' — cannot continue." >&2
+                log_error "Invalid IP/CIDR for source VLAN interface $l3_source_interface: $_src_chosen"
+                exit 1
+            fi
             if ip addr add "$_src_chosen" dev "$l3_source_interface" 2>/dev/null; then
                 echo "✓ IP $_src_chosen assigned to $l3_source_interface" >&2
                 log_config_change "IP assigned to source VLAN interface" "$l3_source_interface: $_src_chosen"
