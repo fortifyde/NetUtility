@@ -2393,17 +2393,23 @@ printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.1: Layer 2 ARP discovery" "$COLOR_RESE
 echo "  Sub-phase 1.1: Layer 2 ARP discovery..." >> "$REPORT_FILE"
 
 arp_scan_raw="$PHASE1_DIR/raw_scans/arp_scan_full.txt"
-if command -v arp-scan >/dev/null 2>&1; then
-    echo "Using arp-scan for Layer 2 discovery..." >> "$REPORT_FILE"
-    arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | \
-        grep -E "^([0-9]+\.){3}[0-9]+" > "$arp_scan_raw"
-    awk '{print $1}' "$arp_scan_raw" > "$PHASE1_DIR/arp_hosts.txt"
-    awk '{print $1 "\t" $2 "\t" $3}' "$arp_scan_raw" >> "$REPORT_FILE"
+if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
+    if command -v arp-scan >/dev/null 2>&1; then
+        echo "Using arp-scan for Layer 2 discovery..." >> "$REPORT_FILE"
+        arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | \
+            grep -E "^([0-9]+\.){3}[0-9]+" > "$arp_scan_raw"
+        awk '{print $1}' "$arp_scan_raw" > "$PHASE1_DIR/arp_hosts.txt"
+        awk '{print $1 "\t" $2 "\t" $3}' "$arp_scan_raw" >> "$REPORT_FILE"
+    else
+        echo "arp-scan not available, using IP neighbor discovery..." >> "$REPORT_FILE"
+        ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
+            tee "$arp_scan_raw" | awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
+        ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" >> "$REPORT_FILE"
+    fi
 else
-    echo "arp-scan not available, using IP neighbor discovery..." >> "$REPORT_FILE"
-    ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
-        tee "$arp_scan_raw" | awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
-    ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" >> "$REPORT_FILE"
+    echo "  Sub-phase 1.1: Skipped — ARP not routable to target subnet in L3 mode" >> "$REPORT_FILE"
+    : > "$arp_scan_raw"
+    : > "$PHASE1_DIR/arp_hosts.txt"
 fi
 
 # Sub-phase 1.2: Network Topology Discovery (reads from 1.1 arp-scan results)
