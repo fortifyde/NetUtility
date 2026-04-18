@@ -75,7 +75,10 @@ Juniper Networks:network_device:1:99
 Aruba Networks:network_device:1:99
 Fortinet:network_device:1:99
 Palo Alto:network_device:1:99
-OpenSSH_for_Windows:windows:1:99"
+OpenSSH_for_Windows:windows:1:99
+smbd:linux:1:99
+Samba:linux:1:99
+Microsoft Windows:windows:1:99"
 
 # ---------------------------------------------------------------------------
 # TIER 2: Port signals (TCP/UDP open)
