@@ -249,7 +249,8 @@ if [ "$_network_count" -ge 2 ]; then
     # FIFO semaphore (FD 8)
     _mnet_fifo="/tmp/.mnet_sem_${TIMESTAMP}_$$"
     _mnet_dirs_file="/tmp/.mnet_dirs_${TIMESTAMP}_$$"
-    trap 'rm -f "$_mnet_fifo" "$_mnet_dirs_file" /tmp/.mnet_st_*_"${TIMESTAMP}_$$"; trap - INT TERM EXIT' INT TERM EXIT
+    _mnet_poll_sentinel="/tmp/.mnet_poll_${TIMESTAMP}_$$"
+    trap 'rm -f "$_mnet_fifo" "$_mnet_dirs_file" "$_mnet_poll_sentinel" /tmp/.mnet_st_*_"${TIMESTAMP}_$$"; trap - INT TERM EXIT' INT TERM EXIT
     mkfifo "$_mnet_fifo"
     exec 8<>"$_mnet_fifo"
     _i=0
@@ -290,10 +291,45 @@ if [ "$_network_count" -ge 2 ]; then
             export AUTO_DISCOVERY_VLAN_DIR="$_net_dir"
             { "$0" "$selected_interface" 8>&-; echo $? > "$_net_status"; } 2>&1 | \
                 tee "$_net_dir/meta/discovery_output.txt" > /dev/null
+            touch "$_net_dir/.mnet_done" 2>/dev/null || true
             printf 'x\n' >&8  # release semaphore token
         ) &
         _net_pids="$_net_pids $!"
     done
+
+    # Background progress poller — emits ##NETUTIL:PROGRESS## every 2s for TUI status bar
+    _mnet_total=$_network_count
+    (
+        while [ ! -f "$_mnet_poll_sentinel" ]; do
+            _pv_done=0
+            _pv_parts=""
+            while IFS= read -r _pv_dir; do
+                _pv_label=$(basename "$_pv_dir" | sed "s/_${TIMESTAMP}$//")
+                case "$_pv_label" in
+                    vlan*)       _pv_short="V${_pv_label#vlan}" ;;
+                    local_network) _pv_short="local" ;;
+                    routed_*)    _pv_short=$(echo "${_pv_label#routed_}" | sed 's/_\([0-9]*\)$/\/\1/' | sed 's/_/./g') ;;
+                    *)           _pv_short="$_pv_label" ;;
+                esac
+                if [ -f "$_pv_dir/.mnet_done" ]; then
+                    _pv_done=$((_pv_done + 1))
+                    _pv_parts="$_pv_parts ${_pv_short}:done"
+                elif [ -f "$_pv_dir/phase_progress" ]; then
+                    IFS= read -r _pv_line < "$_pv_dir/phase_progress"
+                    _pv_cur="${_pv_line%% *}"
+                    _pv_rest="${_pv_line#* }"
+                    _pv_tot="${_pv_rest%% *}"
+                    _pv_parts="$_pv_parts ${_pv_short}:${_pv_cur}/${_pv_tot}"
+                else
+                    _pv_parts="$_pv_parts ${_pv_short}:0/8"
+                fi
+            done < "$_mnet_dirs_file"
+            printf '##NETUTIL:PROGRESS## [%s/%s nets]%s\n' \
+                "$_pv_done" "$_mnet_total" "$_pv_parts"
+            sleep 2
+        done
+    ) &
+    _mnet_poll_pid=$!
 
     echo "  Waiting for all $_network_count networks to complete..." >&2
     for _npid in $_net_pids; do
@@ -301,9 +337,14 @@ if [ "$_network_count" -ge 2 ]; then
     done
     exec 8>&-
 
-    # Clean up phase_progress files now that all sub-invocations have finished
+    # Terminate poller
+    touch "$_mnet_poll_sentinel"
+    wait "$_mnet_poll_pid" 2>/dev/null
+    rm -f "$_mnet_poll_sentinel"
+
+    # Clean up phase_progress and done marker files
     while IFS= read -r _cleanup_dir; do
-        rm -f "$_cleanup_dir/phase_progress" 2>/dev/null || true
+        rm -f "$_cleanup_dir/phase_progress" "$_cleanup_dir/.mnet_done" 2>/dev/null || true
     done < "$_mnet_dirs_file"
     rm -f "$_mnet_dirs_file"
 
