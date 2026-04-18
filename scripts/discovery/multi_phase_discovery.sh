@@ -171,6 +171,62 @@ echo
 # Create discovery session - check for auto-discovery context
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
+# Routed VLAN network collection — suppressed in sub-invocations
+additional_networks=""
+scan_local_network="true"
+
+if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
+    echo >&2
+    while true; do
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sAdd routed VLAN network to scan? (enter CIDR or press Enter to finish): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Add routed VLAN network to scan? (enter CIDR or press Enter to finish): \n" >&2
+        fi
+        read -r _routed_cidr
+        [ -z "$_routed_cidr" ] && break
+
+        # Validate CIDR format
+        if ! echo "$_routed_cidr" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
+            echo "⚠ Invalid CIDR format (e.g. 10.10.0.0/24). Try again." >&2
+            continue
+        fi
+
+        # Duplicate check against local network and already-collected list
+        if [ "$_routed_cidr" = "$network_range" ]; then
+            echo "⚠ $_routed_cidr matches local network — skipping duplicate." >&2
+            continue
+        fi
+        if echo "$additional_networks" | grep -qF "$_routed_cidr"; then
+            echo "⚠ $_routed_cidr already in list — skipping duplicate." >&2
+            continue
+        fi
+
+        additional_networks="$additional_networks $_routed_cidr"
+        echo "  ✓ Added $_routed_cidr" >&2
+    done
+
+    # If any routed networks collected, ask whether to also scan local
+    if [ -n "$additional_networks" ]; then
+        echo >&2
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sAlso scan local network (%s)? [Y/n]: %s\n" "$PROMPT_COLOR" "$network_range" "$COLOR_RESET" >&2
+        else
+            printf "Also scan local network (%s)? [Y/n]: \n" "$network_range" >&2
+        fi
+        read -r _scan_local_answer
+        case "$_scan_local_answer" in
+            n|N|no|NO)
+                scan_local_network="false"
+                echo "  Local network excluded from scan." >&2
+                ;;
+            *)
+                scan_local_network="true"
+                ;;
+        esac
+    fi
+fi
+
 # Detect auto-discovery context and use appropriate directories
 if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
     # Running within auto-discovery workflow - use provided directories
