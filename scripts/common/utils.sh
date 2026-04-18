@@ -1445,6 +1445,7 @@ run_nmap_filtered() {
 # Silently skips if not root or no sudo context.
 # Usage: fix_ownership <path> [<path> ...]
 fix_ownership() {
+    [ $# -gt 0 ] || return 0
     [ "$(id -u)" -eq 0 ] || return 0
     if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
         chown -R "$SUDO_UID:$SUDO_GID" "$@" 2>/dev/null || true
