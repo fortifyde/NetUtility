@@ -2389,11 +2389,10 @@ fi
 mkdir -p "$PHASE1_DIR/raw_scans"
 
 # Sub-phase 1.1: Layer 2 ARP Discovery (runs first — results used by 1.2)
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.1: Layer 2 ARP discovery" "$COLOR_RESET"
-echo "  Sub-phase 1.1: Layer 2 ARP discovery..." >> "$REPORT_FILE"
-
 arp_scan_raw="$PHASE1_DIR/raw_scans/arp_scan_full.txt"
 if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
+    printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.1: Layer 2 ARP discovery" "$COLOR_RESET"
+    echo "  Sub-phase 1.1: Layer 2 ARP discovery..." >> "$REPORT_FILE"
     if command -v arp-scan >/dev/null 2>&1; then
         echo "Using arp-scan for Layer 2 discovery..." >> "$REPORT_FILE"
         arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | \
@@ -2407,6 +2406,7 @@ if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
         ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" >> "$REPORT_FILE"
     fi
 else
+    printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.1: Layer 2 ARP discovery (skipped in L3 mode)" "$COLOR_RESET"
     echo "  Sub-phase 1.1: Skipped — ARP not routable to target subnet in L3 mode" >> "$REPORT_FILE"
     : > "$arp_scan_raw"
     : > "$PHASE1_DIR/arp_hosts.txt"
