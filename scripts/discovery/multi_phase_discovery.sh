@@ -227,6 +227,132 @@ if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
     fi
 fi
 
+# Build full network list; dispatch concurrently if more than one network
+_all_scan_networks=""
+if [ "$scan_local_network" = "true" ]; then
+    _all_scan_networks="$network_range"
+fi
+for _n in $additional_networks; do
+    _all_scan_networks="$_all_scan_networks $_n"
+done
+_all_scan_networks="${_all_scan_networks# }"  # strip leading space
+_network_count=$(echo "$_all_scan_networks" | wc -w)
+
+if [ "$_network_count" -ge 2 ]; then
+    # --- Multi-network concurrent dispatch ---
+    SESSION_ROOT_DIR="$DISCOVERY_DIR/discovery_${TIMESTAMP}"
+    mkdir -p "$SESSION_ROOT_DIR"
+
+    echo >&2
+    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+        printf "%sMax concurrent networks [1-%s, default %s]: %s\n" "$PROMPT_COLOR" "$_network_count" "$_network_count" "$COLOR_RESET" >&2
+    else
+        printf "Max concurrent networks [1-%s, default %s]: \n" "$_network_count" "$_network_count" >&2
+    fi
+    read -r _net_cap
+    _net_cap="${_net_cap:-$_network_count}"
+    case "$_net_cap" in
+        ''|*[!0-9]*) _net_cap="$_network_count" ;;
+        *)
+            [ "$_net_cap" -lt 1 ] && _net_cap=1
+            [ "$_net_cap" -gt "$_network_count" ] && _net_cap="$_network_count"
+            ;;
+    esac
+    echo "  Concurrency: $_net_cap of $_network_count networks at a time" >&2
+
+    # Session metadata
+    SESSION_METADATA="$SESSION_ROOT_DIR/session_metadata.txt"
+    {
+        echo "=== Multi-Phase Routed Discovery Session Metadata ==="
+        echo "Session ID: discovery_${TIMESTAMP}"
+        echo "Started: $(date)"
+        echo "Interface: $selected_interface"
+        echo "Discovery Mode: Routed Multi-Network"
+        echo "Networks: $_all_scan_networks"
+        echo "Session directory: $SESSION_ROOT_DIR"
+        echo ""
+    } > "$SESSION_METADATA"
+
+    # FIFO semaphore (FD 8)
+    _mnet_fifo="/tmp/.mnet_sem_${TIMESTAMP}_$$"
+    mkfifo "$_mnet_fifo"
+    exec 8<>"$_mnet_fifo"
+    _i=0
+    while [ "$_i" -lt "$_net_cap" ]; do
+        printf 'x\n' >&8
+        _i=$((_i + 1))
+    done
+
+    _net_pids=""
+    _net_idx=0
+    for _net in $_all_scan_networks; do
+        _net_idx=$((_net_idx + 1))
+        # Determine directory label
+        if [ "$_net" = "$network_range" ] && [ "$scan_local_network" = "true" ]; then
+            _net_label="local_network"
+        else
+            _net_label="routed_$(echo "$_net" | sed 's|/|_|g')"
+        fi
+        _net_dir="$SESSION_ROOT_DIR/$_net_label"
+        _net_status="/tmp/.mnet_st_${_net_idx}_${TIMESTAMP}_$$"
+        mkdir -p "$_net_dir"
+
+        echo "  Launching: $_net → $_net_label" >&2
+        log_info "Routed multi-network: launching $_net → $_net_dir"
+
+        read -r _tok <&8  # acquire semaphore token
+        (
+            export MANUAL_NETWORK_RANGE="$_net"
+            export ROUTED_VLAN_MODE="true"
+            export AUTO_DISCOVERY_SESSION="true"
+            export AUTO_DISCOVERY_SESSION_DIR="$SESSION_ROOT_DIR"
+            export AUTO_DISCOVERY_VLAN_ID="$_net_label"
+            export AUTO_DISCOVERY_VLAN_DIR="$_net_dir"
+            export ROUTED_SCAN_LABEL="$_net_label"
+            { "$0" "$selected_interface" 8>&-; echo $? > "$_net_status"; } 2>&1 | \
+                tee "$_net_dir/discovery_output.txt" > /dev/null
+            printf 'x\n' >&8  # release semaphore token
+        ) &
+        _net_pids="$_net_pids $!"
+    done
+
+    echo "  Waiting for all $_network_count networks to complete..." >&2
+    for _npid in $_net_pids; do
+        wait "$_npid" 2>/dev/null
+    done
+    exec 8>&-
+
+    # Collect results
+    _success_count=0
+    _net_idx=0
+    for _net in $_all_scan_networks; do
+        _net_idx=$((_net_idx + 1))
+        _net_status="/tmp/.mnet_st_${_net_idx}_${TIMESTAMP}_$$"
+        _exit=$(cat "$_net_status" 2>/dev/null || echo 1)
+        rm -f "$_net_status"
+        if [ "$_exit" -eq 0 ]; then
+            echo "  ✓ $_net completed" >&2
+            _success_count=$((_success_count + 1))
+            echo "$_net: SUCCESS" >> "$SESSION_METADATA"
+        else
+            echo "  ✗ $_net failed" >&2
+            echo "$_net: FAILED" >> "$SESSION_METADATA"
+        fi
+    done
+    echo "Session completed: $(date)" >> "$SESSION_METADATA"
+    rm -f "$_mnet_fifo"
+
+    echo "Multi-network discovery complete: $_success_count/$_network_count successful" >&2
+    echo "Results in: $SESSION_ROOT_DIR" >&2
+    exit 0
+
+elif [ "$scan_local_network" = "false" ] && [ -n "$additional_networks" ]; then
+    # Single routed-only network — override local network_range and fall through
+    network_range=$(echo "$additional_networks" | awk '{print $1}')
+    log_info "Routed-only single-network mode: scanning $network_range"
+fi
+# Single-network path continues below unchanged
+
 # Detect auto-discovery context and use appropriate directories
 if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
     # Running within auto-discovery workflow - use provided directories
