@@ -1,6 +1,7 @@
 #!/bin/sh
 
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/utils.sh" 2>/dev/null || true
 
 echo "=== Working Directory Selection ==="
 echo "Current working directory: $(pwd)"
@@ -79,6 +80,7 @@ EOF
     # Create workspace structure
     echo "Creating workspace structure..."
     mkdir -p "$workdir/captures" "$workdir/discovery" "$workdir/port_and_security_scans" "$workdir/analysis" "$workdir/reports" "$workdir/configs" "$workdir/logs" "$workdir/latest"
+    fix_ownership "$workdir"
     echo "Workspace structure created"
     
     cd "$workdir" || exit 1
