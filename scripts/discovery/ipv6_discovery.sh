@@ -5,6 +5,8 @@
 # Can be called standalone or integrated into multiphase discovery workflow
 
 . "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/logging.sh"
+SCRIPT_NAME="ipv6_discovery.sh"
 
 # IPv6 Discovery Function - supports both standalone and integrated modes
 perform_ipv6_discovery_main() {
@@ -19,8 +21,9 @@ perform_ipv6_discovery_main() {
         
         echo "Available network interfaces:"
         interface=$(select_interface)
-        
+
         if [ -z "$interface" ]; then
+            log_error "No interface selected" "$SCRIPT_NAME"
             echo "No interface selected"
             exit 1
         fi
@@ -33,7 +36,13 @@ perform_ipv6_discovery_main() {
         SESSION_DIR="$DISCOVERY_DIR/ipv6_discovery_${TIMESTAMP}"
         evidence_base_dir="$SESSION_DIR/evidence"
     fi
-    
+
+    if [ -z "$evidence_base_dir" ]; then
+        log_info "Running in standalone mode on interface: $interface" "$SCRIPT_NAME"
+    else
+        log_info "Running in integrated mode on interface: $interface, evidence: $evidence_base_dir" "$SCRIPT_NAME"
+    fi
+
     # Create IPv6 evidence directory structure
     IPV6_EVIDENCE_DIR="$evidence_base_dir/ipv6_discovery"
     mkdir -p "$IPV6_EVIDENCE_DIR/multicast_discovery" \
@@ -68,6 +77,7 @@ perform_ipv6_discovery_main() {
     if [ "$ipv6_addresses" -eq 0 ]; then
         echo "Warning: No IPv6 addresses found on $interface" >> "$IPV6_REPORT_FILE"
         echo "IPv6 may not be enabled on this interface" >> "$IPV6_REPORT_FILE"
+        log_warn "No IPv6 addresses found on interface: $interface" "$SCRIPT_NAME"
         if [ -z "$evidence_base_dir" ]; then
             echo "Warning: No IPv6 addresses found on $interface"
             echo "IPv6 may not be enabled on this interface"
@@ -99,6 +109,7 @@ perform_ipv6_discovery_main() {
     
     # Ping all nodes multicast address
     echo "Pinging all-nodes multicast address ($IPV6_ALL_NODES):" >> "$IPV6_REPORT_FILE"
+    log_debug "Pinging all-nodes multicast: ping6 -c 3 -I $interface $IPV6_ALL_NODES" "$SCRIPT_NAME"
     ping6 -c 3 -I "$interface" "$IPV6_ALL_NODES" 2>/dev/null | \
         grep "bytes from" | awk '{print $4}' | cut -d':' -f1 | sort -u > "$TEMP_DIR/all_nodes.txt"
 
@@ -228,8 +239,9 @@ perform_ipv6_discovery_main() {
     if [ -s "$IPV6_HOSTS_FILE" ] && command -v nmap >/dev/null 2>&1; then
         echo "--- PHASE 5: IPv6 SERVICE DISCOVERY ---" >> "$IPV6_REPORT_FILE"
         echo "Performing IPv6 port scan on discovered hosts..." >> "$IPV6_REPORT_FILE"
-        
+
         nmap_output="$IPV6_EVIDENCE_DIR/service_discovery/raw_scans/ipv6_services.txt"
+        log_debug "IPv6 service scan: nmap -6 -n -sS --top-ports 20 -T4 -iL $IPV6_HOSTS_FILE" "$SCRIPT_NAME"
         nmap -6 -n -sS --top-ports 20 -T4 --open -oN "$nmap_output" \
               -iL "$IPV6_HOSTS_FILE" 2>/dev/null | \
               grep -E "Nmap scan report|open" >> "$IPV6_REPORT_FILE"
@@ -247,6 +259,7 @@ perform_ipv6_discovery_main() {
     # For standalone mode, provide user feedback
     if [ -z "$evidence_base_dir" ]; then
         echo
+        log_info "Discovery complete. Total IPv6 addresses: $total_discovered. Evidence: $IPV6_EVIDENCE_DIR" "$SCRIPT_NAME"
         echo "IPv6 discovery complete!"
         echo "Results saved to: $IPV6_EVIDENCE_DIR"
         echo "Total IPv6 addresses discovered: $total_discovered"
