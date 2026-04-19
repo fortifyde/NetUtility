@@ -14,6 +14,38 @@ import (
 	"netutil/internal/ui"
 )
 
+// ensureExecutable ensures all binaries in bin/ and shell scripts in scripts/
+// have the executable bit set. Called at TUI startup so permissions are always
+// correct regardless of how the files were installed or extracted.
+func ensureExecutable(execDir, scriptsDir string) {
+	// Make everything in bin/ executable
+	binDir := filepath.Join(execDir, "bin")
+	if entries, err := os.ReadDir(binDir); err == nil {
+		for _, e := range entries {
+			if !e.Type().IsRegular() {
+				continue
+			}
+			path := filepath.Join(binDir, e.Name())
+			if info, err := e.Info(); err == nil {
+				if info.Mode()&0111 == 0 {
+					_ = os.Chmod(path, info.Mode()|0755)
+				}
+			}
+		}
+	}
+
+	// Make all .sh files in scripts/ (recursively) executable
+	_ = filepath.Walk(scriptsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if filepath.Ext(path) == ".sh" && info.Mode()&0111 == 0 {
+			_ = os.Chmod(path, info.Mode()|0755)
+		}
+		return nil
+	})
+}
+
 // getDefaultScriptsDir returns the path to the scripts directory
 // located next to the executable (same pattern as config file)
 func getDefaultScriptsDir() string {
@@ -40,6 +72,10 @@ func main() {
 	if *scriptsDirFlag != "" {
 		scriptsDir = *scriptsDirFlag
 	}
+
+	// Ensure bin/ and scripts/ are executable (idempotent, silent)
+	execPath, _ := os.Executable()
+	ensureExecutable(filepath.Dir(execPath), scriptsDir)
 
 	// Load configuration
 	cfg, err := config.LoadConfig()
@@ -139,27 +175,36 @@ func main() {
 
 // Command mappings for CLI shortcuts
 var commandMappings = map[string]ScriptInfo{
-	"scan":              {"scripts/discovery/network_capture.sh", "Network Capture"},
-	"capture":           {"scripts/discovery/network_capture.sh", "Network Capture"},
-	"enum":              {"scripts/discovery/network_capture.sh", "Network Capture"},
-	"vuln":              {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
-	"vulnerability":     {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
-	"config-ip":         {"scripts/host-config/configure_ip.sh", "Configure IP"},
-	"ip":                {"scripts/host-config/configure_ip.sh", "Configure IP"},
-	"interfaces":        {"scripts/host-config/network_interfaces.sh", "Network Interfaces"},
-	"routes":            {"scripts/host-config/configure_routes.sh", "Configure Routes"},
-	"dns":               {"scripts/host-config/configure_dns.sh", "Configure DNS"},
-	"backup":            {"scripts/utilities/backup_config.sh", "Backup Configuration"},
-	"restore":           {"scripts/utilities/restore_config.sh", "Restore Configuration"},
-	"workdir":           {"scripts/utilities/select_workdir.sh", "Select Working Directory"},
-	"vlan":              {"scripts/host-config/add_vlan.sh", "Add VLAN"},
-	"vlans":             {"scripts/discovery/extract_vlans.sh", "Extract VLANs"},
-	"advanced-analysis": {"scripts/discovery/advanced_packet_analysis.sh", "Advanced Packet Analysis"},
-	"mac-analysis":      {"scripts/discovery/mac_analysis.sh", "MAC Address Analysis"},
-	"multi-discovery":   {"scripts/discovery/multi_phase_discovery.sh", "Multi-Phase Discovery"},
-	"ipv6-discovery":    {"scripts/discovery/ipv6_discovery.sh", "IPv6 Discovery"},
-	"logs":              {"scripts/utilities/log_management.sh", "Log Management"},
-	"workflow":          {"scripts/advanced/auto_discover.sh", "Integrated Workflow"},
+	// Discovery
+	"capture":          {"scripts/discovery/network_capture.sh", "Network Capture"},
+	"multi-discovery":  {"scripts/discovery/multi_phase_discovery.sh", "Multi-Phase Discovery"},
+	"ipv6-discovery":   {"scripts/discovery/ipv6_discovery.sh", "IPv6 Discovery"},
+	"extract-vlans":    {"scripts/discovery/extract_vlans.sh", "Extract VLANs"},
+	"mac-analysis":     {"scripts/discovery/mac_analysis.sh", "MAC Address Analysis"},
+	"packet-analysis":  {"scripts/discovery/advanced_packet_analysis.sh", "Advanced Packet Analysis"},
+	// Scanning
+	"safe-scan":        {"scripts/scanning/safe_nse_scan.sh", "Safe NSE Scan"},
+	"full-scan":        {"scripts/scanning/full_port_scan.sh", "Full Port Scan"},
+	"vuln":             {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
+	"vulnerability":    {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
+	// Host configuration
+	"config-ip":        {"scripts/host-config/configure_ip.sh", "Configure IP"},
+	"ip":               {"scripts/host-config/configure_ip.sh", "Configure IP"},
+	"interfaces":       {"scripts/host-config/network_interfaces.sh", "Network Interfaces"},
+	"routes":           {"scripts/host-config/configure_routes.sh", "Configure Routes"},
+	"dns":              {"scripts/host-config/configure_dns.sh", "Configure DNS"},
+	"vlan":             {"scripts/host-config/add_vlan.sh", "Add VLAN"},
+	"setup-fileserver": {"scripts/host-config/setup_file_server.sh", "Setup File Server"},
+	// Utilities
+	"backup":           {"scripts/utilities/backup_config.sh", "Backup Configuration"},
+	"restore":          {"scripts/utilities/restore_config.sh", "Restore Configuration"},
+	"workdir":          {"scripts/utilities/select_workdir.sh", "Select Working Directory"},
+	"logs":             {"scripts/utilities/log_management.sh", "Log Management"},
+	"update-oui":       {"scripts/utilities/update_oui_db.sh", "Update OUI Database"},
+	"exclude-team":     {"scripts/utilities/exclude_team_ips.sh", "Exclude Team IPs"},
+	// Advanced
+	"auto-discover":    {"scripts/advanced/auto_discover.sh", "Automated Discovery Workflow"},
+	"gather-configs":   {"scripts/config/gather_network_configs.sh", "Gather Network Configs"},
 }
 
 // Numeric shortcuts (most frequently used)
