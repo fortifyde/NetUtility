@@ -1,5 +1,5 @@
 script:
-  name: "Safe NSE Service Enumeration Scan"
+  name: "Service Enumeration Scan"
   description: "Comprehensive port scan with safe NSE service enumeration (non-intrusive)"
   category: "scanning"
   subcategory: "enumeration"

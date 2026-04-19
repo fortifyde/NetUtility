@@ -1,6 +1,6 @@
 script:
-  name: "Automatic Discovery Workflow"
-  description: "Automated network capture, host configuration, and VLAN-aware network discovery"
+  name: "Auto Discovery"
+  description: "VLAN-aware automated discovery combining capture, host config, and network scan"
   category: "advanced"
   subcategory: "automation"
   
