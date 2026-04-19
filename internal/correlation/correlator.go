@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -537,6 +538,36 @@ func (c *Correlator) GetHighRiskHosts(threshold int) []*CorrelationResult {
 	return highRisk
 }
 
+// fixCorrelationsOwnership restores ownership of the correlations directory to the
+// invoking user when netutil is run via sudo. Without this, the directory and its
+// files are owned by root, preventing the user from managing them directly.
+func (c *Correlator) fixCorrelationsOwnership() {
+	if os.Geteuid() != 0 {
+		return
+	}
+	sudoUID := os.Getenv("SUDO_UID")
+	sudoGID := os.Getenv("SUDO_GID")
+	if sudoUID == "" || sudoGID == "" {
+		return
+	}
+	uid, err := strconv.Atoi(sudoUID)
+	if err != nil {
+		return
+	}
+	gid, err := strconv.Atoi(sudoGID)
+	if err != nil {
+		return
+	}
+	correlationDir := filepath.Join(c.dataDir, "correlations")
+	_ = filepath.Walk(correlationDir, func(path string, _ os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		_ = syscall.Chown(path, uid, gid)
+		return nil
+	})
+}
+
 // saveResults saves correlation results to disk
 func (c *Correlator) saveResults() error {
 	if c.dataDir == "" {
@@ -559,6 +590,7 @@ func (c *Correlator) saveResults() error {
 		return fmt.Errorf("failed to write correlations: %w", err)
 	}
 
+	c.fixCorrelationsOwnership()
 	return nil
 }
 
@@ -596,7 +628,11 @@ func (c *Correlator) saveManualOverrides() error {
 	if err != nil {
 		return fmt.Errorf("marshalling manual overrides: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return err
+	}
+	c.fixCorrelationsOwnership()
+	return nil
 }
 
 func (c *Correlator) excludedHostsPath() string {
@@ -643,7 +679,11 @@ func (c *Correlator) saveExcludedHosts() error {
 	if err != nil {
 		return fmt.Errorf("marshalling excluded hosts: %w", err)
 	}
-	return os.WriteFile(path, data, 0644)
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return err
+	}
+	c.fixCorrelationsOwnership()
+	return nil
 }
 
 // ExcludeHosts adds IPs to the permanent exclusion list, removes them from in-memory
