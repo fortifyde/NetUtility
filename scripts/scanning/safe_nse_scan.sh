@@ -4,8 +4,11 @@
 # shellcheck source=../common/utils.sh
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== Safe NSE Service Enumeration Scan ==="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
 echo "ℹ️  This script uses SAFE NSE scripts for service enumeration"
 echo "ℹ️  These scripts:"
@@ -28,11 +31,13 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 
 targets=$(select_target)
 if [ -z "$targets" ]; then
+    log_error "No target selected" "$SCRIPT_NAME"
     error_message "No target selected"
     exit 1
 fi
 
 success_message "Selected target: $targets"
+log_info "Target selected: $targets" "$SCRIPT_NAME"
 
 echo "Scan intensity:"
 echo "1. Quick scan (Top 1000 ports)"
@@ -74,6 +79,8 @@ case $intensity in
         ;;
 esac
 
+log_info "Scan type: $scan_type, ports: $ports" "$SCRIPT_NAME"
+
 SCAN_RESULTS="$RESULTS_DIR/service_scan_${scan_type}_${TIMESTAMP}.txt"
 NSE_RESULTS="$RESULTS_DIR/nse_enum_${TIMESTAMP}.txt"
 REPORT_FILE="$RESULTS_DIR/service_report_${TIMESTAMP}.txt"
@@ -95,12 +102,14 @@ echo >&2
 echo "Phase 1: Deep port scan with service detection..."
 echo "Command: nmap -sS -sV -O $ports $targets"
 
+log_debug "Phase 1 nmap: nmap -sS -sV -O $ports $targets -oN $SCAN_RESULTS" "$SCRIPT_NAME"
 # shellcheck disable=SC2086
 nmap -sS -sV -O $ports $targets -oN "$SCAN_RESULTS"
 
 echo "Phase 2: Safe NSE service enumeration..."
 echo "Running safe NSE enumeration scripts..."
 
+log_debug "Phase 2 nmap: nmap --script 'safe and discovery' $targets -oN $NSE_RESULTS" "$SCRIPT_NAME"
 # shellcheck disable=SC2086
 nmap --script "safe and discovery and not (brute or dos or intrusive)" $targets -oN "$NSE_RESULTS"
 
@@ -256,6 +265,7 @@ service_count=$(grep -c "open" "$SCAN_RESULTS" 2>/dev/null || echo "0")
     echo >&2
 } >> "$REPORT_FILE"
 
+log_info "Scan complete. Open services: $service_count. Results: $RESULTS_DIR" "$SCRIPT_NAME"
 echo "Service enumeration scan complete!"
 echo >&2
 echo "Files created:"
