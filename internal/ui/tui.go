@@ -302,10 +302,21 @@ func mergeCaptureAnalysisTasks(categories []Category) []Category {
 				{Name: "Packet Capture Analysis", Description: captureTask.Description, Script: captureTask.Script},
 			},
 		}
-		if firstIdx > len(newTasks) {
-			firstIdx = len(newTasks)
+		// Insert composite immediately after "Network Capture" if present, otherwise at firstIdx
+		insertIdx := -1
+		for ti, t := range newTasks {
+			if t.Name == "Network Capture" {
+				insertIdx = ti + 1
+				break
+			}
 		}
-		newTasks = append(newTasks[:firstIdx:firstIdx], append([]Task{composite}, newTasks[firstIdx:]...)...)
+		if insertIdx == -1 {
+			insertIdx = firstIdx
+			if insertIdx > len(newTasks) {
+				insertIdx = len(newTasks)
+			}
+		}
+		newTasks = append(newTasks[:insertIdx:insertIdx], append([]Task{composite}, newTasks[insertIdx:]...)...)
 		categories[ci].Tasks = newTasks
 		break
 	}
