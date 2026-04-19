@@ -128,6 +128,42 @@ func compareIPs(ip1, ip2 string) bool {
 	return ip1 < ip2
 }
 
+// hostMatchesText reports whether a host passes a text filter.
+// An empty text always matches. Matches are case-insensitive and checked against
+// IP address, hostname, NetBIOS name, open port numbers, and open port service names.
+func hostMatchesText(ip string, result *correlation.CorrelationResult, text string) bool {
+	if text == "" {
+		return true
+	}
+	lower := strings.ToLower(text)
+	if strings.Contains(strings.ToLower(ip), lower) {
+		return true
+	}
+	if result.HostInfo == nil {
+		return false
+	}
+	if strings.Contains(strings.ToLower(result.HostInfo.Hostname), lower) {
+		return true
+	}
+	if nb, ok := result.HostInfo.Attributes["netbios_name"]; ok {
+		if strings.Contains(strings.ToLower(nb), lower) {
+			return true
+		}
+	}
+	for _, p := range result.HostInfo.Ports {
+		if p.State != "open" {
+			continue
+		}
+		if strings.Contains(strconv.Itoa(p.Number), lower) {
+			return true
+		}
+		if strings.Contains(strings.ToLower(p.Service), lower) {
+			return true
+		}
+	}
+	return false
+}
+
 // filterCategories defines the cycling order for the category filter.
 var filterCategories = []string{"", "windows", "linux", "network_device", "unknown"}
 

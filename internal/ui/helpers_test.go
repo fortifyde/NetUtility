@@ -142,3 +142,69 @@ func TestHostOpenPortsTruncation(t *testing.T) {
 		t.Errorf("hostOpenPorts() should end with …, got %q", got)
 	}
 }
+
+func TestHostMatchesText(t *testing.T) {
+	result := &correlation.CorrelationResult{
+		Host: "192.168.1.50",
+		HostInfo: &correlation.Host{
+			Hostname: "webserver.local",
+			Attributes: map[string]string{
+				"netbios_name": "WEBSERVER",
+			},
+			Ports: []correlation.Port{
+				{Number: 80, State: "open", Service: "http"},
+				{Number: 443, State: "open", Service: "https"},
+				{Number: 22, State: "closed", Service: "ssh"},
+			},
+		},
+	}
+
+	tests := []struct {
+		query string
+		want  bool
+	}{
+		// IP match
+		{"192.168", true},
+		{"192.168.1.50", true},
+		// Hostname match
+		{"webserver", true},
+		{"WEBSERVER.LOCAL", true}, // case-insensitive
+		// NetBIOS match
+		{"webserv", true},
+		// Port number match (open ports only)
+		{"80", true},
+		{"443", true},
+		{"22", false}, // port 22 is closed — should not match
+		// Service name match (open ports only)
+		{"http", true},
+		{"https", true},
+		{"ssh", false}, // ssh is on a closed port — should not match
+		// No match
+		{"10.0.0.1", false},
+		{"ftp", false},
+		// Empty query always matches
+		{"", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.query, func(t *testing.T) {
+			got := hostMatchesText(result.Host, result, tt.query)
+			if got != tt.want {
+				t.Errorf("hostMatchesText(%q) = %v, want %v", tt.query, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHostMatchesTextNilHostInfo(t *testing.T) {
+	result := &correlation.CorrelationResult{Host: "10.0.0.1"}
+	if !hostMatchesText(result.Host, result, "") {
+		t.Error("empty query with nil HostInfo should return true")
+	}
+	if !hostMatchesText(result.Host, result, "10.0") {
+		t.Error("IP match with nil HostInfo should return true")
+	}
+	if hostMatchesText(result.Host, result, "webserver") {
+		t.Error("non-IP query with nil HostInfo should return false")
+	}
+}
