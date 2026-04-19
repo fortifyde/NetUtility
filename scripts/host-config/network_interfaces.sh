@@ -30,6 +30,7 @@ else
     printf "Select action (1-6): \n" >&2
 fi
 read -r action
+log_info "Interface action selected: $action" "$SCRIPT_NAME"
 
 case $action in
     1)
