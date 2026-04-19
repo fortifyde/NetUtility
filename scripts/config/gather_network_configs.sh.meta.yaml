@@ -75,6 +75,11 @@ script:
       - name: "grep"
         package: "grep"
         check_command: "which grep"
+    optional_tools:
+      - name: "expect"
+        package: "expect"
+        check_command: "which expect"
+        note: "Enables reliable paginated output collection for PTY-mode devices (e.g. Cisco Nexus)"
 
   output:
     creates_files: true
@@ -134,6 +139,8 @@ script:
     - "Generates summary report and retry script"
     - "Clean output with pagination and ANSI codes removed"
     - "Command lists customizable per vendor in commands/ directory"
+    - "Detects truncated output from pagination failures with layered fallbacks"
+    - "Uses expect (optional) for reliable paginated output when terminal paging cannot be disabled"
 
   version: "1.0.0"
   author: "fortifyde"
