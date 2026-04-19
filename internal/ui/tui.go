@@ -705,7 +705,7 @@ func (t *TUI) showCorrelationViewer() {
 		t.corrViewer.Close()
 		t.corrViewer = nil
 	}
-	t.corrViewer = NewCorrelationViewer(t.app, t.pages, t.correlator, t.returnToMain)
+	t.corrViewer = NewCorrelationViewer(t.app, t.pages, t.correlator, t.returnToMain, t.workspaceDir)
 	t.pages.AddPage("correlation", t.corrViewer, true, true)
 	t.app.SetFocus(t.corrViewer.hostsList)
 }

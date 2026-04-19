@@ -567,7 +567,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 			if buttonLabel == "View Inventory" {
 				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
 					d.app.SetFocus(d.hostsTable)
-				})
+				}, "")
 			}
 		})
 

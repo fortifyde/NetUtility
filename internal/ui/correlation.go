@@ -214,10 +214,11 @@ type CorrelationViewer struct {
 	refreshTicker        *time.Ticker
 	stopChan             chan struct{}
 	returnToMainCallback func()
+	workspaceDir         string
 }
 
 // NewCorrelationViewer creates a new correlation viewer
-func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func()) *CorrelationViewer {
+func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func(), workspaceDir string) *CorrelationViewer {
 	cv := &CorrelationViewer{
 		Flex:                 tview.NewFlex(),
 		app:                  app,
@@ -225,6 +226,7 @@ func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator
 		correlator:           correlator,
 		stopChan:             make(chan struct{}),
 		returnToMainCallback: returnToMainCallback,
+		workspaceDir:         workspaceDir,
 	}
 
 	cv.setupUI()
@@ -278,6 +280,7 @@ func (cv *CorrelationViewer) updateControlsText() {
 [white]Enter[::-]    View host details
 [white]/[::-]        Search by IP, hostname, port, service
 %s
+[white]Space[::-]    Categorize host
 [white]q[::-]        Close
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`, filterLine))
 }
@@ -308,6 +311,9 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 				return nil
 			case '/':
 				cv.openHostSearchModal()
+				return nil
+			case ' ':
+				cv.openCategorizationModal()
 				return nil
 			}
 		}
@@ -568,6 +574,61 @@ func (cv *CorrelationViewer) openHostSearchModal() {
 	cv.app.SetFocus(inputField)
 }
 
+func (cv *CorrelationViewer) openCategorizationModal() {
+	if cv.selectedHost == "" {
+		return
+	}
+	ip := cv.selectedHost
+
+	closeModal := func() {
+		cv.pages.RemovePage("host-categorize")
+		cv.app.SetFocus(cv.hostsList)
+	}
+
+	applyCategory := func(category string) {
+		closeModal()
+		go func() {
+			// In-memory state is updated even if persistence fails; discard the error.
+			_ = cv.correlator.SetManualCategory(ip, category)
+			if cv.workspaceDir != "" {
+				_ = correlation.MoveHostInHostfiles(cv.workspaceDir, ip, category)
+			}
+			cv.app.QueueUpdateDraw(func() {
+				cv.updateHostsList()
+				cv.updateDetailsPanel()
+			})
+		}()
+	}
+
+	list := tview.NewList().
+		AddItem("Windows", "", '1', func() { applyCategory("windows") }).
+		AddItem("Linux", "", '2', func() { applyCategory("linux") }).
+		AddItem("Network Device", "", '3', func() { applyCategory("network_device") }).
+		AddItem("Cancel", "", 'q', closeModal)
+	list.SetBorder(true).SetTitle(fmt.Sprintf("Categorize %s", ip))
+
+	list.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Key() == tcell.KeyEscape {
+			closeModal()
+			return nil
+		}
+		return event
+	})
+
+	centerRow := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(nil, 0, 2, false).
+		AddItem(list, 0, 3, true).
+		AddItem(nil, 0, 2, false)
+
+	modal := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 2, false).
+		AddItem(centerRow, 8, 0, true).
+		AddItem(nil, 0, 2, false)
+
+	cv.pages.AddPage("host-categorize", modal, true, true)
+	cv.app.SetFocus(list)
+}
+
 // showHostDetails updates the details panel for the selected host
 func (cv *CorrelationViewer) showHostDetails() {
 	cv.updateDetailsPanel()
@@ -616,8 +677,8 @@ func (cv *CorrelationViewer) Close() {
 
 // ShowCorrelationViewer creates and displays a correlation viewer page.
 // For the main TUI use showCorrelationViewer() which passes a proper returnToMain callback.
-func ShowCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func()) {
-	correlationViewer := NewCorrelationViewer(app, pages, correlator, returnToMainCallback)
+func ShowCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func(), workspaceDir string) {
+	correlationViewer := NewCorrelationViewer(app, pages, correlator, returnToMainCallback, workspaceDir)
 	pages.AddPage("correlation", correlationViewer, true, true)
 	app.SetFocus(correlationViewer.hostsList)
 }
