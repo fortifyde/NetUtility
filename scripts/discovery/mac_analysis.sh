@@ -4,8 +4,11 @@
 # Analyzes MAC addresses from network captures and provides vendor identification
 
 . "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== MAC Address Intelligence Analysis ==="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo
 
 CAPTURE_DIR="${NETUTIL_WORKDIR:-$HOME}/captures"
@@ -128,12 +131,14 @@ categorize_device() {
 
 if [ ! -d "$CAPTURE_DIR" ]; then
     echo "Capture directory $CAPTURE_DIR not found"
+    log_error "Capture directory not found: $CAPTURE_DIR" "$SCRIPT_NAME"
     exit 1
 fi
 
 echo "Available capture files:"
 ls -la "$CAPTURE_DIR"/*.pcap 2>/dev/null || {
     echo "No capture files found in $CAPTURE_DIR"
+    log_error "No .pcap files found in $CAPTURE_DIR" "$SCRIPT_NAME"
     exit 1
 }
 
@@ -142,6 +147,7 @@ capture_file=$(select_file "$CAPTURE_DIR" "*.pcap" "Select capture file for MAC 
 
 if [ ! -f "$capture_file" ]; then
     echo "Error: Capture file not found"
+    log_error "Selected capture file not found: $capture_file" "$SCRIPT_NAME"
     exit 1
 fi
 
@@ -149,6 +155,7 @@ fi
 # Use 'netutil update-oui' to update the database when needed
 
 echo "Analyzing MAC addresses in: $capture_file"
+log_info "Analyzing capture file: $capture_file" "$SCRIPT_NAME"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BASENAME=$(basename "$capture_file" .pcap)
@@ -169,6 +176,7 @@ echo "Extracting MAC addresses..."
 echo "--- ALL MAC ADDRESSES ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
+log_debug "Extracting MACs: tshark -r $capture_file -T fields -e eth.src" "$SCRIPT_NAME"
 tshark -r "$capture_file" -T fields -e eth.src 2>/dev/null | \
     grep -v "^$" | sort -u > "$TEMP_DIR/all_macs.txt"
 
@@ -308,6 +316,7 @@ echo >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 echo "Analysis completed at $(date)" >> "$REPORT_FILE"
 
+log_info "Analysis complete. Report: $REPORT_FILE. Unknown vendors: $unknown_count" "$SCRIPT_NAME"
 echo "Analysis complete!"
 echo "Report saved to: $REPORT_FILE"
 echo
