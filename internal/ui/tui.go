@@ -16,7 +16,7 @@ import (
 
 const (
 	AppName    = "NetUtility"
-	AppVersion = "v0.2.1"
+	AppVersion = "v0.3"
 )
 
 type TUI struct {
