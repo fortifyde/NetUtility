@@ -165,6 +165,7 @@ init_session() {
     SESSION_DIR="${NETUTIL_WORKDIR}/configs/${SESSION_ID}"
 
     mkdir -p "$SESSION_DIR" || {
+        log_error "Failed to create session directory: $SESSION_DIR" "$SCRIPT_NAME"
         print_error "Failed to create session directory: $SESSION_DIR"
         exit 1
     }
@@ -922,7 +923,7 @@ main() {
                 ;;
             --concurrency)
                 case "$2" in
-                    ''|*[!0-9]*) echo "Error: --concurrency requires a positive integer" >&2; exit 1 ;;
+                    ''|*[!0-9]*) log_error "Invalid --concurrency value: $2" "$SCRIPT_NAME"; echo "Error: --concurrency requires a positive integer" >&2; exit 1 ;;
                 esac
                 CONCURRENCY="$2"
                 shift 2
