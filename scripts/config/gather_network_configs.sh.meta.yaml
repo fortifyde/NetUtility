@@ -1,6 +1,6 @@
 script:
-  name: "Network Config Gatherer"
-  description: "Extract configurations and compliance data from network devices with vendor auto-detection"
+  name: "Gather Device Configs"
+  description: "SSH into network devices, auto-detect vendor, and extract running configs and compliance data"
   category: "advanced"
   subcategory: "backup"
 
