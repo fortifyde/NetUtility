@@ -194,6 +194,7 @@ type CorrelationViewer struct {
 	// State
 	selectedHost   string
 	filterCategory string // "" = all; "windows"/"linux"/"network_device"/"unknown" = filtered
+	filterText     string // "" = no text filter; non-empty = must match hostMatchesText
 	refreshTicker        *time.Ticker
 	stopChan             chan struct{}
 	returnToMainCallback func()
@@ -257,12 +258,18 @@ func (cv *CorrelationViewer) setupUI() {
 
 // updateControlsText re-renders the controls panel to reflect current filter state.
 func (cv *CorrelationViewer) updateControlsText() {
-	filterLine := "[white]f[::-]        Cycle category filter"
-	if cv.filterCategory != "" {
+	var filterLine string
+	switch {
+	case cv.filterText != "":
+		filterLine = "[yellow]f[::-]        Reset search"
+	case cv.filterCategory != "":
 		filterLine = fmt.Sprintf("[yellow]f[::-]        Cycle filter [%s]", cv.filterCategory)
+	default:
+		filterLine = "[white]f[::-]        Cycle category filter"
 	}
 	cv.controlsText.SetText(fmt.Sprintf(`[yellow]Controls:[::-]
 [white]Enter[::-]    View host details
+[white]/[::-]        Search by IP, hostname, port, service
 %s
 [white]q[::-]        Close
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`, filterLine))
@@ -284,7 +291,16 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 				cv.Close()
 				return nil
 			case 'f':
-				cv.cycleCategoryFilter()
+				if cv.filterText != "" {
+					cv.filterText = ""
+					cv.updateHostsList()
+					cv.updateControlsText()
+				} else {
+					cv.cycleCategoryFilter()
+				}
+				return nil
+			case '/':
+				cv.openHostSearchModal()
 				return nil
 			}
 		}
@@ -310,16 +326,25 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 
 // updateHostsList refreshes the hosts table with category-sorted inventory data.
 func (cv *CorrelationViewer) updateHostsList() {
-	title := "Host Inventory"
+	var catLabel string
 	switch cv.filterCategory {
 	case "windows":
-		title = "Host Inventory [Windows]"
+		catLabel = "Windows"
 	case "linux":
-		title = "Host Inventory [Linux]"
+		catLabel = "Linux"
 	case "network_device":
-		title = "Host Inventory [Network Devices]"
+		catLabel = "Network Devices"
 	case "unknown":
-		title = "Host Inventory [Unknown]"
+		catLabel = "Unknown"
+	}
+	title := "Host Inventory"
+	switch {
+	case catLabel != "" && cv.filterText != "":
+		title = fmt.Sprintf("Host Inventory [%s · search: %s]", catLabel, cv.filterText)
+	case catLabel != "":
+		title = fmt.Sprintf("Host Inventory [%s]", catLabel)
+	case cv.filterText != "":
+		title = fmt.Sprintf("Host Inventory [search: %s]", cv.filterText)
 	}
 	cv.hostsList.SetTitle(title)
 
@@ -346,7 +371,8 @@ func (cv *CorrelationViewer) updateHostsList() {
 	var entries []hostEntry
 	for ip, result := range correlations {
 		cat := hostCategory(result)
-		if cv.filterCategory == "" || cat == cv.filterCategory {
+		if (cv.filterCategory == "" || cat == cv.filterCategory) &&
+			hostMatchesText(ip, result, cv.filterText) {
 			entries = append(entries, hostEntry{ip, result})
 		}
 	}
@@ -477,6 +503,57 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 	cv.detailsPanel.SetText(b.String())
 }
 
+
+// openHostSearchModal opens a compact modal for entering a text filter.
+// Enter applies the filter; Esc cancels.
+func (cv *CorrelationViewer) openHostSearchModal() {
+	inputField := tview.NewInputField().
+		SetLabel("Filter: ").
+		SetFieldWidth(0).
+		SetText(cv.filterText)
+
+	closeModal := func() {
+		cv.pages.RemovePage("host-search")
+		cv.app.SetFocus(cv.hostsList)
+	}
+
+	applyFilter := func() {
+		cv.filterText = strings.TrimSpace(inputField.GetText())
+		closeModal()
+		cv.updateHostsList()
+		cv.updateControlsText()
+	}
+
+	inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyEnter:
+			applyFilter()
+			return nil
+		case tcell.KeyEscape:
+			closeModal()
+			return nil
+		}
+		return event
+	})
+
+	// Fixed-height content box: border (2) + input field (1) + padding (2) = 5 rows
+	contentBox := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(inputField, 3, 0, true)
+	contentBox.SetBorder(true).SetTitle("Filter Hosts")
+
+	centerRow := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(nil, 0, 3, false).
+		AddItem(contentBox, 0, 4, true).
+		AddItem(nil, 0, 3, false)
+
+	modal := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 2, false).
+		AddItem(centerRow, 5, 0, true).
+		AddItem(nil, 0, 2, false)
+
+	cv.pages.AddPage("host-search", modal, true, true)
+	cv.app.SetFocus(inputField)
+}
 
 // showHostDetails updates the details panel for the selected host
 func (cv *CorrelationViewer) showHostDetails() {
