@@ -30,14 +30,15 @@ type TUI struct {
 	infoPane     *tview.TextView
 
 	// State management
-	currentCategory string
-	workspaceDir    string
-	registry        *metadata.ScriptRegistry
-	jobManager      *jobs.JobManager
-	correlator      *correlation.Correlator
-	jobsViewer      *JobsViewer
-	dashboardViewer *Dashboard
-	corrViewer      *CorrelationViewer
+	currentCategory          string
+	workspaceDir             string
+	registry                 *metadata.ScriptRegistry
+	jobManager               *jobs.JobManager
+	correlator               *correlation.Correlator
+	jobsViewer               *JobsViewer
+	dashboardViewer          *Dashboard
+	corrViewer               *CorrelationViewer
+	taskListIsContinuation   []bool // true for wrapped-description continuation rows
 
 	jobCounter atomic.Int64
 }
@@ -125,6 +126,31 @@ func (t *TUI) getCategoriesFromMetadata() []Category {
 
 	categories = mergeInterfaceTasks(categories)
 	return mergeCaptureAnalysisTasks(categories)
+}
+
+// wrapText splits text into lines of at most width runes, breaking at word boundaries.
+func wrapText(text string, width int) []string {
+	if width <= 0 || text == "" {
+		return []string{text}
+	}
+	var lines []string
+	for len(text) > 0 {
+		if len([]rune(text)) <= width {
+			lines = append(lines, text)
+			break
+		}
+		cutAt := width
+		runes := []rune(text)
+		for cutAt > 0 && runes[cutAt] != ' ' {
+			cutAt--
+		}
+		if cutAt == 0 {
+			cutAt = width // no space found — hard cut
+		}
+		lines = append(lines, string(runes[:cutAt]))
+		text = strings.TrimLeft(string(runes[cutAt:]), " ")
+	}
+	return lines
 }
 
 // formatCategoryName converts metadata category names to display names
@@ -407,7 +433,7 @@ func (t *TUI) setupUI() {
 
 	// Setup task pane (75% width)
 	t.taskPane.SetBorder(true).SetTitle("Select a category")
-	t.taskPane.ShowSecondaryText(true)
+	t.taskPane.ShowSecondaryText(false)
 
 	// Populate categories
 	for i, category := range t.getCategories() {
@@ -422,8 +448,11 @@ func (t *TUI) setupUI() {
 		t.showCategory(mainText)
 	})
 
-	// Set task selection handler
+	// Set task selection handler — ignore continuation (wrapped description) rows
 	t.taskPane.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		if t.isContinuation(index) {
+			return
+		}
 		t.executeTask(mainText)
 	})
 
@@ -452,28 +481,25 @@ func (t *TUI) setupUI() {
 		return event
 	})
 
-	// Add j/k navigation support to task pane
+	// Add j/k and arrow key navigation to task pane, skipping continuation rows
 	t.taskPane.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyRune {
+		switch event.Key() {
+		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'j':
-				// Move down (like down arrow)
-				currentItem := t.taskPane.GetCurrentItem()
-				itemCount := t.taskPane.GetItemCount()
-				if currentItem < itemCount-1 {
-					t.taskPane.SetCurrentItem(currentItem + 1)
-				}
+				t.moveTaskDown()
 				return nil
 			case 'k':
-				// Move up (like up arrow)
-				currentItem := t.taskPane.GetCurrentItem()
-				if currentItem > 0 {
-					t.taskPane.SetCurrentItem(currentItem - 1)
-				}
+				t.moveTaskUp()
 				return nil
 			}
+		case tcell.KeyDown:
+			t.moveTaskDown()
+			return nil
+		case tcell.KeyUp:
+			t.moveTaskUp()
+			return nil
 		}
-		// Let all other keys pass through to global handler
 		return event
 	})
 
@@ -617,13 +643,25 @@ func (t *TUI) setActiveFocus(pane *tview.List) {
 func (t *TUI) showCategory(categoryName string) {
 	t.currentCategory = categoryName
 	t.taskPane.Clear()
+	t.taskListIsContinuation = t.taskListIsContinuation[:0]
 	t.taskPane.SetTitle(fmt.Sprintf("Tasks - %s", categoryName))
+
+	_, _, paneWidth, _ := t.taskPane.GetInnerRect()
+	if paneWidth <= 0 {
+		paneWidth = 58 // fallback before first draw
+	}
 
 	// Find and display tasks for selected category
 	for _, category := range t.getCategories() {
 		if category.Name == categoryName {
 			for i, task := range category.Tasks {
-				t.taskPane.AddItem(task.Name, task.Description, rune('1'+i), nil)
+				lines := wrapText(task.Description, paneWidth)
+				t.taskPane.AddItem(task.Name, "", rune('1'+i), nil)
+				t.taskListIsContinuation = append(t.taskListIsContinuation, false)
+				for _, line := range lines {
+					t.taskPane.AddItem("  "+line, "", 0, nil)
+					t.taskListIsContinuation = append(t.taskListIsContinuation, true)
+				}
 			}
 			break
 		}
@@ -631,6 +669,33 @@ func (t *TUI) showCategory(categoryName string) {
 
 	// Switch focus to task pane and update visual focus indicator
 	t.setActiveFocus(t.taskPane)
+}
+
+func (t *TUI) isContinuation(idx int) bool {
+	return idx >= 0 && idx < len(t.taskListIsContinuation) && t.taskListIsContinuation[idx]
+}
+
+func (t *TUI) moveTaskDown() {
+	cur := t.taskPane.GetCurrentItem()
+	count := t.taskPane.GetItemCount()
+	next := cur + 1
+	for next < count && t.isContinuation(next) {
+		next++
+	}
+	if next < count {
+		t.taskPane.SetCurrentItem(next)
+	}
+}
+
+func (t *TUI) moveTaskUp() {
+	cur := t.taskPane.GetCurrentItem()
+	prev := cur - 1
+	for prev >= 0 && t.isContinuation(prev) {
+		prev--
+	}
+	if prev >= 0 {
+		t.taskPane.SetCurrentItem(prev)
+	}
 }
 
 func (t *TUI) executeTask(taskName string) {
@@ -843,14 +908,66 @@ func (t *TUI) startSearch() {
 		SetLabel("Search: ").
 		SetFieldWidth(0)
 
-	resultList := tview.NewList().ShowSecondaryText(true)
+	resultList := tview.NewList().ShowSecondaryText(false)
+
+	// searchContinuations[i] == true means list item i is a wrapped description line, not a result
+	var searchContinuations []bool
+	// searchResultIdx[i] is the results[] index for list item i (-1 for continuation items)
+	var searchResultIdx []int
+
+	isCont := func(idx int) bool {
+		return idx >= 0 && idx < len(searchContinuations) && searchContinuations[idx]
+	}
+	resultForIdx := func(idx int) int {
+		if idx < 0 || idx >= len(searchResultIdx) {
+			return -1
+		}
+		return searchResultIdx[idx]
+	}
+
+	moveSearchDown := func() {
+		cur := resultList.GetCurrentItem()
+		count := resultList.GetItemCount()
+		next := cur + 1
+		for next < count && isCont(next) {
+			next++
+		}
+		if next < count {
+			resultList.SetCurrentItem(next)
+		}
+	}
+	moveSearchUp := func() {
+		cur := resultList.GetCurrentItem()
+		prev := cur - 1
+		for prev >= 0 && isCont(prev) {
+			prev--
+		}
+		if prev >= 0 {
+			resultList.SetCurrentItem(prev)
+		}
+	}
 
 	updateResults := func(query string) {
 		resultList.Clear()
+		searchContinuations = searchContinuations[:0]
+		searchResultIdx = searchResultIdx[:0]
 		results = t.searchAllCategories(query)
-		for _, r := range results {
-			secondary := fmt.Sprintf("[%s] %s", r.CategoryName, r.Task.Description)
-			resultList.AddItem(r.Task.Name, secondary, 0, nil)
+
+		_, _, listWidth, _ := resultList.GetInnerRect()
+		if listWidth <= 0 {
+			listWidth = 36 // fallback before first draw (40% of 80col - borders)
+		}
+
+		for i, r := range results {
+			header := fmt.Sprintf("%s  [%s]", r.Task.Name, r.CategoryName)
+			resultList.AddItem(header, "", 0, nil)
+			searchContinuations = append(searchContinuations, false)
+			searchResultIdx = append(searchResultIdx, i)
+			for _, line := range wrapText(r.Task.Description, listWidth) {
+				resultList.AddItem("  "+line, "", 0, nil)
+				searchContinuations = append(searchContinuations, true)
+				searchResultIdx = append(searchResultIdx, i)
+			}
 		}
 	}
 
@@ -877,25 +994,36 @@ func (t *TUI) startSearch() {
 			closeModal()
 			return nil
 		case tcell.KeyUp:
-			if resultList.GetCurrentItem() == 0 {
+			cur := resultList.GetCurrentItem()
+			prev := cur - 1
+			for prev >= 0 && isCont(prev) {
+				prev--
+			}
+			if prev < 0 {
 				t.app.SetFocus(inputField)
 				return nil
 			}
+			moveSearchUp()
+			return nil
+		case tcell.KeyDown:
+			moveSearchDown()
+			return nil
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'j':
-				cur := resultList.GetCurrentItem()
-				if cur < resultList.GetItemCount()-1 {
-					resultList.SetCurrentItem(cur + 1)
-				}
+				moveSearchDown()
 				return nil
 			case 'k':
 				cur := resultList.GetCurrentItem()
-				if cur > 0 {
-					resultList.SetCurrentItem(cur - 1)
-				} else {
-					t.app.SetFocus(inputField)
+				prev := cur - 1
+				for prev >= 0 && isCont(prev) {
+					prev--
 				}
+				if prev < 0 {
+					t.app.SetFocus(inputField)
+					return nil
+				}
+				moveSearchUp()
 				return nil
 			}
 		}
@@ -903,10 +1031,11 @@ func (t *TUI) startSearch() {
 	})
 
 	resultList.SetSelectedFunc(func(index int, _, _ string, _ rune) {
-		if index >= len(results) {
+		ri := resultForIdx(index)
+		if ri < 0 || ri >= len(results) {
 			return
 		}
-		r := results[index]
+		r := results[ri]
 		closeModal()
 		t.currentCategory = r.CategoryName
 		if len(r.Task.SubTasks) > 0 {
