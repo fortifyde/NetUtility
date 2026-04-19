@@ -1,8 +1,11 @@
 #!/bin/sh
 
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/logging.sh" 2>/dev/null || true
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== DNS Configuration ==="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
 
 echo "Current DNS configuration:"
@@ -31,6 +34,7 @@ else
     printf "Select option (1-6): \n" >&2
 fi
 read -r option
+log_info "DNS option selected: $option" "$SCRIPT_NAME"
 
 case $option in
     1)
@@ -43,14 +47,16 @@ case $option in
         read -r nameserver
         if ! echo "$nameserver" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
+            log_error "Failed to add nameserver" "$SCRIPT_NAME"
             exit 1
         fi
-        
+
         if grep -q "nameserver $nameserver" /etc/resolv.conf; then
             echo "Nameserver $nameserver already exists"
         else
             echo "nameserver $nameserver" >> /etc/resolv.conf
             echo "Nameserver $nameserver added"
+            log_info "Nameserver added: $nameserver" "$SCRIPT_NAME"
         fi
         ;;
     2)
@@ -65,10 +71,11 @@ case $option in
             echo "Error: Invalid IP format"
             exit 1
         fi
-        
+
         if grep -q "nameserver $nameserver" /etc/resolv.conf; then
             sed -i "/nameserver $nameserver/d" /etc/resolv.conf
             echo "Nameserver $nameserver removed"
+            log_info "Nameserver removed from /etc/resolv.conf" "$SCRIPT_NAME"
         else
             echo "Nameserver $nameserver not found"
         fi
@@ -85,13 +92,14 @@ case $option in
             echo "Error: Invalid domain format"
             exit 1
         fi
-        
+
         if grep -q "search " /etc/resolv.conf; then
             sed -i "s/search .*/search $domain/" /etc/resolv.conf
         else
             echo "search $domain" >> /etc/resolv.conf
         fi
         echo "Search domain set to $domain"
+        log_info "Search domain set" "$SCRIPT_NAME"
         ;;
     4)
         backup_file="/tmp/resolv.conf.backup.$(date +%Y%m%d_%H%M%S)"
