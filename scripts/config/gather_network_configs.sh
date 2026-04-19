@@ -33,6 +33,9 @@ if ! command -v sshpass >/dev/null 2>&1; then
     exit 1
 fi
 
+HAS_EXPECT=0
+command -v expect >/dev/null 2>&1 && HAS_EXPECT=1
+
 # Global variables
 VERSION="1.0.0"
 NETUTIL_WORKDIR="${NETUTIL_WORKDIR:-$HOME}"
@@ -143,6 +146,12 @@ SUPPORTED VENDORS:
     - HP ProVision
     - HP Aruba (ArubaOS-CX)
     - HP Aruba (ArubaOS-Switch)
+
+OPTIONAL DEPENDENCIES:
+    - expect          Reliable paginated output collection for PTY-mode
+                     devices (e.g. Cisco Nexus). Install with:
+                       Fedora/RHEL:  sudo dnf install expect
+                       Debian/Ubuntu: sudo apt-get install expect
 
 EOF
 }
@@ -331,10 +340,121 @@ get_terminal_setup() {
     esac
 }
 
+get_terminal_fallback() {
+    vendor="$1"
+
+    case "$vendor" in
+        cisco_nexus)
+            echo "terminal pager cat"
+            ;;
+        hp_comware)
+            echo "screen-length 0 temporary"
+            ;;
+        hp_provision|aruba_switch)
+            echo "terminal length 0"
+            ;;
+        aruba_cx)
+            echo "terminal length 0"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+exec_ssh_with_expect() {
+    _e_ip="$1"
+    _e_user="$2"
+    _e_pass="$3"
+    _e_cmd="$4"
+    _e_term="$5"
+    _e_enable="$6"
+
+    _e_script=$(mktemp)
+    chmod 600 "$_e_script"
+
+    cat > "$_e_script" << 'EXPEOF'
+#!/usr/bin/expect -f
+set timeout 15
+log_user 1
+EXPEOF
+
+    printf 'set _password {%s}\n' "$_e_pass" >> "$_e_script"
+    printf 'set _username {%s}\n' "$_e_user" >> "$_e_script"
+    printf 'set _device_ip {%s}\n' "$_e_ip" >> "$_e_script"
+    printf 'set _cmd {%s}\n' "$_e_cmd" >> "$_e_script"
+
+    cat >> "$_e_script" << 'EXPEOF'
+spawn sshpass -p $_password ssh -tt -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR $_username@$_device_ip
+
+expect {
+    -re {Press any key to continue} {
+        send "\r"
+        exp_continue
+    }
+    -re {[#>]\\s*$} {
+    }
+    timeout {
+        exit 1
+    }
+}
+EXPEOF
+
+    if [ -n "$_e_enable" ]; then
+        printf 'set _enable_pass {%s}\n' "$_e_enable" >> "$_e_script"
+        cat >> "$_e_script" << 'EXPEOF'
+send "enable\r"
+expect "Password:"
+send "$_enable_pass\r"
+expect -re {[#>]\\s*$}
+EXPEOF
+    fi
+
+    if [ -n "$_e_term" ]; then
+        printf 'set _term {%s}\n' "$_e_term" >> "$_e_script"
+        cat >> "$_e_script" << 'EXPEOF'
+send "$_term\r"
+expect -re {[#>]\\s*$}
+EXPEOF
+    fi
+
+    cat >> "$_e_script" << 'EXPEOF'
+send "$_cmd\r"
+
+expect {
+    -re {--More--} {
+        send " "
+        exp_continue
+    }
+    -re {---- More ----} {
+        send " "
+        exp_continue
+    }
+    -re {Press any key} {
+        send " "
+        exp_continue
+    }
+    -re {\n\S+[#>] ?$} {
+    }
+    timeout {
+    }
+}
+
+send "exit\r"
+expect eof
+EXPEOF
+
+    expect "$_e_script" 2>/dev/null
+    _e_status=$?
+    rm -f "$_e_script"
+    return $_e_status
+}
+
 # Execute command on device via SSH
 # Optional 5th arg: terminal_cmd prepended in the same session to disable paging
 # Optional 6th arg: enable_pass to enter privileged EXEC mode before running commands
 # Optional 7th arg: "compliance" to use clean_output_compliance (keeps command echoes)
+# Optional 8th arg: vendor name for pagination fallback commands
 exec_ssh_command() {
     device_ip="$1"
     username="$2"
@@ -349,20 +469,70 @@ exec_ssh_command() {
     _filter="clean_output"
     [ "${7:-}" = "compliance" ] && _filter="clean_output_compliance"
 
+    _vendor="${8:-}"
+    _raw=$(mktemp)
+
     {
         printf '\n\n\n'
         [ -n "$enable_pass" ] && printf 'enable\n%s\n' "$enable_pass"
         [ -n "$terminal_cmd" ] && printf '%s\n' "$terminal_cmd"
         printf '%s\nexit\n' "$command"
-        # PTY sessions (e.g. HP Aruba): sshpass forwards stdin EOF to SSH before the
-        # switch processes commands. Keep the pipe open so commands execute before EOF.
         [ "$_pty_flag" = "-tt" ] && sleep 3
     } | run_sshpass "$password" "$_pty_flag" \
         -o ConnectTimeout=10 \
         -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o LogLevel=ERROR \
-        "$username@$device_ip" 2>/dev/null | $_filter
+        "$username@$device_ip" 2>/dev/null > "$_raw"
+
+    if [ "$_pty_flag" = "-tt" ] && grep -q -- '--More--\|---- More ----' "$_raw" 2>/dev/null; then
+        print_warning "Pagination detected in output, attempting fallbacks..."
+
+        _fallback_term=""
+        [ -n "$_vendor" ] && _fallback_term=$(get_terminal_fallback "$_vendor")
+
+        if [ -n "$_fallback_term" ]; then
+            print_info "Retrying with fallback terminal command: $_fallback_term"
+            {
+                printf '\n\n\n'
+                [ -n "$enable_pass" ] && printf 'enable\n%s\n' "$enable_pass"
+                printf '%s\n' "$_fallback_term"
+                printf '%s\nexit\n' "$command"
+                sleep 3
+            } | run_sshpass "$password" "$_pty_flag" \
+                -o ConnectTimeout=10 \
+                -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                -o LogLevel=ERROR \
+                "$username@$device_ip" 2>/dev/null > "$_raw"
+        fi
+
+        if grep -q -- '--More--\|---- More ----' "$_raw" 2>/dev/null; then
+            if [ "$HAS_EXPECT" = "1" ]; then
+                print_info "Using expect for paginated output collection"
+                _expect_raw=$(mktemp)
+                exec_ssh_with_expect "$device_ip" "$username" "$password" \
+                    "$command" "$terminal_cmd" "$enable_pass" > "$_expect_raw" 2>/dev/null
+                if [ -s "$_expect_raw" ]; then
+                    mv "$_expect_raw" "$_raw"
+                else
+                    rm -f "$_expect_raw"
+                    print_warning "Expect fallback failed, saving potentially truncated output"
+                    printf '!!! WARNING: OUTPUT MAY BE TRUNCATED !!!\n' >> "$_raw"
+                    printf '!!! Pagination could not be disabled !!!\n' >> "$_raw"
+                fi
+            else
+                print_warning "Output may be truncated (install expect for reliable pagination handling)"
+                printf '!!! WARNING: OUTPUT MAY BE TRUNCATED !!!\n' >> "$_raw"
+                printf '!!! Pagination could not be disabled and expect is not installed !!!\n' >> "$_raw"
+            fi
+        else
+            print_success "Fallback terminal command resolved pagination"
+        fi
+    fi
+
+    cat "$_raw" | $_filter
+    rm -f "$_raw"
 }
 
 # Load command file for vendor
@@ -504,7 +674,7 @@ process_device() {
             @RUNNING_CONFIG_ALL*)
                 cmd=$(echo "$line" | sed 's/@RUNNING_CONFIG_ALL //')
                 print_step "Executing: $cmd on $device_ip"
-                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" 2>&1)
+                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" "" "$vendor" 2>&1)
                 if [ -n "$output" ]; then
                     echo "$output" > "${device_dir}/running_config_all.txt"
                     print_success "Saved: running_config_all.txt"
@@ -517,7 +687,7 @@ process_device() {
             @RUNNING_CONFIG*)
                 cmd=$(echo "$line" | sed 's/@RUNNING_CONFIG //')
                 print_step "Executing: $cmd on $device_ip"
-                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" 2>&1)
+                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" "" "$vendor" 2>&1)
                 if [ -n "$output" ]; then
                     echo "$output" > "${device_dir}/running_config.txt"
                     print_success "Saved: running_config.txt"
@@ -530,7 +700,7 @@ process_device() {
             @STARTUP_CONFIG*)
                 cmd=$(echo "$line" | sed 's/@STARTUP_CONFIG //')
                 print_step "Executing: $cmd on $device_ip"
-                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" 2>&1)
+                output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" "" "$vendor" 2>&1)
                 if [ -n "$output" ]; then
                     echo "$output" > "${device_dir}/startup_config.txt"
                     print_success "Saved: startup_config.txt"
@@ -558,7 +728,7 @@ process_device() {
 
     if [ -n "$compliance_bundle" ]; then
         print_step "Executing compliance commands on $device_ip (bundled session)..."
-        output=$(exec_ssh_command "$device_ip" "$username" "$password" "$compliance_bundle" "$terminal_cmd" "" "compliance" 2>&1)
+        output=$(exec_ssh_command "$device_ip" "$username" "$password" "$compliance_bundle" "$terminal_cmd" "" "compliance" "$vendor" 2>&1)
         if [ -n "$output" ]; then
             echo "$output" >> "$compliance_file"
             print_success "Saved: compliance_commands.txt"
