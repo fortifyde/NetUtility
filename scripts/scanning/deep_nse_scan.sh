@@ -4,8 +4,11 @@
 # shellcheck source=../common/utils.sh
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== Deep Port Scan with NSE Vulnerability Detection ==="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
 echo "⚠️  WARNING: This script uses NSE vulnerability scripts (vuln category)"
 echo "⚠️  These scripts may:"
@@ -28,13 +31,16 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 targets=$(select_target)
 if [ -z "$targets" ]; then
     error_message "No target selected"
+    log_error "No target selected" "$SCRIPT_NAME"
     exit 1
 fi
 
 success_message "Selected target: $targets"
+log_info "Target selected: $targets" "$SCRIPT_NAME"
 
 if ! confirm_action "Do you want to proceed with the vulnerability scan?"; then
     echo "Scan cancelled by user"
+    log_info "Scan cancelled by user" "$SCRIPT_NAME"
     exit 0
 fi
 
@@ -78,6 +84,8 @@ case $intensity in
         ;;
 esac
 
+log_info "Scan type: $scan_type, ports: $ports" "$SCRIPT_NAME"
+
 SCAN_RESULTS="$RESULTS_DIR/deep_scan_${scan_type}_${TIMESTAMP}.txt"
 NSE_RESULTS="$RESULTS_DIR/nse_vuln_scan_${TIMESTAMP}.txt"
 REPORT_FILE="$RESULTS_DIR/vulnerability_report_${TIMESTAMP}.txt"
@@ -99,12 +107,14 @@ echo >&2
 echo "Phase 1: Deep port scan with service detection..."
 echo "Command: nmap -sS -sV -O $ports $targets"
 
+log_debug "Phase 1 nmap: nmap -sS -sV -O $ports $targets -oN $SCAN_RESULTS" "$SCRIPT_NAME"
 # shellcheck disable=SC2086
 nmap -sS -sV -O $ports $targets -oN "$SCAN_RESULTS"
 
 echo "Phase 2: NSE vulnerability scanning..."
 echo "Running NSE vuln scripts (excludes brute-force and DoS)..."
 
+log_debug "Phase 2 nmap: nmap --script 'vuln and not brute and not dos' $targets -oN $NSE_RESULTS" "$SCRIPT_NAME"
 # shellcheck disable=SC2086
 nmap --script "vuln and not brute and not dos" $targets -oN "$NSE_RESULTS"
 
@@ -298,6 +308,7 @@ low_count=$(grep -ic "low" "$NSE_RESULTS" || true)
 } >> "$REPORT_FILE"
 
 echo "Vulnerability scan complete!"
+log_info "Scan complete. Critical: $critical_count, High: $high_count. Results: $RESULTS_DIR" "$SCRIPT_NAME"
 echo >&2
 echo "Files created:"
 echo "  Port scan results: $SCAN_RESULTS"
