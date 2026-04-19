@@ -167,6 +167,22 @@ func hostMatchesText(ip string, result *correlation.CorrelationResult, text stri
 // filterCategories defines the cycling order for the category filter.
 var filterCategories = []string{"", "windows", "linux", "network_device", "unknown"}
 
+// categoryDisplayLabel returns the display label for a category raw value.
+func categoryDisplayLabel(cat string) string {
+	switch cat {
+	case "windows":
+		return "Windows"
+	case "linux":
+		return "Linux"
+	case "network_device":
+		return "Network Devices"
+	case "unknown":
+		return "Unknown"
+	default:
+		return ""
+	}
+}
+
 // cycleCategoryFilter advances filterCategory to the next value in the cycle.
 func (cv *CorrelationViewer) cycleCategoryFilter() {
 	for i, cat := range filterCategories {
@@ -263,7 +279,7 @@ func (cv *CorrelationViewer) updateControlsText() {
 	case cv.filterText != "":
 		filterLine = "[yellow]f[::-]        Reset search"
 	case cv.filterCategory != "":
-		filterLine = fmt.Sprintf("[yellow]f[::-]        Cycle filter [%s]", cv.filterCategory)
+		filterLine = fmt.Sprintf("[yellow]f[::-]        Cycle filter [%s]", categoryDisplayLabel(cv.filterCategory))
 	default:
 		filterLine = "[white]f[::-]        Cycle category filter"
 	}
@@ -326,17 +342,7 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 
 // updateHostsList refreshes the hosts table with category-sorted inventory data.
 func (cv *CorrelationViewer) updateHostsList() {
-	var catLabel string
-	switch cv.filterCategory {
-	case "windows":
-		catLabel = "Windows"
-	case "linux":
-		catLabel = "Linux"
-	case "network_device":
-		catLabel = "Network Devices"
-	case "unknown":
-		catLabel = "Unknown"
-	}
+	catLabel := categoryDisplayLabel(cv.filterCategory)
 	title := "Host Inventory"
 	switch {
 	case catLabel != "" && cv.filterText != "":
