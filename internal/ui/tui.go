@@ -824,6 +824,8 @@ func (t *TUI) startSearch() {
 				cur := resultList.GetCurrentItem()
 				if cur > 0 {
 					resultList.SetCurrentItem(cur - 1)
+				} else {
+					t.app.SetFocus(inputField)
 				}
 				return nil
 			}
