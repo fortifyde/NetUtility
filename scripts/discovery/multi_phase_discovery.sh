@@ -656,8 +656,9 @@ extract_host_data() {
     # Use awk to extract from "Nmap scan report for $ip" until next host
     # This prevents capturing data from other hosts
     awk -v ip="$ip" '
+        BEGIN { gsub(/\./, "\\.", ip); pat = " " ip "($| |\\))" }
         /Nmap scan report for/ {
-            if ($0 ~ ip) {
+            if ($0 ~ pat) {
                 found=1
             } else if (found) {
                 exit
@@ -719,6 +720,32 @@ get_mac_vendor() {
     else
         echo "Unknown"
     fi
+}
+
+# Get raw MAC address for a host (without vendor lookup)
+# Checks ARP cache first, then nmap output files.
+# Outputs the MAC address (uppercase colon-separated) or nothing.
+get_mac_address() {
+    ip="$1"
+    mac=""
+
+    mac=$(ip neigh show "$ip" 2>/dev/null | awk '{print $5}' | head -1)
+
+    if [ -z "$mac" ] || [ "$mac" = "FAILED" ]; then
+        for scan_dir in "$SESSION_DIR" "$PHASE5_DIR/raw_scans" "$PHASE6_DIR/raw_scans" "$PHASE2_DIR"; do
+            for scan_file in "$scan_dir"/nmap_*.txt "$scan_dir"/nmap_*.nmap; do
+                if [ -f "$scan_file" ]; then
+                    host_data=$(extract_host_data "$ip" "$scan_file")
+                    mac=$(echo "$host_data" | grep -i "MAC Address:" | head -1 | awk '{print $3}')
+                    if [ -n "$mac" ] && [ "$mac" != "FAILED" ]; then
+                        break 2
+                    fi
+                fi
+            done
+        done
+    fi
+
+    [ -n "$mac" ] && [ "$mac" != "FAILED" ] && echo "$mac"
 }
 
 # Extract SSH banner from nmap results
@@ -2624,7 +2651,7 @@ if [ "$dns_configured" = "true" ]; then
     while read -r host; do
         if [ -n "$host" ]; then
             # Try reverse DNS lookup
-            hostname=$(dig +short -x "$host" 2>/dev/null | sed 's/\.$//g')
+            hostname=$(dig +short -x "$host" 2>/dev/null | grep -v "^;;" | sed 's/\.$//g' | head -1)
             if [ -z "$hostname" ]; then
                 hostname=$(nslookup "$host" 2>/dev/null | grep "name =" | head -1 | awk '{print $4}' | sed 's/\.$//g')
             fi
@@ -2911,7 +2938,7 @@ mkdir -p "$PHASE7_DIR"
 # HOSTFILES_DIR already created at session init; vendor files are flat inside it
 
 # Create categorization details file header
-printf 'IP\tHostname\tCategory\tVendor\tConfidence\tScore\tEvidence\n' \
+printf 'IP\tHostname\tCategory\tVendor\tConfidence\tScore\tEvidence\tMAC\n' \
     > "$PHASE7_DIR/categorization_details.txt"
 
 # Categorize based on advanced scoring system
@@ -2928,14 +2955,17 @@ while read -r host; do
         evidence=$(  echo "$result" | cut -d'|' -f5)
 
         # Get hostname for display (file contains literal \t not tab character)
-        hostname=$(grep "^$host" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | awk -F'\t' '{print $2}' | head -1)
+        hostname=$(grep "^${host}	" "$PHASE3_DIR/dns_results.txt" 2>/dev/null | awk -F'\t' '{print $2}' | head -1)
         if [ -z "$hostname" ] || [ "$hostname" = "<no hostname>" ]; then
             hostname="-"
         fi
 
-        # Write to categorization details (7 columns: backward-compatible + Evidence)
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$host" "$hostname" "$category" "$vendor" "$confidence" "$score" "$evidence" \
+        # Get MAC address from evidence file (written by ph7_collect_evidence)
+        mac_addr=$(grep "^mac_address:" "$PHASE7_DIR/evidence/${host}.ev" 2>/dev/null | cut -d: -f2-)
+
+        # Write to categorization details (8 columns: IP, Hostname, Category, Vendor, Confidence, Score, Evidence, MAC)
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$host" "$hostname" "$category" "$vendor" "$confidence" "$score" "$evidence" "$mac_addr" \
             >> "$PHASE7_DIR/categorization_details.txt"
 
         # Add to appropriate category files (files created on first write)

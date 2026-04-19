@@ -48,13 +48,15 @@ ph7_collect_evidence() {
         | cut -f2- | head -1)
     [ -n "$_p7_snmp_sysdescr" ] && printf 'snmp_sysdescr:%s\n' "$_p7_snmp_sysdescr" >> "$_p7_ev_file"
 
-    # --- MAC vendor (ouihelper via ARP cache or nmap scan data) ---
+    # --- MAC address + vendor (ouihelper via ARP cache or nmap scan data) ---
+    _p7_mac_addr=$(get_mac_address "$_p7_ip")
+    [ -n "$_p7_mac_addr" ] && printf 'mac_address:%s\n' "$_p7_mac_addr" >> "$_p7_ev_file"
     _p7_mac_vendor=$(get_mac_vendor "$_p7_ip")
     [ "$_p7_mac_vendor" = "Unknown" ] && _p7_mac_vendor=""
     [ -n "$_p7_mac_vendor" ] && printf 'mac_vendor:%s\n' "$_p7_mac_vendor" >> "$_p7_ev_file"
 
     # --- DNS hostname (Phase 3, tab-separated: IP<TAB>HOSTNAME) ---
-    _p7_dns_hostname=$(grep "^${_p7_ip}" "$PHASE3_DIR/dns_results.txt" 2>/dev/null \
+    _p7_dns_hostname=$(grep "^${_p7_ip}	" "$PHASE3_DIR/dns_results.txt" 2>/dev/null \
         | awk -F'\t' '{print $2}' | head -1)
     if [ -n "$_p7_dns_hostname" ] && [ "$_p7_dns_hostname" != "<no hostname>" ]; then
         printf 'dns_hostname:%s\n' "$_p7_dns_hostname" >> "$_p7_ev_file"
@@ -179,6 +181,9 @@ EOF
             _p7_category="network_device"; _p7_vendor="printer"
         elif echo "$_p7_category" | grep -q "network_device"; then
             _p7_vendor=$(detect_device_vendor "$_p7_ip" "$_p7_mac_vendor" "$_p7_ssh_banner" "$_p7_http_server" "$_p7_snmp_sysdescr")
+        fi
+        if [ "$_p7_vendor" = "-" ] && [ -n "$_p7_mac_vendor" ]; then
+            _p7_vendor="$_p7_mac_vendor"
         fi
         printf '  FINAL: %s | %s | %s | %s | %s\n' \
             "$_p7_category" "$_p7_vendor" "$_p7_confidence" "$_p7_score" "$_p7_evidence" >> "$_p7_debug_file"
@@ -489,6 +494,11 @@ EOF
     # =========================================================
     if [ "$_p7_category" = "network_device" ] && [ "$_p7_vendor" = "-" ]; then
         _p7_vendor=$(detect_device_vendor "$_p7_ip" "$_p7_mac_vendor" "$_p7_ssh_banner" "$_p7_http_server" "$_p7_snmp_sysdescr")
+    fi
+
+    # Vendor fallback: use MAC OUI vendor for all categories if not set by classification
+    if [ "$_p7_vendor" = "-" ] && [ -n "$_p7_mac_vendor" ]; then
+        _p7_vendor="$_p7_mac_vendor"
     fi
 
     # Strip trailing +
