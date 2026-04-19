@@ -119,6 +119,7 @@ type Correlator struct {
 	workspaceDir    string
 	dataDir         string // directory where correlations.json is stored (alongside the binary)
 	manualOverrides map[string]string // ip → category; loaded from manual_categories.json
+	excludedHosts   map[string]bool   // ips excluded via exclude_team_ips.sh; never shown or re-added
 	mu              sync.RWMutex
 }
 
@@ -140,6 +141,7 @@ func newCorrelatorWithDataDir(workspaceDir, dataDir string) *Correlator {
 		workspaceDir:    workspaceDir,
 		dataDir:         dataDir,
 		manualOverrides: make(map[string]string),
+		excludedHosts:   make(map[string]bool),
 	}
 }
 
@@ -195,6 +197,9 @@ func (c *Correlator) extractHostsFromResult(result *ScanResult) []string {
 
 // correlateHost correlates all scan results for a specific host
 func (c *Correlator) correlateHost(hostIP string) {
+	if c.excludedHosts[hostIP] {
+		return
+	}
 	correlation := &CorrelationResult{
 		Host:            hostIP,
 		RelatedScans:    make([]string, 0),
@@ -496,6 +501,9 @@ func (c *Correlator) GetCorrelationForHost(hostIP string) (*CorrelationResult, b
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
+	if c.excludedHosts[hostIP] {
+		return nil, false
+	}
 	correlation, exists := c.correlations[hostIP]
 	return correlation, exists
 }
@@ -505,10 +513,11 @@ func (c *Correlator) GetAllCorrelations() map[string]*CorrelationResult {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	// Return a copy to prevent external modification
 	result := make(map[string]*CorrelationResult)
 	for k, v := range c.correlations {
-		result[k] = v
+		if !c.excludedHosts[k] {
+			result[k] = v
+		}
 	}
 	return result
 }
@@ -590,6 +599,68 @@ func (c *Correlator) saveManualOverrides() error {
 	return os.WriteFile(path, data, 0644)
 }
 
+func (c *Correlator) excludedHostsPath() string {
+	if c.dataDir == "" {
+		return ""
+	}
+	return filepath.Join(c.dataDir, "correlations", "excluded_hosts.json")
+}
+
+// loadExcludedHosts reads excluded_hosts.json and removes any excluded entries from
+// c.correlations. Caller must hold c.mu.
+func (c *Correlator) loadExcludedHosts() error {
+	path := c.excludedHostsPath()
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading excluded_hosts.json: %w", err)
+	}
+	var excluded map[string]bool
+	if err := json.Unmarshal(data, &excluded); err != nil {
+		return fmt.Errorf("parsing excluded_hosts.json: %w", err)
+	}
+	c.excludedHosts = excluded
+	for ip := range c.excludedHosts {
+		delete(c.correlations, ip)
+	}
+	return nil
+}
+
+func (c *Correlator) saveExcludedHosts() error {
+	path := c.excludedHostsPath()
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("creating correlations dir: %w", err)
+	}
+	data, err := json.MarshalIndent(c.excludedHosts, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling excluded hosts: %w", err)
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// ExcludeHosts adds IPs to the permanent exclusion list, removes them from in-memory
+// correlations, and persists both files.
+func (c *Correlator) ExcludeHosts(ips []string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for _, ip := range ips {
+		c.excludedHosts[ip] = true
+		delete(c.correlations, ip)
+	}
+	if err := c.saveExcludedHosts(); err != nil {
+		return err
+	}
+	return c.saveResults()
+}
+
 // applyManualOverrides stamps manual category overrides onto live correlations.
 // Must be called with c.mu held.
 func (c *Correlator) applyManualOverrides() {
@@ -650,6 +721,10 @@ func (c *Correlator) LoadResults() error {
 		return fmt.Errorf("loading manual overrides: %w", err)
 	}
 	c.applyManualOverrides()
+
+	if err := c.loadExcludedHosts(); err != nil {
+		return fmt.Errorf("loading excluded hosts: %w", err)
+	}
 
 	return nil
 }

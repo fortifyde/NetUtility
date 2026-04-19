@@ -1,0 +1,62 @@
+script:
+  name: "Exclude Team IPs"
+  description: "Detect audit team systems via MAC/vendor matching and remove their IPs from all discovery outputs"
+  category: "utilities"
+  subcategory: "discovery-cleanup"
+
+  file: "exclude_team_ips.sh"
+  requires_root: false
+  estimated_duration: "30 seconds"
+
+  cli_shortcuts:
+    - "exclude-team"
+    - "exclude-ips"
+  keywords:
+    - "team"
+    - "exclude"
+    - "filter"
+    - "cleanup"
+    - "mac"
+    - "oui"
+    - "vendor"
+
+  parameters: []
+
+  dependencies:
+    tools:
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+      - name: "jq"
+        package: "jq"
+        check_command: "which jq"
+      - name: "ouihelper"
+        package: "netutil"
+        check_command: "which ouihelper"
+
+  output:
+    creates_files: false
+    modifies_files: true
+    workspace_subdirs:
+      - "discovery"
+      - "correlations"
+
+  tags:
+    - "discovery"
+    - "cleanup"
+    - "team"
+    - "mac"
+    - "vendor"
+  risk_level: "medium"
+  network_access: false
+  modifies_system: false
+
+  examples:
+    - description: "Run team IP exclusion with auto-detection"
+      command: "netutil exclude-team"
+    - description: "Exclude specific IPs manually"
+      command: "netutil exclude-ips"
+
+  version: "1.0"
+  author: "fortifyde"
+  last_updated: "2026-04-19"
