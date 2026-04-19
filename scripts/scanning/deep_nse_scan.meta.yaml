@@ -1,5 +1,5 @@
 script:
-  name: "Deep NSE Vulnerability Scan"
+  name: "NSE Vulnerability Scan"
   description: "Comprehensive port scan with NSE vulnerability detection (may attempt exploits)"
   category: "scanning"
   subcategory: "scanning"

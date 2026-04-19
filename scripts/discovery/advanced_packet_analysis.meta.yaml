@@ -1,6 +1,6 @@
 script:
-  name: "Capture Analysis"
-  description: "Packet analysis with statistical reports and security assessment"
+  name: "Packet Capture Analysis"
+  description: "Analyze pcap files for protocol statistics and security assessment"
   category: "discovery"
   subcategory: "analysis"
   
@@ -23,11 +23,7 @@ script:
   parameters:
     - name: "capture_file"
       type: "file"
-      description: "Packet capture file to analyze (optional)"
-      required: false
-    - name: "interface"
-      type: "interface"
-      description: "Network interface for live analysis"
+      description: "Packet capture file to analyze"
       required: false
   
   dependencies:
