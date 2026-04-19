@@ -54,6 +54,31 @@ type Task struct {
 	SubTasks    []Task // len > 0: selecting this task shows a sub-menu modal
 }
 
+// SearchResult pairs a matched task with the category it belongs to.
+type SearchResult struct {
+	Task         Task
+	CategoryName string
+}
+
+// searchAllCategories returns all tasks across every category whose name or
+// description contains query (case-insensitive). Returns nil for empty query.
+func (t *TUI) searchAllCategories(query string) []SearchResult {
+	if query == "" {
+		return nil
+	}
+	lower := strings.ToLower(query)
+	var results []SearchResult
+	for _, cat := range t.getCategories() {
+		for _, task := range cat.Tasks {
+			if strings.Contains(strings.ToLower(task.Name), lower) ||
+				strings.Contains(strings.ToLower(task.Description), lower) {
+				results = append(results, SearchResult{Task: task, CategoryName: cat.Name})
+			}
+		}
+	}
+	return results
+}
+
 // getCategories returns the list of available categories and their tasks.
 func (t *TUI) getCategories() []Category {
 	// Use metadata registry if available
