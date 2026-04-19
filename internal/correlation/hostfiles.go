@@ -91,29 +91,6 @@ func moveHostInSession(hostfilesDir, ip, targetPlainFile string) error {
 	return err
 }
 
-// containsIP returns true if path contains a line whose first whitespace-separated
-// token equals ip. Comment lines and missing files return false.
-func containsIP(path, ip string) bool {
-	f, err := os.Open(path)
-	if err != nil {
-		return false
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) > 0 && fields[0] == ip {
-			return true
-		}
-	}
-	return false
-}
-
 // removeIPFromFile rewrites path with all lines whose first token is ip removed.
 // Returns (true, nil) if any line was removed, (false, nil) if ip was not found,
 // (false, err) on I/O error. Missing files return (false, nil).

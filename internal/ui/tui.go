@@ -938,7 +938,7 @@ func (t *TUI) updateInfoPanel() {
 // returnToMain returns to the main TUI from any other view
 func (t *TUI) returnToMain() {
 	// Remove any overlays and return to main page
-	pageNames := []string{"output", "job-output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help", "subtask-menu", "host-search"}
+	pageNames := []string{"output", "job-output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help", "subtask-menu", "host-search", "host-categorize"}
 
 	for _, pageName := range pageNames {
 		t.pages.RemovePage(pageName)
