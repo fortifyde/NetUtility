@@ -258,6 +258,14 @@ func (rp *ResultParser) parsePortScan(result *ScanResult, content string) (*Scan
 				currentHost.OS = strings.TrimSpace(matches[1])
 			}
 		}
+
+		// MAC address (only present when scanning as root on same subnet)
+		if currentHost != nil && strings.Contains(line, "MAC Address:") {
+			macRegex := regexp.MustCompile(`MAC Address:\s*([0-9A-Fa-f:]{17})`)
+			if matches := macRegex.FindStringSubmatch(line); len(matches) > 1 && currentHost.MACAddress == "" {
+				currentHost.MACAddress = strings.ToUpper(matches[1])
+			}
+		}
 	}
 
 	// Add the last host
@@ -371,7 +379,7 @@ func (rp *ResultParser) parseServiceScan(result *ScanResult, content string) (*S
 }
 
 // parseCategorizationDetails parses ph7 categorization_details.txt files.
-// Format: tab-separated columns IP, Hostname, Category, Vendor, Confidence, Score, Evidence (header row present).
+// Format: tab-separated columns IP, Hostname, Category, Vendor, Confidence, Score, Evidence, MAC (header row present).
 func (rp *ResultParser) parseCategorizationDetails(result *ScanResult, content string) (*ScanResult, error) {
 	for _, line := range strings.Split(content, "\n") {
 		line = strings.TrimSpace(line)
@@ -408,6 +416,12 @@ func (rp *ResultParser) parseCategorizationDetails(result *ScanResult, content s
 				if v := strings.TrimSpace(fields[col]); v != "" && v != "-" {
 					host.Attributes[key] = v
 				}
+			}
+		}
+		// Column 7 (index 7): MAC address (optional, added in later format version)
+		if len(fields) > 7 {
+			if mac := strings.TrimSpace(fields[7]); mac != "" && mac != "-" {
+				host.MACAddress = mac
 			}
 		}
 
