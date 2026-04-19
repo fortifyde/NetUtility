@@ -3,17 +3,22 @@
 # Source shared utility functions
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/logging.sh" 2>/dev/null || true
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== Network Packet Capture ==="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
 
 interface=$(select_interface "Select interface for capture" "capture")
 if [ -z "$interface" ]; then
     error_message "No interface selected"
+    log_error "No interface selected" "$SCRIPT_NAME"
     exit 1
 fi
 
 success_message "Selected interface: $interface"
+log_info "Interface selected: $interface" "$SCRIPT_NAME"
 
 # Normalize workspace path to avoid double slashes
 WORKSPACE_DIR="${NETUTIL_WORKDIR:-$HOME}"
@@ -23,6 +28,7 @@ CAPTURE_DIR="$WORKSPACE_DIR/captures"
 # Ensure capture directory exists and is writable
 if ! mkdir -p "$CAPTURE_DIR" 2>/dev/null; then
     warning_message "Failed to create capture directory: $CAPTURE_DIR"
+    log_warn "Failed to create capture directory: $CAPTURE_DIR, using fallback" "$SCRIPT_NAME"
     # Fallback to system temp directory
     CAPTURE_DIR="/tmp/netutil-captures"
     mkdir -p "$CAPTURE_DIR"
@@ -57,6 +63,7 @@ fi
 TEST_FILE="$CAPTURE_DIR/.netutil_write_test"
 if ! touch "$TEST_FILE" 2>/dev/null; then
     error_message "Cannot write to capture directory: $CAPTURE_DIR"
+    log_error "Cannot write to capture directory: $CAPTURE_DIR" "$SCRIPT_NAME"
     echo "This may be due to permission issues when running as root."
     echo "Please ensure the workspace directory is accessible."
     exit 1
@@ -112,6 +119,7 @@ case $option in
         case "$duration" in
             *[!0-9]*|'')
                 error_message "Invalid duration"
+                log_error "Invalid capture duration entered" "$SCRIPT_NAME"
                 exit 1
                 ;;
         esac
@@ -129,6 +137,7 @@ case $option in
 esac
 
 echo "Starting packet capture on interface $interface..."
+log_info "Starting capture: interface=$interface duration=$duration_text file=$CAPTURE_FILE" "$SCRIPT_NAME"
 echo "Duration: $duration_text"
 echo "Capture file: $CAPTURE_FILE"
 echo "Running as user: $(whoami)"
@@ -144,6 +153,7 @@ run_tshark_capture() {
     else
         echo "Capturing for $duration_text..."
         echo "Running: timeout \"$duration\" tshark -i \"$interface\" -w \"$1\" -q"
+        log_debug "tshark command: tshark -i $interface -w $1 duration=$duration_text" "$SCRIPT_NAME"
         timeout "$duration" tshark -i "$interface" -w "$1" -q
     fi
 }
@@ -193,6 +203,7 @@ if [ "$(id -u)" -eq 0 ] && [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
 fi
 
 echo >&2
+log_info "Capture complete: $CAPTURE_FILE (exit code: $capture_exit_code)" "$SCRIPT_NAME"
 success_message "Capture completed!"
 echo "Capture file: $CAPTURE_FILE"
 echo "File size: $(du -h "$CAPTURE_FILE" | cut -f1)"
