@@ -3,8 +3,11 @@
 # Source shared utility functions
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== IP Route Configuration ===" >&2
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
 
 echo "Current routing table:" >&2
@@ -25,6 +28,7 @@ else
     printf "Select option (1-5): \n" >&2
 fi
 read -r option
+log_info "Route option selected: $option" "$SCRIPT_NAME"
 
 case $option in
     1)
@@ -59,24 +63,31 @@ case $option in
         fi
 
         if ! echo "$dest_network" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
+            log_error "Failed to add route: Invalid network format" "$SCRIPT_NAME"
             echo "Error: Invalid network format" >&2
             exit 1
         fi
 
         if ! echo "$gateway" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
+            log_error "Failed to add route: Invalid gateway IP format" "$SCRIPT_NAME"
             echo "Error: Invalid gateway IP format" >&2
             exit 1
         fi
 
         if [ -n "$interface" ]; then
             if ! ip link show "$interface" >/dev/null 2>&1; then
+                log_error "Failed to add route: Interface $interface not found" "$SCRIPT_NAME"
                 echo "Error: Interface $interface not found" >&2
                 exit 1
             fi
+            log_debug "Adding route: ip route add $dest_network via $gateway dev $interface" "$SCRIPT_NAME"
             ip route add "$dest_network" via "$gateway" dev "$interface"
+            log_info "Route added: $dest_network via $gateway dev $interface" "$SCRIPT_NAME"
             echo "Route added: $dest_network via $gateway dev $interface"
         else
+            log_debug "Adding route: ip route add $dest_network via $gateway" "$SCRIPT_NAME"
             ip route add "$dest_network" via "$gateway"
+            log_info "Route added: $dest_network via $gateway" "$SCRIPT_NAME"
             echo "Route added: $dest_network via $gateway"
         fi
         ;;
@@ -91,14 +102,18 @@ case $option in
         read -r dest_network
 
         if ! echo "$dest_network" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
+            log_error "Failed to delete route: Invalid network format" "$SCRIPT_NAME"
             echo "Error: Invalid network format" >&2
             exit 1
         fi
 
         if ip route show "$dest_network" >/dev/null 2>&1; then
+            log_debug "Deleting route: ip route del $dest_network" "$SCRIPT_NAME"
             ip route del "$dest_network"
+            log_info "Route deleted: $dest_network" "$SCRIPT_NAME"
             echo "Route deleted: $dest_network"
         else
+            log_error "Failed to delete route: $dest_network not found" "$SCRIPT_NAME"
             echo "Error: Route to $dest_network not found" >&2
             exit 1
         fi
@@ -119,6 +134,7 @@ case $option in
         fi
         read -r dest_ip
         if ! echo "$dest_ip" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
+            log_error "Failed to show route: Invalid IP format" "$SCRIPT_NAME"
             echo "Error: Invalid IP format" >&2
             exit 1
         fi
@@ -131,6 +147,7 @@ case $option in
         exit 0
         ;;
     *)
+        log_error "Invalid option selected: $option" "$SCRIPT_NAME"
         echo "Invalid option" >&2
         exit 1
         ;;
