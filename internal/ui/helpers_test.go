@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"testing"
 
 	"netutil/internal/correlation"
@@ -124,8 +125,8 @@ func TestCompareIPs(t *testing.T) {
 	}
 }
 
-func TestHostOpenPortsTruncation(t *testing.T) {
-	// Build a host with many open ports so the joined string exceeds 22 runes
+func TestHostOpenPortsNoTruncation(t *testing.T) {
+	// All open ports should be included regardless of count
 	var ports []correlation.Port
 	for i := 1; i <= 20; i++ {
 		ports = append(ports, correlation.Port{Number: i * 1000, State: "open"})
@@ -134,12 +135,12 @@ func TestHostOpenPortsTruncation(t *testing.T) {
 		HostInfo: &correlation.Host{Ports: ports},
 	}
 	got := hostOpenPorts(r)
-	runes := []rune(got)
-	if len(runes) > 22 {
-		t.Errorf("hostOpenPorts() length = %d, want ≤22 runes; got %q", len(runes), got)
+	if strings.Contains(got, "…") {
+		t.Errorf("hostOpenPorts() should not truncate, got %q", got)
 	}
-	if len(runes) > 0 && runes[len(runes)-1] != '…' {
-		t.Errorf("hostOpenPorts() should end with …, got %q", got)
+	// All 20 ports should be present
+	if !strings.Contains(got, "20000") {
+		t.Errorf("hostOpenPorts() missing last port, got %q", got)
 	}
 }
 

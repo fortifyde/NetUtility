@@ -46,7 +46,7 @@ func hostHostname(result *correlation.CorrelationResult) string {
 	return "-"
 }
 
-// hostOpenPorts returns a comma-joined list of open port numbers, truncated to 22 chars.
+// hostOpenPorts returns a comma-joined list of open port numbers.
 func hostOpenPorts(result *correlation.CorrelationResult) string {
 	if result == nil || result.HostInfo == nil || len(result.HostInfo.Ports) == 0 {
 		return "-"
@@ -65,11 +65,7 @@ func hostOpenPorts(result *correlation.CorrelationResult) string {
 	for _, n := range portNums {
 		ports = append(ports, strconv.Itoa(n))
 	}
-	joined := strings.Join(ports, ",")
-	if len([]rune(joined)) > 22 {
-		return string([]rune(joined)[:21]) + "…"
-	}
-	return joined
+	return strings.Join(ports, ",")
 }
 
 // categoryOrder returns a sort key for display order: windows=0, linux=1, network_device=2, unknown=3.
