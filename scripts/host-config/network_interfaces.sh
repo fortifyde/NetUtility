@@ -3,8 +3,11 @@
 # Source shared utility functions
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== Network Interface Management ==="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
 
 # Load and display interfaces
@@ -32,17 +35,21 @@ case $action in
     1)
         interface=$(select_interface "Select interface to bring UP" "management")
         if [ -z "$interface" ]; then
+            log_error "No interface selected" "$SCRIPT_NAME"
             error_message "No interface selected"
             exit 1
         fi
-        
+
         echo "Bringing interface $interface UP..." >&2
+        log_info "Bringing interface $interface UP" "$SCRIPT_NAME"
         if ip link set "$interface" up; then
             ip -6 addr flush dev "$interface" scope link 2>/dev/null || true
+            log_info "Interface $interface brought UP successfully" "$SCRIPT_NAME"
             success_message "Interface $interface brought UP"
             echo "Current status:" >&2
             ip addr show "$interface" >&2
         else
+            log_error "Failed to bring interface $interface UP" "$SCRIPT_NAME"
             error_message "Failed to bring interface $interface UP"
             exit 1
         fi
@@ -50,16 +57,20 @@ case $action in
     2)
         interface=$(select_interface "Select interface to bring DOWN" "management")
         if [ -z "$interface" ]; then
+            log_error "No interface selected" "$SCRIPT_NAME"
             error_message "No interface selected"
             exit 1
         fi
-        
+
         echo "Bringing interface $interface DOWN..." >&2
+        log_info "Bringing interface $interface DOWN" "$SCRIPT_NAME"
         if ip link set "$interface" down; then
+            log_info "Interface $interface brought DOWN successfully" "$SCRIPT_NAME"
             success_message "Interface $interface brought DOWN"
             echo "Current status:" >&2
             ip addr show "$interface" >&2
         else
+            log_error "Failed to bring interface $interface DOWN" "$SCRIPT_NAME"
             error_message "Failed to bring interface $interface DOWN"
             exit 1
         fi
@@ -67,6 +78,7 @@ case $action in
     3)
         echo "Bringing all interfaces UP (excluding loopback and parent interfaces)..." >&2
         echo "Only affecting VLAN interfaces (interfaces with '.' in name)" >&2
+        log_info "Bringing all VLAN interfaces UP" "$SCRIPT_NAME"
 
         ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | while read -r line; do
             interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
@@ -81,11 +93,13 @@ case $action in
             fi
         done
 
+        log_info "All VLAN interfaces brought UP" "$SCRIPT_NAME"
         success_message "All VLAN interfaces brought UP"
         ;;
     4)
         echo "Bringing all interfaces DOWN (excluding loopback and parent interfaces)..." >&2
         echo "Only affecting VLAN interfaces (interfaces with '.' in name)" >&2
+        log_info "Bringing all VLAN interfaces DOWN" "$SCRIPT_NAME"
 
         ip link show | grep -E "^[0-9]+:" | grep -v "lo:" | while read -r line; do
             interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
@@ -99,15 +113,18 @@ case $action in
             fi
         done
 
+        log_info "All VLAN interfaces brought DOWN" "$SCRIPT_NAME"
         success_message "All VLAN interfaces brought DOWN"
         ;;
     5)
         interface=$(select_interface "Select interface to show statistics" "management")
         if [ -z "$interface" ]; then
+            log_error "No interface selected" "$SCRIPT_NAME"
             error_message "No interface selected"
             exit 1
         fi
-        
+
+        log_info "Showing statistics for interface: $interface" "$SCRIPT_NAME"
         echo "=== Interface Statistics for $interface ===" >&2
         echo >&2
         echo "--- Interface Details ---" >&2
@@ -124,6 +141,7 @@ case $action in
         exit 0
         ;;
     *)
+        log_error "Invalid action selected: $action" "$SCRIPT_NAME"
         error_message "Invalid action selected"
         exit 1
         ;;
