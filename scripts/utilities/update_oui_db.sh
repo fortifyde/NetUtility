@@ -5,8 +5,11 @@
 
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== OUI Database Update ==="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
 
 # Configuration
@@ -66,17 +69,22 @@ echo "Source: $OUI_URL"
 
 if command -v wget >/dev/null 2>&1; then
     echo "Using wget for download..."
+    log_debug "Running: wget -q --show-progress -O $TEMP_FILE $OUI_URL" "$SCRIPT_NAME"
     if ! wget -q --show-progress -O "$TEMP_FILE" "$OUI_URL"; then
+        log_error "Failed to download OUI database with wget" "$SCRIPT_NAME"
         echo "ERROR: Failed to download OUI database with wget"
         exit 1
     fi
 elif command -v curl >/dev/null 2>&1; then
     echo "Using curl for download..."
+    log_debug "Running: curl -# -o $TEMP_FILE $OUI_URL" "$SCRIPT_NAME"
     if ! curl -# -o "$TEMP_FILE" "$OUI_URL"; then
+        log_error "Failed to download OUI database with curl" "$SCRIPT_NAME"
         echo "ERROR: Failed to download OUI database with curl"
         exit 1
     fi
 else
+    log_error "Neither wget nor curl available for download" "$SCRIPT_NAME"
     echo "ERROR: Neither wget nor curl available for download"
     echo "Please install wget or curl to update the OUI database"
     exit 1
@@ -87,6 +95,7 @@ echo >&2
 echo "Validating downloaded file..."
 
 if [ ! -s "$TEMP_FILE" ]; then
+    log_error "Downloaded file is empty" "$SCRIPT_NAME"
     echo "ERROR: Downloaded file is empty"
     exit 1
 fi
@@ -94,12 +103,14 @@ fi
 # Check file size (should be at least 1MB for a valid OUI database)
 file_size=$(stat -c%s "$TEMP_FILE" 2>/dev/null || stat -f%z "$TEMP_FILE" 2>/dev/null || echo "0")
 if [ "$file_size" -lt 1048576 ]; then
+    log_error "Downloaded file is too small: $file_size bytes" "$SCRIPT_NAME"
     echo "ERROR: Downloaded file is too small ($file_size bytes) - may be corrupted"
     exit 1
 fi
 
 # Check for expected header content
 if ! head -10 "$TEMP_FILE" | grep -q "OUI/MA-L"; then
+    log_error "Downloaded file is not a valid OUI database" "$SCRIPT_NAME"
     echo "ERROR: Downloaded file doesn't appear to be a valid OUI database"
     echo "First 10 lines:"
     head -10 "$TEMP_FILE"
@@ -113,6 +124,7 @@ echo "  Size: $file_size bytes"
 echo "  Lines: $new_line_count"
 
 if [ "$new_line_count" -lt 10000 ]; then
+    log_warn "Downloaded file has fewer lines than expected: $new_line_count" "$SCRIPT_NAME"
     echo "WARNING: Downloaded file has fewer lines than expected" >&2
     echo >&2
     if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
@@ -138,6 +150,7 @@ if [ -f "$DATA_DIR/$OUI_FILE" ]; then
     echo "Creating backup of existing database..."
     if cp "$DATA_DIR/$OUI_FILE" "$DATA_DIR/$BACKUP_FILE"; then
         echo "Backup saved as: $DATA_DIR/$BACKUP_FILE"
+        log_info "OUI database backup created: $DATA_DIR/$BACKUP_FILE" "$SCRIPT_NAME"
     else
         echo "WARNING: Failed to create backup"
     fi
@@ -151,6 +164,7 @@ echo "Installing new OUI database..."
 if cp "$TEMP_FILE" "$DATA_DIR/$OUI_FILE"; then
     echo "Updated: $DATA_DIR/$OUI_FILE"
 else
+    log_error "Failed to install OUI database to $DATA_DIR/$OUI_FILE" "$SCRIPT_NAME"
     echo "ERROR: Failed to update $DATA_DIR/$OUI_FILE"
     exit 1
 fi
@@ -173,6 +187,7 @@ fi
 
 echo >&2
 echo "The OUI database has been successfully updated."
+log_info "OUI database updated successfully: $DATA_DIR/$OUI_FILE ($new_line_count lines)" "$SCRIPT_NAME"
 
 # Clean up old backups (keep only last 5)
 echo >&2
