@@ -17,6 +17,8 @@ else
     exit 1
 fi
 . "${COMMON_DIR}/colors.sh" 2>/dev/null || true
+. "${COMMON_DIR}/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 # Configuration
 BACKUP_DIR="${NETUTIL_WORKDIR:-$HOME}/netutil_backups"
@@ -27,6 +29,7 @@ TEMP_EXTRACT_DIR=$(mktemp -d)
 trap 'rm -rf "$TEMP_EXTRACT_DIR"' EXIT
 
 echo "=== Network Configuration Restoration ==="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo
 echo "Backup directory: $BACKUP_DIR"
 echo
@@ -40,12 +43,14 @@ echo
 
 # Check if backup directory exists
 if [ ! -d "$BACKUP_DIR" ]; then
+    log_error "Backup directory does not exist: $BACKUP_DIR" "$SCRIPT_NAME"
     echo "ERROR: Backup directory does not exist: $BACKUP_DIR" >&2
     exit 1
 fi
 
 # Check if any backups exist
 if ! ls "$BACKUP_DIR"/network_config_*.tar.gz >/dev/null 2>&1; then
+    log_error "No backup files found in $BACKUP_DIR" "$SCRIPT_NAME"
     echo "ERROR: No backup files found in $BACKUP_DIR" >&2
     echo "Create a backup first using: backup_config.sh" >&2
     exit 1
@@ -126,6 +131,7 @@ rm -f /tmp/netutil_backups.$$
 
 echo
 echo "Selected backup: $(basename "$backup_file")"
+log_info "Backup selected: $backup_file" "$SCRIPT_NAME"
 echo
 
 # ============================================================================
@@ -136,12 +142,14 @@ echo "Phase 2: Extracting and validating backup..."
 
 # Extract backup to temporary directory
 if ! tar -xzf "$backup_file" -C "$TEMP_EXTRACT_DIR" 2>/dev/null; then
+    log_error "Failed to extract backup: $backup_file" "$SCRIPT_NAME"
     echo "ERROR: Failed to extract backup file" >&2
     exit 1
 fi
 
 # Validate required files exist
 if [ ! -f "$TEMP_EXTRACT_DIR/restore.sh" ]; then
+    log_error "Backup missing restore.sh: $backup_file" "$SCRIPT_NAME"
     echo "ERROR: Backup is missing restore.sh script" >&2
     exit 1
 fi
@@ -255,6 +263,7 @@ cd "$ROLLBACK_TEMP"
 tar czf "$ROLLBACK_DIR/$ROLLBACK_NAME.tar.gz" ./*
 
 echo "  Rollback backup saved: $ROLLBACK_DIR/$ROLLBACK_NAME.tar.gz"
+log_info "Rollback backup created: $ROLLBACK_DIR/$ROLLBACK_NAME.tar.gz" "$SCRIPT_NAME"
 echo
 
 # ============================================================================
@@ -289,6 +298,7 @@ echo
 
 if [ "$restoration_success" = "true" ]; then
     echo "✓ Network configuration restoration completed successfully!"
+    log_info "Restoration successful from: $backup_file" "$SCRIPT_NAME"
     echo >&2
 
     echo "Current network state:"
@@ -326,6 +336,7 @@ if [ "$restoration_success" = "true" ]; then
 
 else
     echo "✗ Network configuration restoration encountered errors!"
+    log_error "Restoration encountered errors from backup: $backup_file" "$SCRIPT_NAME"
     echo >&2
     echo "Some configuration steps may have failed. Review the output above."
     echo >&2
