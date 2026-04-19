@@ -389,8 +389,13 @@ func NewTUI(scriptsDir, workspaceDir string) *TUI {
 	return tui
 }
 
-// loadWorkspaceResults scans the workspace for existing result files and loads them into the correlator.
+// loadWorkspaceResults reloads persistent state from disk (picking up any changes made by
+// external scripts such as exclude_team_ips.sh), then rescans workspace result files.
+// Excluded hosts loaded from disk are never re-added by the workspace scan.
 func (t *TUI) loadWorkspaceResults() {
+	if err := t.correlator.LoadResults(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to reload correlation results: %v\n", err)
+	}
 	parser := correlation.NewResultParser(t.workspaceDir)
 	results, err := parser.ScanWorkspaceForResults()
 	if err != nil {
