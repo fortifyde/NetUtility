@@ -82,6 +82,7 @@ set_log_level() {
     
     case "$new_level" in
         0|1|2|3|4)
+            sed -i '/^export NETUTIL_LOG_LEVEL=/d' "$HOME/.profile"
             echo "export NETUTIL_LOG_LEVEL=$new_level" >> "$HOME/.profile"
             export NETUTIL_LOG_LEVEL="$new_level"
             log_info "Log level changed to $(get_log_level_name "$new_level")"

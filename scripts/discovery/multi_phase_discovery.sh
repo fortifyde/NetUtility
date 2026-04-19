@@ -2048,7 +2048,7 @@ enumerate_database_services() {
     nmap -n -p5432 --script pgsql-databases,banner -T4 \
         -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_postgresql_info" > /dev/null 2>&1 || true
 
-    nmap -n -p1521 --script oracle-sid-brute,oracle-enum-users,banner -T4 \
+    nmap -n -p1521 --script oracle-tns-version,banner -T4 \
         -iL "$SERVICE_TARGETS_DIR/database_targets.txt" -oA "$PHASE6_DIR/raw_scans/nmap_oracle_info" > /dev/null 2>&1 || true
     
     # Enhanced database service fingerprinting

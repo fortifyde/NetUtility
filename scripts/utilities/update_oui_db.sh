@@ -10,7 +10,7 @@ echo "=== OUI Database Update ==="
 echo >&2
 
 # Configuration
-OUI_URL="http://standards-oui.ieee.org/oui/oui.txt"
+OUI_URL="https://standards-oui.ieee.org/oui/oui.txt"
 DATA_DIR="$(dirname "$0")/../../data"
 OUI_FILE="oui.txt"
 TEMP_FILE="$(mktemp)"

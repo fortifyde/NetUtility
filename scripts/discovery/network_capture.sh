@@ -205,7 +205,11 @@ echo >&2
 echo "Extracting VLAN information..."
 VLAN_FILE="$CAPTURE_DIR/vlans_${interface}_${TIMESTAMP}.txt"
 
-tshark -r "$CAPTURE_FILE" -Y "vlan" -T fields -e vlan.id 2>/dev/null | sort -u > "$VLAN_FILE"
+if ! tshark -r "$CAPTURE_FILE" -Y "vlan" -T fields -e vlan.id 2>/tmp/tshark_err_$$ | sort -u > "$VLAN_FILE"; then
+    echo "Warning: tshark failed to parse capture file" >&2
+    cat /tmp/tshark_err_$$ >&2
+fi
+rm -f /tmp/tshark_err_$$
 
 if [ -s "$VLAN_FILE" ]; then
     echo "VLAN IDs detected:"
