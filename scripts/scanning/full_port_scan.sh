@@ -8,10 +8,13 @@
 # shellcheck source=../common/utils.sh
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=========================================="
 echo "Full Port Scan"
 echo "=========================================="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
 echo "This script performs comprehensive port scanning with:"
 echo "  - Configurable scan intensity (quick/full/custom)"
@@ -32,11 +35,13 @@ mkdir -p "$SESSION_DIR"
 # Target selection
 targets=$(select_target)
 if [ -z "$targets" ]; then
+    log_error "No target selected" "$SCRIPT_NAME"
     error_message "No target selected"
     exit 1
 fi
 
 success_message "Selected target: $targets"
+log_info "Target selected: $targets" "$SCRIPT_NAME"
 echo >&2
 
 # Scan intensity selection
@@ -72,6 +77,7 @@ case $intensity in
         fi
         read -r custom_ports
         if [ -z "$custom_ports" ]; then
+            log_error "No custom port range specified" "$SCRIPT_NAME"
             error_message "No port range specified"
             exit 1
         fi
@@ -86,6 +92,7 @@ case $intensity in
 esac
 
 success_message "Scan type: $scan_type"
+log_info "Scan type: $scan_type, ports: $ports" "$SCRIPT_NAME"
 echo >&2
 
 # Define output file paths
@@ -101,7 +108,9 @@ echo >&2
 
 # Execute nmap scan with all output formats
 # shellcheck disable=SC2086
+log_debug "Executing: nmap -sS -sV -T4 $ports $targets -oA $SCAN_BASE" "$SCRIPT_NAME"
 if ! nmap -sS -sV -T4 $ports $targets -oA "$SCAN_BASE"; then
+    log_error "nmap scan failed for target: $targets" "$SCRIPT_NAME"
     error_message "Nmap scan failed"
     exit 1
 fi
@@ -190,4 +199,5 @@ if [ "$open_ports_count" -gt 0 ]; then
     echo >&2
 fi
 
+log_info "Scan complete. Open ports: $open_ports_count. Session: $SESSION_DIR" "$SCRIPT_NAME"
 success_message "Full port scan session completed: $SESSION_DIR"
