@@ -43,6 +43,7 @@ case $action in
         echo "Bringing interface $interface UP..." >&2
         log_info "Bringing interface $interface UP" "$SCRIPT_NAME"
         if ip link set "$interface" up; then
+            log_info "Flushing IPv6 link-local addresses on $interface" "$SCRIPT_NAME"
             ip -6 addr flush dev "$interface" scope link 2>/dev/null || true
             log_info "Interface $interface brought UP successfully" "$SCRIPT_NAME"
             success_message "Interface $interface brought UP"
@@ -84,7 +85,9 @@ case $action in
             interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
             # Only affect VLAN interfaces (contain dot) and exclude loopback
             if [ -n "$interface" ] && [ "$interface" != "lo" ] && echo "$interface" | grep -q "\."; then
+                log_info "Bringing VLAN interface $interface UP" "$SCRIPT_NAME"
                 if ip link set "$interface" up 2>/dev/null; then
+                    log_info "Flushing IPv6 link-local on $interface" "$SCRIPT_NAME"
                     ip -6 addr flush dev "$interface" scope link 2>/dev/null || true
                     echo "  ✓ $interface UP (VLAN)" >&2
                 else
@@ -105,6 +108,7 @@ case $action in
             interface=$(echo "$line" | sed 's/^[0-9]*: *\([^:@]*\)[@:].*/\1/')
             # Only affect VLAN interfaces (contain dot) and exclude loopback
             if [ -n "$interface" ] && [ "$interface" != "lo" ] && echo "$interface" | grep -q "\."; then
+                log_info "Bringing VLAN interface $interface DOWN" "$SCRIPT_NAME"
                 if ip link set "$interface" down 2>/dev/null; then
                     echo "  ✓ $interface DOWN (VLAN)" >&2
                 else
