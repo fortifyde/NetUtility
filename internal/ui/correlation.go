@@ -359,12 +359,28 @@ func (cv *CorrelationViewer) updateHostsList() {
 
 	cv.hostsList.Clear()
 
-	headers := []string{"IP", "Category", "Vendor", "Hostname", "Ports"}
-	for i, header := range headers {
-		cv.hostsList.SetCell(0, i, tview.NewTableCell(header).
+	type colPolicy struct {
+		label     string
+		expansion int
+		maxWidth  int // 0 = unlimited
+	}
+	columns := []colPolicy{
+		{"IP", 0, 0},
+		{"Category", 0, 0},
+		{"Vendor", 0, 0},
+		{"Hostname", 1, 30},
+		{"Ports", 2, 0},
+	}
+	for i, col := range columns {
+		cell := tview.NewTableCell(col.label).
 			SetTextColor(tcell.ColorYellow).
 			SetAlign(tview.AlignCenter).
-			SetSelectable(false))
+			SetSelectable(false).
+			SetExpansion(col.expansion)
+		if col.maxWidth > 0 {
+			cell.SetMaxWidth(col.maxWidth)
+		}
+		cv.hostsList.SetCell(0, i, cell)
 	}
 
 	correlations := cv.correlator.GetAllCorrelations()
@@ -396,11 +412,11 @@ func (cv *CorrelationViewer) updateHostsList() {
 	for i, e := range entries {
 		row := i + 1
 		cat := hostCategory(e.result)
-		cv.hostsList.SetCell(row, 0, tview.NewTableCell(e.ip))
-		cv.hostsList.SetCell(row, 1, tview.NewTableCell(cat).SetTextColor(categoryTcellColor(cat)))
-		cv.hostsList.SetCell(row, 2, tview.NewTableCell(hostVendor(e.result)))
-		cv.hostsList.SetCell(row, 3, tview.NewTableCell(hostHostname(e.result)))
-		cv.hostsList.SetCell(row, 4, tview.NewTableCell(hostOpenPorts(e.result)))
+		cv.hostsList.SetCell(row, 0, tview.NewTableCell(e.ip).SetExpansion(0))
+		cv.hostsList.SetCell(row, 1, tview.NewTableCell(cat).SetTextColor(categoryTcellColor(cat)).SetExpansion(0))
+		cv.hostsList.SetCell(row, 2, tview.NewTableCell(hostVendor(e.result)).SetExpansion(0))
+		cv.hostsList.SetCell(row, 3, tview.NewTableCell(hostHostname(e.result)).SetExpansion(1).SetMaxWidth(30))
+		cv.hostsList.SetCell(row, 4, tview.NewTableCell(hostOpenPorts(e.result)).SetExpansion(2))
 		if e.ip == prevSelected {
 			reSelectRow = row
 		}
