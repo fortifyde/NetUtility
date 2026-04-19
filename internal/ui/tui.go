@@ -427,11 +427,6 @@ func (t *TUI) setupUI() {
 		t.executeTask(mainText)
 	})
 
-	// Update info panel whenever the highlighted task changes
-	t.taskPane.SetChangedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
-		t.updateInfoPanel()
-	})
-
 	// Add j/k navigation support to category pane
 	t.categoryPane.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyRune {
@@ -484,7 +479,7 @@ func (t *TUI) setupUI() {
 
 	// Setup info pane (informational panel for first-time users)
 	t.infoPane.SetBorder(true).SetTitle("Quick Reference")
-	t.infoPane.SetDynamicColors(true).SetWordWrap(true).SetScrollable(false)
+	t.infoPane.SetDynamicColors(true)
 	t.updateInfoPanel() // Set initial content
 
 	// Create layout: 2 columns, left column stacked (header + categories), right column (tasks)
@@ -498,7 +493,7 @@ func (t *TUI) setupUI() {
 
 	mainLayout := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(topLayout, 0, 1, false). // Main content area
-		AddItem(t.infoPane, 6, 0, false) // Fixed height for info panel
+		AddItem(t.infoPane, 4, 0, false) // Fixed height for info panel
 
 	// Setup main page
 	t.pages.AddPage("main", mainLayout, true, true)
@@ -848,29 +843,16 @@ func (t *TUI) startSearch() {
 		SetLabel("Search: ").
 		SetFieldWidth(0)
 
-	resultList := tview.NewList().ShowSecondaryText(false)
-
-	descView := tview.NewTextView().
-		SetDynamicColors(true).
-		SetWordWrap(true).
-		SetScrollable(false)
-	descView.SetBorder(true).SetTitle("Description")
+	resultList := tview.NewList().ShowSecondaryText(true)
 
 	updateResults := func(query string) {
 		resultList.Clear()
-		descView.SetText("")
 		results = t.searchAllCategories(query)
 		for _, r := range results {
-			secondary := fmt.Sprintf("[%s]", r.CategoryName)
+			secondary := fmt.Sprintf("[%s] %s", r.CategoryName, r.Task.Description)
 			resultList.AddItem(r.Task.Name, secondary, 0, nil)
 		}
 	}
-
-	resultList.SetChangedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
-		if index < len(results) {
-			descView.SetText("[white]" + results[index].Task.Description)
-		}
-	})
 
 	inputField.SetChangedFunc(updateResults)
 
@@ -934,11 +916,10 @@ func (t *TUI) startSearch() {
 		}
 	})
 
-	// Content box: input on top, results list below, description at bottom
+	// Content box: input on top, results list below
 	contentBox := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(inputField, 3, 0, true).
-		AddItem(resultList, 0, 1, false).
-		AddItem(descView, 4, 0, false)
+		AddItem(resultList, 0, 1, false)
 	contentBox.SetBorder(true).SetTitle("Search Tasks")
 
 	// Center: 40% wide (3:4:3), 60% tall (1:3:1)
@@ -1009,12 +990,6 @@ func (t *TUI) updateInfoPanel() {
 		content.WriteString("[yellow]Categories:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Select [white]Tab/l[::-]=Tasks [white]/[::-]=Search [white]?[::-]=Help [white]q[::-]=Quit\n")
 		content.WriteString("[yellow]Global:[::-]     [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Main")
 	} else if current == t.taskPane {
-		idx := t.taskPane.GetCurrentItem()
-		if idx >= 0 && idx < t.taskPane.GetItemCount() {
-			if _, desc := t.taskPane.GetItemText(idx); desc != "" {
-				content.WriteString("[white]" + desc + "\n")
-			}
-		}
 		if t.currentCategory != "" {
 			content.WriteString(fmt.Sprintf("[yellow]%s:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Execute [white]Tab/h[::-]=Categories [white]/[::-]=Search\n", t.currentCategory))
 		} else {
