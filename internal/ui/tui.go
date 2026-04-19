@@ -756,79 +756,114 @@ func (t *TUI) Stop() {
 	t.app.Stop()
 }
 
-// startSearch opens a search dialog for filtering tasks
+// startSearch opens a compact centered modal for searching tasks across all categories.
 func (t *TUI) startSearch() {
-	// Capture which pane was focused so we can restore it on dismiss
-	focusBeforeSearch := t.categoryPane
+	prevFocus := t.categoryPane
 	if t.app.GetFocus() == t.taskPane {
-		focusBeforeSearch = t.taskPane
+		prevFocus = t.taskPane
 	}
 
-	closeSearch := func() {
+	var results []SearchResult
+
+	closeModal := func() {
 		t.pages.RemovePage("search")
-		t.setActiveFocus(focusBeforeSearch)
+		t.setActiveFocus(prevFocus)
 	}
 
-	var form *tview.Form
+	inputField := tview.NewInputField().
+		SetLabel("Search: ").
+		SetFieldWidth(0)
 
-	// Create a simple form
-	form = tview.NewForm().
-		AddInputField("Search", "", 30, nil, nil).
-		AddButton("Search", func() {
-			query := form.GetFormItem(0).(*tview.InputField).GetText()
-			t.filterTasks(query)
-			closeSearch()
-		}).
-		AddButton("Cancel", func() {
-			closeSearch()
-		})
+	resultList := tview.NewList().ShowSecondaryText(true)
 
-	form.SetBorder(true).SetTitle("Search Tasks")
+	updateResults := func(query string) {
+		resultList.Clear()
+		results = t.searchAllCategories(query)
+		for _, r := range results {
+			secondary := fmt.Sprintf("[%s] %s", r.CategoryName, r.Task.Description)
+			resultList.AddItem(r.Task.Name, secondary, 0, nil)
+		}
+	}
 
-	// Get the input field and add input capture for escape key only
-	searchInput := form.GetFormItem(0).(*tview.InputField)
-	searchInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+	inputField.SetChangedFunc(updateResults)
+
+	inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
+		case tcell.KeyDown, tcell.KeyEnter:
+			if resultList.GetItemCount() > 0 {
+				t.app.SetFocus(resultList)
+				resultList.SetCurrentItem(0)
+			}
+			return nil
 		case tcell.KeyEscape:
-			closeSearch()
+			closeModal()
 			return nil
 		}
-		// Let all other keys pass through
 		return event
 	})
 
-	t.pages.AddPage("search", form, true, true)
-	t.app.SetFocus(form)
-}
-
-// filterTasks filters the current task list based on query
-func (t *TUI) filterTasks(query string) {
-	if query == "" {
-		// Refresh to show all tasks
-		t.showCategory(t.currentCategory)
-		return
-	}
-
-	t.taskPane.Clear()
-	query = strings.ToLower(query)
-
-	// Filter tasks from current category
-	for _, category := range t.getCategories() {
-		if category.Name == t.currentCategory {
-			taskIndex := 0
-			for _, task := range category.Tasks {
-				// Check if query matches task name or description
-				if strings.Contains(strings.ToLower(task.Name), query) ||
-					strings.Contains(strings.ToLower(task.Description), query) {
-					taskIndex++
-					t.taskPane.AddItem(task.Name, task.Description, rune('0'+taskIndex), nil)
-				}
+	resultList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyEscape:
+			closeModal()
+			return nil
+		case tcell.KeyUp:
+			if resultList.GetCurrentItem() == 0 {
+				t.app.SetFocus(inputField)
+				return nil
 			}
-			break
+		case tcell.KeyRune:
+			switch event.Rune() {
+			case 'j':
+				cur := resultList.GetCurrentItem()
+				if cur < resultList.GetItemCount()-1 {
+					resultList.SetCurrentItem(cur + 1)
+				}
+				return nil
+			case 'k':
+				cur := resultList.GetCurrentItem()
+				if cur > 0 {
+					resultList.SetCurrentItem(cur - 1)
+				}
+				return nil
+			}
 		}
-	}
+		return event
+	})
 
-	t.taskPane.SetTitle(fmt.Sprintf("Tasks - %s (filtered: %s)", t.currentCategory, query))
+	resultList.SetSelectedFunc(func(index int, _, _ string, _ rune) {
+		if index >= len(results) {
+			return
+		}
+		r := results[index]
+		closeModal()
+		t.currentCategory = r.CategoryName
+		if len(r.Task.SubTasks) > 0 {
+			t.showSubTaskMenu(r.Task)
+		} else {
+			t.executeTaskWithStreaming(r.Task.Script, r.Task.Name)
+		}
+	})
+
+	// Content box: input on top, results list below
+	contentBox := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(inputField, 3, 0, true).
+		AddItem(resultList, 0, 1, false)
+	contentBox.SetBorder(true).SetTitle("Search Tasks")
+
+	// Center: 40% wide (3:4:3), 60% tall (1:3:1)
+	centerRow := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(nil, 0, 3, false).
+		AddItem(contentBox, 0, 4, true).
+		AddItem(nil, 0, 3, false)
+
+	modal := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).
+		AddItem(centerRow, 0, 3, true).
+		AddItem(nil, 0, 1, false)
+
+	t.pages.AddPage("search", modal, true, true)
+	t.app.SetFocus(inputField)
 }
 
 // showHelp displays help information
@@ -901,7 +936,7 @@ func (t *TUI) updateInfoPanel() {
 // returnToMain returns to the main TUI from any other view
 func (t *TUI) returnToMain() {
 	// Remove any overlays and return to main page
-	pageNames := []string{"output", "job-output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help", "subtask-menu"}
+	pageNames := []string{"output", "job-output", "dashboard", "jobs", "correlation", "info", "error", "execution-options", "search", "help", "subtask-menu", "host-search"}
 
 	for _, pageName := range pageNames {
 		t.pages.RemovePage(pageName)
