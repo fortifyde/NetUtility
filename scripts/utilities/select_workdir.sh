@@ -2,8 +2,11 @@
 
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 . "$(dirname "$0")/../common/utils.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/logging.sh" 2>/dev/null || true
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== Working Directory Selection ==="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo "Current working directory: $(pwd)"
 echo "Home directory: $HOME"
 echo >&2
@@ -29,6 +32,7 @@ fi
 if [ -d "$workdir" ]; then
     export NETUTIL_WORKDIR="$workdir"
     echo "Working directory set to: $workdir"
+    log_info "Working directory set to: $workdir" "$SCRIPT_NAME"
     
     # Update NetUtility config file with new workspace directory
     update_netutil_config() {
@@ -54,6 +58,7 @@ if [ -d "$workdir" ]; then
                 sed "s|\"workspace_dir\":[^,]*|\"workspace_dir\": \"$workdir\"|" "$config_file" > "$tmp_file"
                 mv "$tmp_file" "$config_file"
                 echo "Updated NetUtility configuration: $config_file"
+                log_info "Config updated: $config_file" "$SCRIPT_NAME"
             else
                 # Create new config file
                 cat > "$config_file" << EOF
@@ -68,6 +73,7 @@ if [ -d "$workdir" ]; then
 }
 EOF
                 echo "Created NetUtility configuration: $config_file"
+                log_info "Config created: $config_file" "$SCRIPT_NAME"
             fi
         else
             echo "Warning: Could not locate NetUtility config file"
@@ -87,6 +93,7 @@ EOF
     echo "Changed to directory: $(pwd)"
     exit 0
 else
+    log_error "Directory does not exist: $workdir" "$SCRIPT_NAME"
     echo "Error: Directory '$workdir' does not exist"
     exit 1
 fi
