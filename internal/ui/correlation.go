@@ -153,13 +153,11 @@ type CorrelationViewer struct {
 	// UI components
 	hostsList    *tview.Table
 	detailsPanel *tview.TextView
-	timelineList *tview.List
 	controlsText *tview.TextView
 
 	// State
-	selectedHost         string
-	currentView          string // "hosts", "details", "timeline"
-	filterCategory       string // "" = all; "windows"/"linux"/"network_device"/"unknown" = filtered
+	selectedHost   string
+	filterCategory string // "" = all; "windows"/"linux"/"network_device"/"unknown" = filtered
 	refreshTicker        *time.Ticker
 	stopChan             chan struct{}
 	returnToMainCallback func()
@@ -172,7 +170,6 @@ func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator
 		app:                  app,
 		pages:                pages,
 		correlator:           correlator,
-		currentView:          "hosts",
 		stopChan:             make(chan struct{}),
 		returnToMainCallback: returnToMainCallback,
 	}
@@ -201,19 +198,14 @@ func (cv *CorrelationViewer) setupUI() {
 	cv.detailsPanel = tview.NewTextView().SetDynamicColors(true).SetScrollable(true)
 	cv.detailsPanel.SetBorder(true).SetTitle("Host Details")
 
-	// Create timeline list
-	cv.timelineList = tview.NewList()
-	cv.timelineList.SetBorder(true).SetTitle("Scan Timeline")
-
 	// Create controls panel
 	cv.controlsText = tview.NewTextView().SetDynamicColors(true)
 	cv.controlsText.SetBorder(true).SetTitle("Controls")
 	cv.updateControlsText()
 
-	// Layout: Left panel (hosts table), Right panel (details + timeline + controls)
+	// Layout: Left panel (hosts table), Right panel (details + controls)
 	rightPanel := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(cv.detailsPanel, 0, 2, false).
-		AddItem(cv.timelineList, 0, 1, false).
+		AddItem(cv.detailsPanel, 0, 1, false).
 		AddItem(cv.controlsText, 8, 0, false)
 
 	cv.SetDirection(tview.FlexColumn).
@@ -235,7 +227,6 @@ func (cv *CorrelationViewer) updateControlsText() {
 	}
 	cv.controlsText.SetText(fmt.Sprintf(`[yellow]Controls:[::-]
 [white]Enter[::-]    View host details
-[white]t[::-]        View timeline
 %s
 [white]q[::-]        Close
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`, filterLine))
@@ -256,9 +247,6 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 			case 'q':
 				cv.Close()
 				return nil
-			case 't':
-				cv.showTimeline()
-				return nil
 			case 'f':
 				cv.cycleCategoryFilter()
 				return nil
@@ -278,7 +266,6 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 			if cell != nil {
 				cv.selectedHost = cell.Text
 				cv.updateDetailsPanel()
-				cv.updateTimeline()
 			}
 		}
 	})
@@ -454,40 +441,10 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 	cv.detailsPanel.SetText(b.String())
 }
 
-// updateTimeline updates the timeline list with scan events
-func (cv *CorrelationViewer) updateTimeline() {
-	cv.timelineList.Clear()
 
-	if cv.selectedHost == "" {
-		return
-	}
-
-	result, exists := cv.correlator.GetCorrelationForHost(cv.selectedHost)
-	if !exists {
-		return
-	}
-
-	for _, event := range result.Timeline {
-		timeStr := event.Timestamp.Format("15:04:05")
-		scanType := string(event.ScanType)
-		description := event.Description
-
-		item := fmt.Sprintf("%s - %s", timeStr, description)
-		cv.timelineList.AddItem(item, scanType, 0, nil)
-	}
-}
-
-
-// showHostDetails focuses on the details panel
+// showHostDetails updates the details panel for the selected host
 func (cv *CorrelationViewer) showHostDetails() {
-	cv.currentView = "details"
 	cv.updateDetailsPanel()
-}
-
-// showTimeline focuses on the timeline
-func (cv *CorrelationViewer) showTimeline() {
-	cv.currentView = "timeline"
-	cv.app.SetFocus(cv.timelineList)
 }
 
 func (cv *CorrelationViewer) refresh() {
@@ -495,7 +452,6 @@ func (cv *CorrelationViewer) refresh() {
 		cv.updateControlsText()
 		cv.updateHostsList()
 		cv.updateDetailsPanel()
-		cv.updateTimeline()
 	})
 }
 
