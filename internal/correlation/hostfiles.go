@@ -15,28 +15,24 @@ var categoryPlainFile = map[string]string{
 	"unknown":        "unknown.txt",
 }
 
-var categoryEnrichedFile = map[string]string{
-	"windows":        "windows_hosts_enriched.txt",
-	"linux":          "linux_hosts_enriched.txt",
-	"network_device": "network_devices_enriched.txt",
-	"unknown":        "unknown_enriched.txt",
-}
-
-func allCategoryFiles() []string {
-	out := make([]string, 0, len(categoryPlainFile)+len(categoryEnrichedFile))
-	for _, f := range categoryPlainFile {
-		out = append(out, f)
-	}
-	for _, f := range categoryEnrichedFile {
-		out = append(out, f)
-	}
-	return out
+// allCategoryFiles returns every plain and enriched filename we manage, in a stable order.
+var allCategoryFilenames = []string{
+	"windows_hosts.txt",
+	"linux_hosts.txt",
+	"network_devices.txt",
+	"unknown.txt",
+	"windows_hosts_enriched.txt",
+	"linux_hosts_enriched.txt",
+	"network_devices_enriched.txt",
+	"unknown_enriched.txt",
 }
 
 // MoveHostInHostfiles removes ip from all category files in every session
 // hostfiles/ directory under workspaceDir/discovery/ that contains the host,
 // then appends the bare IP to the plain file for newCategory.
 // Sessions where ip is absent are skipped entirely.
+// Per-session errors are discarded (best-effort); only invalid newCategory or
+// an unreadable discovery dir returns an error.
 func MoveHostInHostfiles(workspaceDir, ip, newCategory string) error {
 	targetFile, ok := categoryPlainFile[newCategory]
 	if !ok {
@@ -60,27 +56,29 @@ func MoveHostInHostfiles(workspaceDir, ip, newCategory string) error {
 		if _, statErr := os.Stat(hostfilesDir); os.IsNotExist(statErr) {
 			continue
 		}
+		// Best-effort per session.
 		_ = moveHostInSession(hostfilesDir, ip, targetFile)
 	}
 	return nil
 }
 
+// moveHostInSession handles a single hostfiles/ directory.
+// It removes ip from any file that contains it, then appends it to targetPlainFile.
+// If ip is not found in any file, the session is skipped entirely.
 func moveHostInSession(hostfilesDir, ip, targetPlainFile string) error {
 	found := false
-	for _, fname := range allCategoryFiles() {
-		if containsIP(filepath.Join(hostfilesDir, fname), ip) {
+	for _, fname := range allCategoryFilenames {
+		path := filepath.Join(hostfilesDir, fname)
+		removed, err := removeIPFromFile(path, ip)
+		if err != nil {
+			return err
+		}
+		if removed {
 			found = true
-			break
 		}
 	}
 	if !found {
 		return nil
-	}
-
-	for _, fname := range allCategoryFiles() {
-		if err := removeIPFromFile(filepath.Join(hostfilesDir, fname), ip); err != nil {
-			return err
-		}
 	}
 
 	target := filepath.Join(hostfilesDir, targetPlainFile)
@@ -117,17 +115,19 @@ func containsIP(path, ip string) bool {
 }
 
 // removeIPFromFile rewrites path with all lines whose first token is ip removed.
-// Missing files are silently skipped.
-func removeIPFromFile(path, ip string) error {
+// Returns (true, nil) if any line was removed, (false, nil) if ip was not found,
+// (false, err) on I/O error. Missing files return (false, nil).
+func removeIPFromFile(path, ip string) (bool, error) {
 	f, err := os.Open(path)
 	if os.IsNotExist(err) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return fmt.Errorf("opening %s: %w", path, err)
+		return false, fmt.Errorf("opening %s: %w", path, err)
 	}
 
 	var keep []string
+	removed := false
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := scanner.Text()
@@ -135,6 +135,7 @@ func removeIPFromFile(path, ip string) error {
 		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
 			fields := strings.Fields(trimmed)
 			if len(fields) > 0 && fields[0] == ip {
+				removed = true
 				continue
 			}
 		}
@@ -143,12 +144,16 @@ func removeIPFromFile(path, ip string) error {
 	f.Close()
 
 	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scanning %s: %w", path, err)
+		return false, fmt.Errorf("scanning %s: %w", path, err)
+	}
+
+	if !removed {
+		return false, nil
 	}
 
 	out := strings.Join(keep, "\n")
 	if len(keep) > 0 {
 		out += "\n"
 	}
-	return os.WriteFile(path, []byte(out), 0644)
+	return true, os.WriteFile(path, []byte(out), 0644)
 }
