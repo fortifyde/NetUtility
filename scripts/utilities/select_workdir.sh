@@ -89,7 +89,10 @@ EOF
     fix_ownership "$workdir"
     echo "Workspace structure created"
     
-    cd "$workdir" || exit 1
+    if ! cd "$workdir"; then
+        log_error "Failed to change to directory: $workdir" "$SCRIPT_NAME"
+        exit 1
+    fi
     echo "Changed to directory: $(pwd)"
     exit 0
 else
