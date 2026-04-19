@@ -123,7 +123,8 @@ func (t *TUI) getCategoriesFromMetadata() []Category {
 		}
 	}
 
-	return mergeInterfaceTasks(categories)
+	categories = mergeInterfaceTasks(categories)
+	return mergeCaptureAnalysisTasks(categories)
 }
 
 // formatCategoryName converts metadata category names to display names
@@ -248,6 +249,63 @@ func mergeInterfaceTasks(categories []Category) []Category {
 			ifaceIdx = len(newTasks)
 		}
 		newTasks = append(newTasks[:ifaceIdx:ifaceIdx], append([]Task{composite}, newTasks[ifaceIdx:]...)...)
+		categories[ci].Tasks = newTasks
+		break
+	}
+	return categories
+}
+
+// mergeCaptureAnalysisTasks finds "Extract VLANs", "MAC Address Analysis", and
+// "Packet Capture Analysis" in the "Network Discovery" category and replaces them
+// with a single composite "Network Capture Analysis" task.
+func mergeCaptureAnalysisTasks(categories []Category) []Category {
+	for ci, cat := range categories {
+		if cat.Name != "Network Discovery" {
+			continue
+		}
+		var vlanTask, macTask, captureTask Task
+		firstIdx := -1
+		for ti, task := range cat.Tasks {
+			switch task.Name {
+			case "Extract VLANs":
+				vlanTask = task
+				if firstIdx == -1 {
+					firstIdx = ti
+				}
+			case "MAC Address Analysis":
+				macTask = task
+				if firstIdx == -1 {
+					firstIdx = ti
+				}
+			case "Packet Capture Analysis":
+				captureTask = task
+				if firstIdx == -1 {
+					firstIdx = ti
+				}
+			}
+		}
+		if firstIdx == -1 || vlanTask.Name == "" || macTask.Name == "" || captureTask.Name == "" {
+			continue
+		}
+		newTasks := make([]Task, 0, len(cat.Tasks)-2)
+		for _, t := range cat.Tasks {
+			if t.Name != "Extract VLANs" && t.Name != "MAC Address Analysis" && t.Name != "Packet Capture Analysis" {
+				newTasks = append(newTasks, t)
+			}
+		}
+		composite := Task{
+			Name:        "Network Capture Analysis",
+			Description: "Analyze VLANs, MAC addresses, or packet captures",
+			SubTasks: []Task{
+				{Name: "Extract VLANs", Description: vlanTask.Description, Script: vlanTask.Script},
+				{Name: "MAC Address Analysis", Description: macTask.Description, Script: macTask.Script},
+				{Name: "Packet Capture Analysis", Description: captureTask.Description, Script: captureTask.Script},
+			},
+		}
+		if firstIdx > len(newTasks) {
+			firstIdx = len(newTasks)
+		}
+		newTasks = append(newTasks[:firstIdx:firstIdx], append([]Task{composite}, newTasks[firstIdx:]...)...)
 		categories[ci].Tasks = newTasks
 		break
 	}

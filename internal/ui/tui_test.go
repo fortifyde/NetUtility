@@ -115,6 +115,59 @@ func TestMergeInterfaceTasksNoOp(t *testing.T) {
 	}
 }
 
+func TestMergeCaptureAnalysisTasks(t *testing.T) {
+	vlanTask    := Task{Name: "Extract VLANs", Description: "Extract VLANs from capture", Script: "/scripts/extract_vlans.sh"}
+	macTask     := Task{Name: "MAC Address Analysis", Description: "Analyze MAC addresses", Script: "/scripts/mac_analysis.sh"}
+	captureTask := Task{Name: "Packet Capture Analysis", Description: "Analyze pcap files", Script: "/scripts/advanced_packet_analysis.sh"}
+	otherTask   := Task{Name: "Multi-Phase Discovery", Description: "Discover hosts", Script: "/scripts/discovery.sh"}
+
+	input := []Category{
+		{
+			Name:  "Network Discovery",
+			Tasks: []Task{otherTask, vlanTask, macTask, captureTask},
+		},
+	}
+
+	result := mergeCaptureAnalysisTasks(input)
+
+	cat := result[0]
+	if len(cat.Tasks) != 2 {
+		t.Fatalf("expected 2 tasks, got %d", len(cat.Tasks))
+	}
+	if cat.Tasks[0].Name != "Multi-Phase Discovery" {
+		t.Errorf("first task = %q, want Multi-Phase Discovery", cat.Tasks[0].Name)
+	}
+	composite := cat.Tasks[1]
+	if composite.Name != "Network Capture Analysis" {
+		t.Errorf("composite name = %q, want Network Capture Analysis", composite.Name)
+	}
+	if len(composite.SubTasks) != 3 {
+		t.Fatalf("expected 3 sub-tasks, got %d", len(composite.SubTasks))
+	}
+	if composite.SubTasks[0].Script != vlanTask.Script {
+		t.Errorf("sub-task[0] script = %q, want %q", composite.SubTasks[0].Script, vlanTask.Script)
+	}
+	if composite.SubTasks[1].Script != macTask.Script {
+		t.Errorf("sub-task[1] script = %q, want %q", composite.SubTasks[1].Script, macTask.Script)
+	}
+	if composite.SubTasks[2].Script != captureTask.Script {
+		t.Errorf("sub-task[2] script = %q, want %q", composite.SubTasks[2].Script, captureTask.Script)
+	}
+}
+
+func TestMergeCaptureAnalysisTasksPartialMatch(t *testing.T) {
+	input := []Category{
+		{
+			Name:  "Network Discovery",
+			Tasks: []Task{{Name: "Extract VLANs"}, {Name: "MAC Address Analysis"}},
+		},
+	}
+	result := mergeCaptureAnalysisTasks(input)
+	if len(result[0].Tasks) != 2 {
+		t.Fatalf("expected no merge with only 2/3 tasks, got %d tasks", len(result[0].Tasks))
+	}
+}
+
 func TestSearchAllCategories(t *testing.T) {
 	tui := &TUI{} // nil registry → falls back to hardcoded categories
 
