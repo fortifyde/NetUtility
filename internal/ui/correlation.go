@@ -145,6 +145,9 @@ func hostMatchesText(ip string, result *correlation.CorrelationResult, text stri
 	if strings.Contains(strings.ToLower(result.HostInfo.Hostname), lower) {
 		return true
 	}
+	if strings.Contains(strings.ToLower(hostVendor(result)), lower) {
+		return true
+	}
 	if nb, ok := result.HostInfo.Attributes["netbios_name"]; ok {
 		if strings.Contains(strings.ToLower(nb), lower) {
 			return true
@@ -364,8 +367,8 @@ func (cv *CorrelationViewer) updateHostsList() {
 	columns := []colPolicy{
 		{"IP", 0, 0},
 		{"Category", 0, 0},
-		{"Vendor", 0, 0},
 		{"Hostname", 1, 30},
+		{"Vendor", 0, 20},
 		{"Ports", 2, 0},
 	}
 	for i, col := range columns {
@@ -411,8 +414,8 @@ func (cv *CorrelationViewer) updateHostsList() {
 		cat := hostCategory(e.result)
 		cv.hostsList.SetCell(row, 0, tview.NewTableCell(e.ip).SetExpansion(0))
 		cv.hostsList.SetCell(row, 1, tview.NewTableCell(cat).SetTextColor(categoryTcellColor(cat)).SetExpansion(0))
-		cv.hostsList.SetCell(row, 2, tview.NewTableCell(hostVendor(e.result)).SetExpansion(0))
-		cv.hostsList.SetCell(row, 3, tview.NewTableCell(hostHostname(e.result)).SetExpansion(1).SetMaxWidth(30))
+		cv.hostsList.SetCell(row, 2, tview.NewTableCell(hostHostname(e.result)).SetExpansion(1).SetMaxWidth(30))
+		cv.hostsList.SetCell(row, 3, tview.NewTableCell(hostVendor(e.result)).SetExpansion(0).SetMaxWidth(20))
 		cv.hostsList.SetCell(row, 4, tview.NewTableCell(hostOpenPorts(e.result)).SetExpansion(2))
 		if e.ip == prevSelected {
 			reSelectRow = row
