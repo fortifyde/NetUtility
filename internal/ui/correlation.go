@@ -270,7 +270,7 @@ func (cv *CorrelationViewer) updateControlsText() {
 	case cv.filterText != "":
 		filterLine = "[yellow]f[::-]        Reset search"
 	case cv.filterCategory != "":
-		filterLine = fmt.Sprintf("[yellow]f[::-]        Cycle filter [%s]", categoryDisplayLabel(cv.filterCategory))
+		filterLine = fmt.Sprintf("[yellow]f[::-]        Cycle filter %s", tview.Escape(fmt.Sprintf("[%s]", categoryDisplayLabel(cv.filterCategory))))
 	default:
 		filterLine = "[white]f[::-]        Cycle category filter"
 	}
@@ -337,11 +337,11 @@ func (cv *CorrelationViewer) updateHostsList() {
 	title := "Host Inventory"
 	switch {
 	case catLabel != "" && cv.filterText != "":
-		title = fmt.Sprintf("Host Inventory [%s · search: %s]", catLabel, cv.filterText)
+		title = fmt.Sprintf("Host Inventory %s", tview.Escape(fmt.Sprintf("[%s · search: %s]", catLabel, cv.filterText)))
 	case catLabel != "":
-		title = fmt.Sprintf("Host Inventory [%s]", catLabel)
+		title = fmt.Sprintf("Host Inventory %s", tview.Escape(fmt.Sprintf("[%s]", catLabel)))
 	case cv.filterText != "":
-		title = fmt.Sprintf("Host Inventory [search: %s]", cv.filterText)
+		title = fmt.Sprintf("Host Inventory %s", tview.Escape(fmt.Sprintf("[search: %s]", cv.filterText)))
 	}
 	cv.hostsList.SetTitle(title)
 
