@@ -238,15 +238,6 @@ func (cv *CorrelationViewer) setupUI() {
 	cv.hostsList = tview.NewTable().SetBorders(true).SetSelectable(true, false)
 	cv.hostsList.SetBorder(true).SetTitle("Host Inventory")
 
-	// Set table headers
-	headers := []string{"IP", "Category", "Vendor", "Hostname", "Ports"}
-	for i, header := range headers {
-		cv.hostsList.SetCell(0, i, tview.NewTableCell(header).
-			SetTextColor(tcell.ColorYellow).
-			SetAlign(tview.AlignCenter).
-			SetSelectable(false))
-	}
-
 	// Create details panel
 	cv.detailsPanel = tview.NewTextView().SetDynamicColors(true).SetScrollable(true)
 	cv.detailsPanel.SetBorder(true).SetTitle("Host Details")
