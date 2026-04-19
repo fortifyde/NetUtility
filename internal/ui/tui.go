@@ -659,7 +659,7 @@ func (t *TUI) showCategory(categoryName string) {
 				t.taskPane.AddItem(task.Name, "", rune('1'+i), nil)
 				t.taskListIsContinuation = append(t.taskListIsContinuation, false)
 				for _, line := range lines {
-					t.taskPane.AddItem("  "+line, "", 0, nil)
+					t.taskPane.AddItem("[green]  "+line+"[white]", "", 0, nil)
 					t.taskListIsContinuation = append(t.taskListIsContinuation, true)
 				}
 			}
@@ -964,7 +964,7 @@ func (t *TUI) startSearch() {
 			searchContinuations = append(searchContinuations, false)
 			searchResultIdx = append(searchResultIdx, i)
 			for _, line := range wrapText(r.Task.Description, listWidth) {
-				resultList.AddItem("  "+line, "", 0, nil)
+				resultList.AddItem("[green]  "+line+"[white]", "", 0, nil)
 				searchContinuations = append(searchContinuations, true)
 				searchResultIdx = append(searchResultIdx, i)
 			}
