@@ -18,9 +18,12 @@ else
     exit 1
 fi
 . "${COMMON_DIR}/colors.sh" 2>/dev/null || true
+. "${COMMON_DIR}/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 # Check for required dependencies
 if ! command -v sshpass >/dev/null 2>&1; then
+    log_error "sshpass is required but not installed" "$SCRIPT_NAME"
     echo "ERROR: sshpass is required but not installed" >&2
     echo "" >&2
     echo "This script uses sshpass for non-interactive SSH password authentication." >&2
@@ -559,6 +562,7 @@ process_device() {
 
     mkdir -p "$device_dir"
 
+    log_info "Processing device: $device_ip" "$SCRIPT_NAME"
     log_file="${device_dir}/connection.log"
     metadata_file="${device_dir}/metadata.txt"
 
@@ -586,6 +590,7 @@ process_device() {
                 -o LogLevel=ERROR \
                 "$username@$device_ip" "exit" >>"$log_file" 2>&1; then
                 rm -f "$_ssh_err"
+                log_error "Failed to connect to $device_ip (legacy SSH)" "$SCRIPT_NAME"
                 print_error "Failed to connect to $device_ip (legacy SSH)"
                 echo "$device_ip,connection_failed,Failed to establish SSH connection (legacy)" >> "$FAILURES_FILE"
                 echo "FAILURE: Connection failed (legacy SSH)" >> "$log_file"
@@ -597,6 +602,7 @@ process_device() {
             echo "SUCCESS: Connection established (PTY mode)" >> "$log_file"
         else
             rm -f "$_ssh_err"
+            log_error "Failed to connect to $device_ip" "$SCRIPT_NAME"
             print_error "Failed to connect to $device_ip"
             echo "$device_ip,connection_failed,Failed to establish SSH connection" >> "$FAILURES_FILE"
             echo "FAILURE: Connection failed" >> "$log_file"
@@ -617,6 +623,7 @@ process_device() {
     rm -f "$_pty_flag"
 
     if [ -z "$version_output" ]; then
+        log_error "Failed to get version info from $device_ip" "$SCRIPT_NAME"
         print_error "Failed to get version info from $device_ip"
         echo "$device_ip,version_detection_failed,Could not retrieve version information" >> "$FAILURES_FILE"
         echo "FAILURE: Version detection failed" >> "$log_file"
@@ -629,6 +636,7 @@ process_device() {
 
     # Detect vendor
     vendor=$(detect_vendor "$version_output")
+    log_info "Vendor detected: $vendor for $device_ip" "$SCRIPT_NAME"
     print_success "Detected vendor: $vendor for $device_ip"
     echo "Vendor: $vendor" >> "$log_file"
 
@@ -898,6 +906,7 @@ offer_retry() {
 
 # Main execution
 main() {
+    log_info "=== Script started ===" "$SCRIPT_NAME"
     print_header
 
     # Parse arguments
@@ -949,11 +958,13 @@ main() {
         TARGETS=$(select_config_targets)
 
         if [ -z "$TARGETS" ]; then
+            log_error "No targets selected" "$SCRIPT_NAME"
             print_error "No targets selected"
             exit 1
         fi
     fi
 
+    log_info "Targets selected: $TARGETS" "$SCRIPT_NAME"
     print_success "Targets selected"
 
     # Get credentials based on mode
@@ -1003,6 +1014,7 @@ main() {
     fi
 
     total_devices=$(echo "$device_list" | wc -l)
+    log_info "Processing $total_devices device(s) in $MODE mode, concurrency: $CONCURRENCY" "$SCRIPT_NAME"
     print_info "Processing $total_devices device(s) in $MODE mode with concurrency: $CONCURRENCY"
     echo "" >&2
 
@@ -1082,6 +1094,7 @@ main() {
         fi
     fi
 
+    log_info "Session complete: $SUCCESS_COUNT/$PROCESSED_COUNT devices succeeded" "$SCRIPT_NAME"
     echo "" >&2
     print_success "Session complete. Review session_summary.txt for full details."
 }
