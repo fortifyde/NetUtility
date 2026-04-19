@@ -488,18 +488,6 @@ func (cv *CorrelationViewer) Close() {
 	}
 }
 
-// showInfo displays an info message
-func (cv *CorrelationViewer) showInfo(message string) {
-	modal := tview.NewModal().
-		SetText(message).
-		AddButtons([]string{"OK"}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			cv.pages.RemovePage("info")
-		})
-
-	cv.pages.AddPage("info", modal, true, true)
-}
-
 // ShowCorrelationViewer creates and displays a correlation viewer page.
 // For the main TUI use showCorrelationViewer() which passes a proper returnToMain callback.
 func ShowCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func()) {
