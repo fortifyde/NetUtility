@@ -1,6 +1,9 @@
 package ui
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestFormatCategoryName(t *testing.T) {
 	tui := &TUI{}
@@ -109,5 +112,50 @@ func TestMergeInterfaceTasksNoOp(t *testing.T) {
 	result := mergeInterfaceTasks(input)
 	if len(result[0].Tasks) != 1 || result[0].Tasks[0].Name != "Configure IP Addresses" {
 		t.Errorf("no-op merge modified categories unexpectedly: %+v", result[0].Tasks)
+	}
+}
+
+func TestSearchAllCategories(t *testing.T) {
+	tui := &TUI{} // nil registry → falls back to hardcoded categories
+
+	// Empty query returns nil
+	if got := tui.searchAllCategories(""); got != nil {
+		t.Errorf("empty query: expected nil, got %v", got)
+	}
+
+	// "scan" matches tasks whose name or description contains "scan" (case-insensitive)
+	results := tui.searchAllCategories("scan")
+	if len(results) == 0 {
+		t.Fatal("expected results for 'scan', got none")
+	}
+	for _, r := range results {
+		combined := strings.ToLower(r.Task.Name + " " + r.Task.Description)
+		if !strings.Contains(combined, "scan") {
+			t.Errorf("result %q / %q does not match 'scan'", r.Task.Name, r.Task.Description)
+		}
+	}
+
+	// Case-insensitive: SCAN and scan return same count
+	upper := tui.searchAllCategories("SCAN")
+	lower := tui.searchAllCategories("scan")
+	if len(upper) != len(lower) {
+		t.Errorf("case sensitivity mismatch: SCAN=%d scan=%d", len(upper), len(lower))
+	}
+
+	// Results span multiple categories when the query is broad enough
+	allResults := tui.searchAllCategories("config")
+	cats := map[string]bool{}
+	for _, r := range allResults {
+		cats[r.CategoryName] = true
+	}
+	if len(cats) < 2 {
+		t.Errorf("expected results from at least 2 categories for 'config', got %v", cats)
+	}
+
+	// CategoryName is populated on every result
+	for _, r := range tui.searchAllCategories("network") {
+		if r.CategoryName == "" {
+			t.Errorf("result %q has empty CategoryName", r.Task.Name)
+		}
 	}
 }
