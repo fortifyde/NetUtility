@@ -47,7 +47,7 @@ case $option in
         read -r nameserver
         if ! echo "$nameserver" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
             echo "Error: Invalid IP format"
-            log_error "Failed to add nameserver" "$SCRIPT_NAME"
+            log_error "Invalid nameserver IP format: $nameserver" "$SCRIPT_NAME"
             exit 1
         fi
 
