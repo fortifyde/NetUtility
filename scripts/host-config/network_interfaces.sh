@@ -91,6 +91,7 @@ case $action in
                     ip -6 addr flush dev "$interface" scope link 2>/dev/null || true
                     echo "  ✓ $interface UP (VLAN)" >&2
                 else
+                    log_error "Failed to bring VLAN interface $interface UP" "$SCRIPT_NAME"
                     echo "  ✗ $interface FAILED (VLAN)" >&2
                 fi
             fi
@@ -112,6 +113,7 @@ case $action in
                 if ip link set "$interface" down 2>/dev/null; then
                     echo "  ✓ $interface DOWN (VLAN)" >&2
                 else
+                    log_error "Failed to bring VLAN interface $interface DOWN" "$SCRIPT_NAME"
                     echo "  ✗ $interface FAILED (VLAN)" >&2
                 fi
             fi
