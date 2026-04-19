@@ -3,8 +3,11 @@
 # Source shared utility functions
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== VLAN Interface Management ==="
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
 
 echo "Current VLAN interfaces:"
@@ -14,10 +17,12 @@ echo >&2
 parent_interface=$(select_interface "Select parent interface" "vlan" "true")
 if [ -z "$parent_interface" ]; then
     error_message "No interface selected"
+    log_error "No parent interface selected" "$SCRIPT_NAME"
     exit 1
 fi
 
 success_message "Selected parent interface: $parent_interface"
+log_info "Parent interface selected: $parent_interface" "$SCRIPT_NAME"
 
 echo "VLAN options:" >&2
 echo "1. Add VLAN interface" >&2
@@ -33,6 +38,7 @@ else
     printf "Select option (1-5): \n" >&2
 fi
 read -r option
+log_info "VLAN operation selected: option $option" "$SCRIPT_NAME"
 
 case $option in
     1)
@@ -46,11 +52,13 @@ case $option in
         case "$vlan_id" in
             *[!0-9]*|'')
                 error_message "Invalid VLAN ID. Must be between 1-4094"
+                log_error "Invalid VLAN ID: $vlan_id" "$SCRIPT_NAME"
                 exit 1
                 ;;
             *)
                 if [ "$vlan_id" -lt 1 ] || [ "$vlan_id" -gt 4094 ]; then
                     error_message "Invalid VLAN ID. Must be between 1-4094"
+                    log_error "Invalid VLAN ID: $vlan_id" "$SCRIPT_NAME"
                     exit 1
                 fi
                 ;;
@@ -68,6 +76,7 @@ case $option in
         ip -6 addr flush dev "$vlan_interface" scope link 2>/dev/null || true
 
         success_message "VLAN interface $vlan_interface created and brought up"
+        log_info "VLAN interface created: $vlan_interface (parent: $parent_interface, VLAN ID: $vlan_id)" "$SCRIPT_NAME"
         
         if confirm_action "Configure IP address for $vlan_interface?"; then
             echo >&2
@@ -88,6 +97,7 @@ case $option in
             esac
                 ip addr add "$ip_addr" dev "$vlan_interface"
                 success_message "IP address $ip_addr assigned to $vlan_interface"
+                log_info "IP assigned: $ip_addr -> $vlan_interface" "$SCRIPT_NAME"
         fi
         
         echo "VLAN interface details:" >&2
@@ -209,7 +219,8 @@ case $option in
                 ip link set "$vlan_interface" up
                 ip -6 addr flush dev "$vlan_interface" scope link 2>/dev/null || true
                 echo "✓ VLAN interface $vlan_interface created and brought up" >&2
-                
+                log_info "VLAN created: $vlan_interface" "$SCRIPT_NAME"
+
                 # Handle IP configuration based on mode
                 case "$ip_mode" in
                     1)
@@ -248,6 +259,7 @@ case $option in
                 successful_vlans="$successful_vlans $vlan_id"
             else
                 echo "✗ Failed to create VLAN interface $vlan_interface" >&2
+                log_error "Failed to create VLAN interface: $vlan_interface" "$SCRIPT_NAME"
                 failed_vlans="$failed_vlans $vlan_id(create_failed)"
             fi
             echo >&2
@@ -347,6 +359,7 @@ case $option in
                             if [ -n "$vlan_interface" ]; then
                                 ip link delete "$vlan_interface" 2>/dev/null
                                 success_message "VLAN interface $vlan_interface removed"
+                                log_info "VLAN interface removed: $vlan_interface" "$SCRIPT_NAME"
                             else
                                 error_message "Interface not found"
                             fi
