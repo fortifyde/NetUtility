@@ -1,6 +1,7 @@
 package correlation
 
 import (
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
@@ -621,6 +622,124 @@ Nmap done: 2 IP addresses (2 hosts up) scanned in 1.23 seconds
 	// Check services were extracted
 	if len(result.Services) < 3 {
 		t.Errorf("len(Services) = %d, want at least 3", len(result.Services))
+	}
+}
+
+func TestSetManualCategory(t *testing.T) {
+	dir := t.TempDir()
+	c := newCorrelatorWithDataDir("/ws", dir)
+
+	// Seed a correlation with a host
+	c.correlations["10.0.0.1"] = &CorrelationResult{
+		Host: "10.0.0.1",
+		HostInfo: &Host{
+			IP:         "10.0.0.1",
+			Attributes: map[string]string{"category": "windows"},
+		},
+	}
+
+	if err := c.SetManualCategory("10.0.0.1", "linux"); err != nil {
+		t.Fatalf("SetManualCategory: %v", err)
+	}
+
+	// In-memory category updated immediately
+	cat := c.correlations["10.0.0.1"].HostInfo.Attributes["category"]
+	if cat != "linux" {
+		t.Errorf("in-memory category = %q, want %q", cat, "linux")
+	}
+
+	// Override file written
+	overridePath := filepath.Join(dir, "correlations", "manual_categories.json")
+	data, err := os.ReadFile(overridePath)
+	if err != nil {
+		t.Fatalf("reading override file: %v", err)
+	}
+	var overrides map[string]string
+	if err := json.Unmarshal(data, &overrides); err != nil {
+		t.Fatalf("unmarshalling overrides: %v", err)
+	}
+	if overrides["10.0.0.1"] != "linux" {
+		t.Errorf("persisted category = %q, want %q", overrides["10.0.0.1"], "linux")
+	}
+}
+
+func TestManualOverrideSurvivesReload(t *testing.T) {
+	dir := t.TempDir()
+	c := newCorrelatorWithDataDir("/ws", dir)
+
+	c.correlations["10.0.0.2"] = &CorrelationResult{
+		Host: "10.0.0.2",
+		HostInfo: &Host{
+			IP:         "10.0.0.2",
+			Attributes: map[string]string{"category": "unknown"},
+		},
+	}
+
+	if err := c.SetManualCategory("10.0.0.2", "network_device"); err != nil {
+		t.Fatalf("SetManualCategory: %v", err)
+	}
+
+	// Simulate restart: new correlator, same dataDir
+	c2 := newCorrelatorWithDataDir("/ws", dir)
+
+	// Seed with a different category (as if scan re-parsed)
+	c2.correlations["10.0.0.2"] = &CorrelationResult{
+		Host: "10.0.0.2",
+		HostInfo: &Host{
+			IP:         "10.0.0.2",
+			Attributes: map[string]string{"category": "unknown"},
+		},
+	}
+
+	if err := c2.LoadResults(); err != nil {
+		t.Fatalf("LoadResults: %v", err)
+	}
+
+	cat := c2.correlations["10.0.0.2"].HostInfo.Attributes["category"]
+	if cat != "network_device" {
+		t.Errorf("after reload category = %q, want %q", cat, "network_device")
+	}
+}
+
+func TestApplyManualOverridesAfterRecorrelate(t *testing.T) {
+	dir := t.TempDir()
+	c := newCorrelatorWithDataDir("/ws", dir)
+
+	c.correlations["10.0.0.3"] = &CorrelationResult{
+		Host: "10.0.0.3",
+		HostInfo: &Host{
+			IP:         "10.0.0.3",
+			Attributes: map[string]string{"category": "windows"},
+		},
+	}
+
+	if err := c.SetManualCategory("10.0.0.3", "linux"); err != nil {
+		t.Fatalf("SetManualCategory: %v", err)
+	}
+
+	// Simulate a scan result that would re-categorize the host
+	result := &ScanResult{
+		ID:        "scan1",
+		Type:      ScanTypePortScan,
+		Timestamp: time.Now(),
+		Source:    "test",
+		Hosts: []Host{
+			{
+				IP:         "10.0.0.3",
+				Status:     "up",
+				LastSeen:   time.Now(),
+				Attributes: map[string]string{"category": "windows"},
+			},
+		},
+	}
+
+	if err := c.AddScanResult(result); err != nil {
+		t.Fatalf("AddScanResult: %v", err)
+	}
+
+	cat := c.correlations["10.0.0.3"].HostInfo.Attributes["category"]
+	if cat != "linux" {
+		t.Errorf("after re-correlate category = %q, want %q", cat, "linux")
 	}
 }
 

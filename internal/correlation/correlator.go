@@ -114,11 +114,12 @@ type TimelineEvent struct {
 
 // Correlator manages scan result correlation
 type Correlator struct {
-	results      map[string]*ScanResult
-	correlations map[string]*CorrelationResult
-	workspaceDir string
-	dataDir      string // directory where correlations.json is stored (alongside the binary)
-	mu           sync.RWMutex
+	results         map[string]*ScanResult
+	correlations    map[string]*CorrelationResult
+	workspaceDir    string
+	dataDir         string // directory where correlations.json is stored (alongside the binary)
+	manualOverrides map[string]string // ip → category; loaded from manual_categories.json
+	mu              sync.RWMutex
 }
 
 // NewCorrelator creates a new result correlator. correlations.json is stored
@@ -134,10 +135,11 @@ func NewCorrelator(workspaceDir string) *Correlator {
 // newCorrelatorWithDataDir is used in tests to inject an explicit data directory.
 func newCorrelatorWithDataDir(workspaceDir, dataDir string) *Correlator {
 	return &Correlator{
-		results:      make(map[string]*ScanResult),
-		correlations: make(map[string]*CorrelationResult),
-		workspaceDir: workspaceDir,
-		dataDir:      dataDir,
+		results:         make(map[string]*ScanResult),
+		correlations:    make(map[string]*CorrelationResult),
+		workspaceDir:    workspaceDir,
+		dataDir:         dataDir,
+		manualOverrides: make(map[string]string),
 	}
 }
 
@@ -250,6 +252,7 @@ func (c *Correlator) correlateHost(hostIP string) {
 	correlation.Recommendations = c.generateRecommendations(correlation)
 
 	c.correlations[hostIP] = correlation
+	c.applyManualOverrides()
 }
 
 // resultContainsHost checks if a scan result contains information about a host
@@ -550,6 +553,76 @@ func (c *Correlator) saveResults() error {
 	return nil
 }
 
+func (c *Correlator) manualOverridesPath() string {
+	if c.dataDir == "" {
+		return ""
+	}
+	return filepath.Join(c.dataDir, "correlations", "manual_categories.json")
+}
+
+func (c *Correlator) loadManualOverrides() error {
+	path := c.manualOverridesPath()
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading manual_categories.json: %w", err)
+	}
+	return json.Unmarshal(data, &c.manualOverrides)
+}
+
+func (c *Correlator) saveManualOverrides() error {
+	path := c.manualOverridesPath()
+	if path == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("creating correlations directory: %w", err)
+	}
+	data, err := json.MarshalIndent(c.manualOverrides, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshalling manual overrides: %w", err)
+	}
+	return os.WriteFile(path, data, 0644)
+}
+
+// applyManualOverrides stamps manual category overrides onto live correlations.
+// Must be called with c.mu held.
+func (c *Correlator) applyManualOverrides() {
+	for ip, cat := range c.manualOverrides {
+		if corr, ok := c.correlations[ip]; ok && corr.HostInfo != nil {
+			if corr.HostInfo.Attributes == nil {
+				corr.HostInfo.Attributes = make(map[string]string)
+			}
+			corr.HostInfo.Attributes["category"] = cat
+		}
+	}
+}
+
+// SetManualCategory permanently overrides the category for a host.
+func (c *Correlator) SetManualCategory(ip, category string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.manualOverrides[ip] = category
+
+	if corr, ok := c.correlations[ip]; ok && corr.HostInfo != nil {
+		if corr.HostInfo.Attributes == nil {
+			corr.HostInfo.Attributes = make(map[string]string)
+		}
+		corr.HostInfo.Attributes["category"] = category
+	}
+
+	if err := c.saveManualOverrides(); err != nil {
+		return fmt.Errorf("saving manual overrides: %w", err)
+	}
+	return c.saveResults()
+}
+
 // LoadResults loads saved correlation results from disk
 func (c *Correlator) LoadResults() error {
 	if c.dataDir == "" {
@@ -558,7 +631,7 @@ func (c *Correlator) LoadResults() error {
 
 	correlationFile := filepath.Join(c.dataDir, "correlations", "correlations.json")
 	if _, err := os.Stat(correlationFile); os.IsNotExist(err) {
-		return nil // No saved results
+		return nil
 	}
 
 	data, err := os.ReadFile(correlationFile)
@@ -572,6 +645,11 @@ func (c *Correlator) LoadResults() error {
 	if err := json.Unmarshal(data, &c.correlations); err != nil {
 		return fmt.Errorf("failed to unmarshal correlations: %w", err)
 	}
+
+	if err := c.loadManualOverrides(); err != nil {
+		return fmt.Errorf("loading manual overrides: %w", err)
+	}
+	c.applyManualOverrides()
 
 	return nil
 }
