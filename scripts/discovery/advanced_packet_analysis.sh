@@ -4,8 +4,11 @@
 # Deep protocol analysis with statistical reports and security assessment
 
 . "$(dirname "$0")/../common/utils.sh"
+. "$(dirname "$0")/../common/logging.sh"
+SCRIPT_NAME="$(basename "$0")"
 
 echo "=== Advanced Packet Analysis ===" >&2
+log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
 
 CAPTURE_DIR="${NETUTIL_WORKDIR:-$HOME}/captures"
@@ -20,10 +23,12 @@ if [ -n "$1" ]; then
     # Validate that the provided file exists and is readable
     if [ ! -f "$capture_file" ]; then
         echo "Error: Capture file '$capture_file' does not exist" >&2
+        log_error "Capture file not found: $capture_file" "$SCRIPT_NAME"
         exit 1
     fi
     if [ ! -r "$capture_file" ]; then
         echo "Error: Capture file '$capture_file' is not readable" >&2
+        log_error "Capture file not readable: $capture_file" "$SCRIPT_NAME"
         exit 1
     fi
     echo "Using provided capture file: $capture_file" >&2
@@ -32,12 +37,14 @@ else
     capture_file=$(select_capture_file)
     if [ -z "$capture_file" ]; then
         echo "Error: No capture file selected" >&2
+        log_error "No capture file selected interactively" "$SCRIPT_NAME"
         exit 1
     fi
     echo "Using selected capture file: $capture_file" >&2
 fi
 
 echo "Performing advanced analysis on: $capture_file" >&2
+log_info "Analysis started: $capture_file" "$SCRIPT_NAME"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 BASENAME=$(basename "$capture_file" .pcap)
@@ -239,6 +246,7 @@ fi
 echo >> "$REPORT_FILE"
 echo "Analysis completed at $(date)" >> "$REPORT_FILE"
 
+log_info "Analysis complete. Report: $REPORT_FILE" "$SCRIPT_NAME"
 echo "Analysis complete!" >&2
 echo "Report saved to: $REPORT_FILE" >&2
 
