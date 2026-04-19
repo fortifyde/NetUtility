@@ -421,6 +421,10 @@ process_device() {
                 echo "FAILURE: Connection failed (legacy SSH)" >> "$log_file"
                 return 1
             fi
+        elif grep -qi "command execution is not supported" "$_ssh_err"; then
+            print_info "Exec channel unsupported for $device_ip, using PTY mode"
+            SSH_REQUIRES_PTY=1
+            echo "SUCCESS: Connection established (PTY mode)" >> "$log_file"
         else
             rm -f "$_ssh_err"
             print_error "Failed to connect to $device_ip"
@@ -428,10 +432,10 @@ process_device() {
             echo "FAILURE: Connection failed" >> "$log_file"
             return 1
         fi
+    else
+        echo "SUCCESS: Connection established" >> "$log_file"
     fi
     rm -f "$_ssh_err"
-
-    echo "SUCCESS: Connection established" >> "$log_file"
 
     # Get version output with fallbacks.
     # Pass a temp file so try_version_command can signal when PTY is required.
