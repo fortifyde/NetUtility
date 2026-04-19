@@ -912,6 +912,9 @@ main() {
                 shift
                 ;;
             --concurrency)
+                case "$2" in
+                    ''|*[!0-9]*) echo "Error: --concurrency requires a positive integer" >&2; exit 1 ;;
+                esac
                 CONCURRENCY="$2"
                 shift 2
                 ;;

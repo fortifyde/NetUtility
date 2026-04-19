@@ -619,13 +619,15 @@ if [ "$vlan_count" -gt 0 ]; then
         selected_vlan_count=0
     fi  # end L2 VLAN selection
 else
-    echo "No VLANs detected in capture" >&2 >> "$WORKFLOW_REPORT"
+    echo "No VLANs detected in capture" >> "$WORKFLOW_REPORT"
+    echo "No VLANs detected in capture" >&2
     touch "$TEMP_DIR/selected_vlans.txt"  # Create empty file
     selected_vlan_count=0
 fi
 
 # Extract general network information
-echo "Extracting network ranges..." >&2 >> "$WORKFLOW_REPORT"
+echo "Extracting network ranges..." >> "$WORKFLOW_REPORT"
+echo "Extracting network ranges..." >&2
 tshark -r "$capture_file" -T fields -e ip.src -e ip.dst 2>/dev/null | \
     tr '\t' '\n' | grep -v "^$" | sort -u | head -20 > "$TEMP_DIR/discovered_ips.txt"
 
