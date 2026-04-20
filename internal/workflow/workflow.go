@@ -69,7 +69,7 @@ type WorkflowStep struct {
 	Duration   time.Duration             `json:"duration,omitempty"`
 	Result     *executor.StreamingResult `json:"result,omitempty"`
 	Error      error                     `json:"error,omitempty"`
-	Metadata   map[string]any    `json:"metadata,omitempty"`
+	Metadata   map[string]any            `json:"metadata,omitempty"`
 	mu         sync.Mutex
 }
 
@@ -100,11 +100,11 @@ func (s *WorkflowStep) setDone(status WorkflowStatus, err error) {
 
 // StepCondition represents a condition for conditional execution
 type StepCondition struct {
-	Type     ConditionType          `json:"type"`
-	Target   string                 `json:"target,omitempty"` // IP, port number, etc.
-	Operator string                 `json:"operator"`         // >, <, ==, !=, contains, etc.
-	Value    any                    `json:"value"`
-	StepID   string                 `json:"step_id,omitempty"` // Reference to another step
+	Type     ConditionType  `json:"type"`
+	Target   string         `json:"target,omitempty"` // IP, port number, etc.
+	Operator string         `json:"operator"`         // >, <, ==, !=, contains, etc.
+	Value    any            `json:"value"`
+	StepID   string         `json:"step_id,omitempty"` // Reference to another step
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
@@ -122,7 +122,7 @@ type Workflow struct {
 	Progress    float64                            `json:"progress"`            // 0.0 to 1.0
 	Variables   map[string]string                  `json:"variables,omitempty"` // Workflow variables
 	Results     map[string]*correlation.ScanResult `json:"results,omitempty"`
-	Metadata    map[string]any             `json:"metadata,omitempty"`
+	Metadata    map[string]any                     `json:"metadata,omitempty"`
 
 	// Runtime state
 	completedSteps map[string]bool

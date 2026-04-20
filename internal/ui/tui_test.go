@@ -29,7 +29,7 @@ func TestFormatCategoryName(t *testing.T) {
 
 func TestMergeInterfaceTasks(t *testing.T) {
 	ifaceTask := Task{Name: "Manage Network Interfaces", Description: "Manage interface states", Script: "/scripts/network_interfaces.sh"}
-	vlanTask  := Task{Name: "Manage VLAN Interfaces", Description: "Create VLAN subinterfaces", Script: "/scripts/add_vlan.sh"}
+	vlanTask := Task{Name: "Manage VLAN Interfaces", Description: "Create VLAN subinterfaces", Script: "/scripts/add_vlan.sh"}
 	otherTask := Task{Name: "Configure IP Addresses", Description: "Set IPs", Script: "/scripts/configure_ip.sh"}
 
 	input := []Category{
@@ -116,10 +116,10 @@ func TestMergeInterfaceTasksNoOp(t *testing.T) {
 }
 
 func TestMergeCaptureAnalysisTasks(t *testing.T) {
-	vlanTask    := Task{Name: "Extract VLANs", Description: "Extract VLANs from capture", Script: "/scripts/extract_vlans.sh"}
-	macTask     := Task{Name: "MAC Address Analysis", Description: "Analyze MAC addresses", Script: "/scripts/mac_analysis.sh"}
+	vlanTask := Task{Name: "Extract VLANs", Description: "Extract VLANs from capture", Script: "/scripts/extract_vlans.sh"}
+	macTask := Task{Name: "MAC Address Analysis", Description: "Analyze MAC addresses", Script: "/scripts/mac_analysis.sh"}
 	captureTask := Task{Name: "Packet Capture Analysis", Description: "Analyze pcap files", Script: "/scripts/advanced_packet_analysis.sh"}
-	otherTask   := Task{Name: "Multi-Phase Discovery", Description: "Discover hosts", Script: "/scripts/discovery.sh"}
+	otherTask := Task{Name: "Multi-Phase Discovery", Description: "Discover hosts", Script: "/scripts/discovery.sh"}
 
 	input := []Category{
 		{

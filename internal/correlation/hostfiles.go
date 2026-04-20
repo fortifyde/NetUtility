@@ -57,16 +57,18 @@ func MoveHostInHostfiles(workspaceDir, ip, newCategory string) error {
 			continue
 		}
 		// Best-effort per session.
-		_ = moveHostInSession(hostfilesDir, ip, targetFile)
+		_ = moveHostInSession(hostfilesDir, ip, targetFile, newCategory)
 	}
 	return nil
 }
 
 // moveHostInSession handles a single hostfiles/ directory.
-// It removes ip from any file that contains it, then appends it to targetPlainFile.
-// If ip is not found in any file, the session is skipped entirely.
-func moveHostInSession(hostfilesDir, ip, targetPlainFile string) error {
+	// It removes ip from any file that contains it, then appends it to targetPlainFile.
+	// If ip is not found in any file, the session is skipped entirely.
+func moveHostInSession(hostfilesDir, ip, targetPlainFile, category string) error {
 	found := false
+	var enrichedData string // Track enriched data if found
+	
 	for _, fname := range allCategoryFilenames {
 		path := filepath.Join(hostfilesDir, fname)
 		removed, err := removeIPFromFile(path, ip)
@@ -75,20 +77,49 @@ func moveHostInSession(hostfilesDir, ip, targetPlainFile string) error {
 		}
 		if removed {
 			found = true
+			// If we removed from an enriched file, save the data
+			if strings.Contains(fname, "_enriched") && enrichedData == "" {
+				enrichedData = extractEnrichedDataForIP(path, ip)
+			}
 		}
 	}
 	if !found {
 		return nil
 	}
-
+	
 	target := filepath.Join(hostfilesDir, targetPlainFile)
 	f, err := os.OpenFile(target, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", target, err)
 	}
 	defer f.Close()
-	_, err = fmt.Fprintln(f, ip)
-	return err
+	if _, err := fmt.Fprintln(f, ip); err != nil {
+		return err
+	}
+	
+	// Also update enriched file if we had enriched data
+	if enrichedData != "" {
+		targetEnriched := filepath.Join(hostfilesDir, strings.Replace(targetPlainFile, ".txt", "_enriched.txt", 1))
+		f2, err := os.OpenFile(targetEnriched, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			return fmt.Errorf("opening %s: %w", targetEnriched, err)
+		}
+		defer f2.Close()
+		
+		// Update the category field in the enriched data
+		// Format: "IP HOSTNAME CATEGORY [tags]"
+		fields := strings.Fields(enrichedData)
+		if len(fields) >= 3 {
+			fields[2] = category // Use the actual category name
+			updatedEnrichedData := strings.Join(fields, " ")
+			_, err = fmt.Fprintln(f2, updatedEnrichedData)
+		} else {
+			_, err = fmt.Fprintln(f2, enrichedData)
+		}
+		return err
+	}
+	
+	return nil
 }
 
 // removeIPFromFile rewrites path with all lines whose first token is ip removed.
@@ -133,4 +164,28 @@ func removeIPFromFile(path, ip string) (bool, error) {
 		out += "\n"
 	}
 	return true, os.WriteFile(path, []byte(out), 0644)
+}
+
+
+// extractEnrichedDataForIP reads an enriched file and returns the line for a specific IP.
+// Returns the full line (with hostname, category, tags) or empty string if not found.
+func extractEnrichedDataForIP(filepath, ip string) string {
+	f, err := os.Open(filepath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			fields := strings.Fields(trimmed)
+			if len(fields) > 0 && fields[0] == ip {
+				return line // Return the full line with all enriched data
+			}
+		}
+	}
+	return ""
 }

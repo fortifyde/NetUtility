@@ -30,15 +30,15 @@ type TUI struct {
 	infoPane     *tview.TextView
 
 	// State management
-	currentCategory          string
-	workspaceDir             string
-	registry                 *metadata.ScriptRegistry
-	jobManager               *jobs.JobManager
-	correlator               *correlation.Correlator
-	jobsViewer               *JobsViewer
-	dashboardViewer          *Dashboard
-	corrViewer               *CorrelationViewer
-	taskListIsContinuation   []bool // true for wrapped-description continuation rows
+	currentCategory        string
+	workspaceDir           string
+	registry               *metadata.ScriptRegistry
+	jobManager             *jobs.JobManager
+	correlator             *correlation.Correlator
+	jobsViewer             *JobsViewer
+	dashboardViewer        *Dashboard
+	corrViewer             *CorrelationViewer
+	taskListIsContinuation []bool // true for wrapped-description continuation rows
 
 	jobCounter atomic.Int64
 }

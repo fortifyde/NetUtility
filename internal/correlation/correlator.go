@@ -19,27 +19,27 @@ import (
 type ScanType string
 
 const (
-	ScanTypeNetworkEnum         ScanType = "network_enumeration"
-	ScanTypeVulnerability       ScanType = "vulnerability_scan"
-	ScanTypeCapture             ScanType = "network_capture"
-	ScanTypePortScan            ScanType = "port_scan"
-	ScanTypeServiceScan         ScanType = "service_scan"
-	ScanTypeOSDetection         ScanType = "os_detection"
-	ScanTypeHostCategorization  ScanType = "host_categorization"
+	ScanTypeNetworkEnum        ScanType = "network_enumeration"
+	ScanTypeVulnerability      ScanType = "vulnerability_scan"
+	ScanTypeCapture            ScanType = "network_capture"
+	ScanTypePortScan           ScanType = "port_scan"
+	ScanTypeServiceScan        ScanType = "service_scan"
+	ScanTypeOSDetection        ScanType = "os_detection"
+	ScanTypeHostCategorization ScanType = "host_categorization"
 )
 
 // ScanResult represents the result of a network scan
 type ScanResult struct {
-	ID              string                 `json:"id"`
-	Type            ScanType               `json:"type"`
-	Timestamp       time.Time              `json:"timestamp"`
-	Source          string                 `json:"source"`          // Script or tool name
-	FilePath        string                 `json:"file_path"`       // Path to result file
-	Targets         []string               `json:"targets"`         // IP addresses or ranges scanned
-	Hosts           []Host                 `json:"hosts"`           // Discovered hosts
-	Services        []Service              `json:"services"`        // Discovered services
-	Vulnerabilities []Vulnerability        `json:"vulnerabilities"` // Found vulnerabilities
-	Metadata        map[string]any `json:"metadata"`        // Additional data
+	ID              string          `json:"id"`
+	Type            ScanType        `json:"type"`
+	Timestamp       time.Time       `json:"timestamp"`
+	Source          string          `json:"source"`          // Script or tool name
+	FilePath        string          `json:"file_path"`       // Path to result file
+	Targets         []string        `json:"targets"`         // IP addresses or ranges scanned
+	Hosts           []Host          `json:"hosts"`           // Discovered hosts
+	Services        []Service       `json:"services"`        // Discovered services
+	Vulnerabilities []Vulnerability `json:"vulnerabilities"` // Found vulnerabilities
+	Metadata        map[string]any  `json:"metadata"`        // Additional data
 }
 
 // Host represents a discovered network host
@@ -93,15 +93,15 @@ type Vulnerability struct {
 
 // CorrelationResult represents correlated findings across multiple scans
 type CorrelationResult struct {
-	Host            string                 `json:"host"`
-	HostInfo        *Host                  `json:"host_info"`
-	RelatedScans    []string               `json:"related_scans"`
-	Services        []Service              `json:"services"`
-	Vulnerabilities []Vulnerability        `json:"vulnerabilities"`
-	Timeline        []TimelineEvent        `json:"timeline"`
-	RiskScore       int                    `json:"risk_score"`
-	Recommendations []string               `json:"recommendations"`
-	Metadata        map[string]any `json:"metadata"`
+	Host            string          `json:"host"`
+	HostInfo        *Host           `json:"host_info"`
+	RelatedScans    []string        `json:"related_scans"`
+	Services        []Service       `json:"services"`
+	Vulnerabilities []Vulnerability `json:"vulnerabilities"`
+	Timeline        []TimelineEvent `json:"timeline"`
+	RiskScore       int             `json:"risk_score"`
+	Recommendations []string        `json:"recommendations"`
+	Metadata        map[string]any  `json:"metadata"`
 }
 
 // TimelineEvent represents an event in the scan timeline
@@ -118,7 +118,7 @@ type Correlator struct {
 	results         map[string]*ScanResult
 	correlations    map[string]*CorrelationResult
 	workspaceDir    string
-	dataDir         string // directory where correlations.json is stored (alongside the binary)
+	dataDir         string            // directory where correlations.json is stored (alongside the binary)
 	manualOverrides map[string]string // ip → category; loaded from manual_categories.json
 	excludedHosts   map[string]bool   // ips excluded via exclude_team_ips.sh; never shown or re-added
 	mu              sync.RWMutex

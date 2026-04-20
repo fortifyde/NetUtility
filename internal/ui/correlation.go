@@ -207,9 +207,9 @@ type CorrelationViewer struct {
 	controlsText *tview.TextView
 
 	// State
-	selectedHost   string
-	filterCategory string // "" = all; "windows"/"linux"/"network_device"/"unknown" = filtered
-	filterText     string // "" = no text filter; non-empty = must match hostMatchesText
+	selectedHost         string
+	filterCategory       string // "" = all; "windows"/"linux"/"network_device"/"unknown" = filtered
+	filterText           string // "" = no text filter; non-empty = must match hostMatchesText
 	refreshTicker        *time.Ticker
 	stopChan             chan struct{}
 	returnToMainCallback func()
@@ -417,13 +417,17 @@ func (cv *CorrelationViewer) updateHostsList() {
 			reSelectRow = row
 		}
 	}
-
+		
+	// If previous selection is no longer visible (e.g., due to category change),
+	// select the last row to maintain context instead of jumping to first
+	if reSelectRow == 1 && len(entries) > 0 {
+		reSelectRow = len(entries)
+	}
+	
 	if cv.hostsList.GetRowCount() > 1 {
 		cv.hostsList.Select(reSelectRow, 0)
 	}
 }
-
-
 // updateDetailsPanel renders host identity, classification, and port data for the selected host.
 func (cv *CorrelationViewer) updateDetailsPanel() {
 	if cv.selectedHost == "" {
@@ -520,7 +524,6 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 
 	cv.detailsPanel.SetText(b.String())
 }
-
 
 // openHostSearchModal opens a compact modal for entering a text filter.
 // Enter applies the filter; Esc cancels.

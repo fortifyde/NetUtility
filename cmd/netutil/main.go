@@ -176,17 +176,17 @@ func main() {
 // Command mappings for CLI shortcuts
 var commandMappings = map[string]ScriptInfo{
 	// Discovery
-	"capture":          {"scripts/discovery/network_capture.sh", "Network Capture"},
-	"multi-discovery":  {"scripts/discovery/multi_phase_discovery.sh", "Multi-Phase Discovery"},
-	"ipv6-discovery":   {"scripts/discovery/ipv6_discovery.sh", "IPv6 Discovery"},
-	"extract-vlans":    {"scripts/discovery/extract_vlans.sh", "Extract VLANs"},
-	"mac-analysis":     {"scripts/discovery/mac_analysis.sh", "MAC Address Analysis"},
-	"packet-analysis":  {"scripts/discovery/advanced_packet_analysis.sh", "Advanced Packet Analysis"},
+	"capture":         {"scripts/discovery/network_capture.sh", "Network Capture"},
+	"multi-discovery": {"scripts/discovery/multi_phase_discovery.sh", "Multi-Phase Discovery"},
+	"ipv6-discovery":  {"scripts/discovery/ipv6_discovery.sh", "IPv6 Discovery"},
+	"extract-vlans":   {"scripts/discovery/extract_vlans.sh", "Extract VLANs"},
+	"mac-analysis":    {"scripts/discovery/mac_analysis.sh", "MAC Address Analysis"},
+	"packet-analysis": {"scripts/discovery/advanced_packet_analysis.sh", "Advanced Packet Analysis"},
 	// Scanning
-	"safe-scan":        {"scripts/scanning/safe_nse_scan.sh", "Safe NSE Scan"},
-	"full-scan":        {"scripts/scanning/full_port_scan.sh", "Full Port Scan"},
-	"vuln":             {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
-	"vulnerability":    {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
+	"safe-scan":     {"scripts/scanning/safe_nse_scan.sh", "Safe NSE Scan"},
+	"full-scan":     {"scripts/scanning/full_port_scan.sh", "Full Port Scan"},
+	"vuln":          {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
+	"vulnerability": {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
 	// Host configuration
 	"config-ip":        {"scripts/host-config/configure_ip.sh", "Configure IP"},
 	"ip":               {"scripts/host-config/configure_ip.sh", "Configure IP"},
@@ -196,15 +196,15 @@ var commandMappings = map[string]ScriptInfo{
 	"vlan":             {"scripts/host-config/add_vlan.sh", "Add VLAN"},
 	"setup-fileserver": {"scripts/host-config/setup_file_server.sh", "Setup File Server"},
 	// Utilities
-	"backup":           {"scripts/utilities/backup_config.sh", "Backup Configuration"},
-	"restore":          {"scripts/utilities/restore_config.sh", "Restore Configuration"},
-	"workdir":          {"scripts/utilities/select_workdir.sh", "Select Working Directory"},
-	"logs":             {"scripts/utilities/log_management.sh", "Log Management"},
-	"update-oui":       {"scripts/utilities/update_oui_db.sh", "Update OUI Database"},
-	"exclude-team":     {"scripts/utilities/exclude_team_ips.sh", "Exclude Team IPs"},
+	"backup":       {"scripts/utilities/backup_config.sh", "Backup Configuration"},
+	"restore":      {"scripts/utilities/restore_config.sh", "Restore Configuration"},
+	"workdir":      {"scripts/utilities/select_workdir.sh", "Select Working Directory"},
+	"logs":         {"scripts/utilities/log_management.sh", "Log Management"},
+	"update-oui":   {"scripts/utilities/update_oui_db.sh", "Update OUI Database"},
+	"exclude-team": {"scripts/utilities/exclude_team_ips.sh", "Exclude Team IPs"},
 	// Advanced
-	"auto-discover":    {"scripts/advanced/auto_discover.sh", "Automated Discovery Workflow"},
-	"gather-configs":   {"scripts/config/gather_network_configs.sh", "Gather Network Configs"},
+	"auto-discover":  {"scripts/advanced/auto_discover.sh", "Automated Discovery Workflow"},
+	"gather-configs": {"scripts/config/gather_network_configs.sh", "Gather Network Configs"},
 }
 
 // Numeric shortcuts (most frequently used)
