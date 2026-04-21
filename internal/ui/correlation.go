@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gdamore/tcell/v2"
@@ -220,6 +221,7 @@ type CorrelationViewer struct {
 	stopChan             chan struct{}
 	returnToMainCallback func()
 	workspaceDir         string
+	packageInProgress    atomic.Bool
 }
 
 // NewCorrelationViewer creates a new correlation viewer
@@ -288,6 +290,7 @@ func (cv *CorrelationViewer) updateControlsText() {
 %s
 [white]Space[::-]    Categorize host
 [white]s[::-]        View screenshot
+[white]p[::-]        Generate distribution package
 [white]q[::-]        Close
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`, filterLine))
 }
@@ -324,6 +327,9 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 				return nil
 			case 's':
 				cv.showScreenshotModal()
+				return nil
+			case 'p':
+				cv.generatePackage()
 				return nil
 			}
 		}
@@ -665,6 +671,43 @@ func (cv *CorrelationViewer) openCategorizationModal() {
 // showHostDetails updates the details panel for the selected host
 func (cv *CorrelationViewer) showHostDetails() {
 	cv.updateDetailsPanel()
+}
+
+// generatePackage creates a distribution archive and shows a result modal.
+// If a package is already being generated, the call is a no-op.
+func (cv *CorrelationViewer) generatePackage() {
+	if !cv.packageInProgress.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer cv.packageInProgress.Store(false)
+		path, err := cv.correlator.GenerateDistributionPackage()
+		if err != nil {
+			cv.app.QueueUpdateDraw(func() {
+				modal := tview.NewModal().
+					SetText(fmt.Sprintf("Failed to generate package:\n%v", err)).
+					AddButtons([]string{"OK"}).
+					SetDoneFunc(func(_ int, _ string) {
+						cv.pages.RemovePage("package-result")
+						cv.app.SetFocus(cv.hostsList)
+					})
+				cv.pages.AddPage("package-result", modal, true, true)
+				cv.app.SetFocus(modal)
+			})
+			return
+		}
+		cv.app.QueueUpdateDraw(func() {
+			modal := tview.NewModal().
+				SetText(fmt.Sprintf("Distribution package generated:\n\n%s", path)).
+				AddButtons([]string{"OK"}).
+				SetDoneFunc(func(_ int, _ string) {
+					cv.pages.RemovePage("package-result")
+					cv.app.SetFocus(cv.hostsList)
+				})
+			cv.pages.AddPage("package-result", modal, true, true)
+			cv.app.SetFocus(modal)
+		})
+	}()
 }
 
 func (cv *CorrelationViewer) refresh() {
