@@ -263,8 +263,8 @@ func (cv *CorrelationViewer) setupUI() {
 		AddItem(cv.controlsText, 8, 0, false)
 
 	cv.SetDirection(tview.FlexColumn).
-		AddItem(cv.hostsList, 0, 1, true).
-		AddItem(rightPanel, 0, 1, false)
+		AddItem(cv.hostsList, 0, 3, true).
+		AddItem(rightPanel, 0, 2, false)
 
 	// Setup key bindings
 	cv.setupKeyBindings()
@@ -278,23 +278,21 @@ func (cv *CorrelationViewer) updateControlsText() {
 	var filterLine string
 	switch {
 	case cv.filterText != "":
-		filterLine = "[yellow]f[::-]        Reset search"
+		filterLine = "[yellow]f[::-]      Reset search"
 	case cv.filterCategory != "":
-		filterLine = fmt.Sprintf("[yellow]f[::-]        Cycle filter %s", tview.Escape(fmt.Sprintf("[%s]", categoryDisplayLabel(cv.filterCategory))))
+		filterLine = fmt.Sprintf("[yellow]f[::-]      Cycle filter: %s", categoryDisplayLabel(cv.filterCategory))
 	default:
-		filterLine = "[white]f[::-]        Cycle category filter"
+		filterLine = "[white]f[::-]      Cycle category filter"
 	}
-	cv.controlsText.SetText(fmt.Sprintf(`[yellow]Controls:[::-]
-[white]Enter[::-]    View host details
-[white]/[::-]        Search by IP, hostname, port, service
+
+	cv.controlsText.SetText(fmt.Sprintf(`[yellow]Navigation                    Actions[::-]
+[white]Enter[::-]  View host details       [white]s[::-]  View screenshot
+[white]/[::-]      Search hosts            [white]p[::-]  Generate package
 %s
-[white]Space[::-]    Categorize host
-[white]s[::-]        View screenshot
-[white]p[::-]        Generate distribution package
-[white]q[::-]        Close
+[white]Space[::-]  Categorize host         [white]q[::-]  Close
+
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`, filterLine))
 }
-
 // setupKeyBindings configures keyboard shortcuts
 func (cv *CorrelationViewer) setupKeyBindings() {
 	cv.hostsList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {

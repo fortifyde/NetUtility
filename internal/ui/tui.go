@@ -862,7 +862,7 @@ func (t *TUI) showDashboard() {
 	}
 	t.dashboardViewer = NewDashboard(t.app, t.pages, t.jobManager, t.correlator, nil, t.returnToMain)
 	t.pages.AddPage("dashboard", t.dashboardViewer, true, true)
-	t.app.SetFocus(t.dashboardViewer.hostsTable)
+	t.app.SetFocus(t.dashboardViewer.topFindingsTable)
 }
 
 // showInfoModal displays an info message to the user
