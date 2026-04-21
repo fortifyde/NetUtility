@@ -339,9 +339,9 @@ func TestFindScreenshotsOnDisk(t *testing.T) {
 
 		// Create a test JSONL file
 		jsonlPath := filepath.Join(screenshotsDir, "gowitness.jsonl")
-		jsonlContent := `{"url":"http://192.168.1.1","file":"/path/to/screenshot1.png","status":200}
-{"url":"https://192.168.1.1","file":"/path/to/screenshot2.png","status":200}
-{"url":"http://192.168.1.2","file":"/path/to/screenshot3.png","status":404}`
+		jsonlContent := `{"url":"http://192.168.1.1","screenshot":"/path/to/screenshot1.png","response_code":200,"failed":false}
+{"url":"https://192.168.1.1","screenshot":"/path/to/screenshot2.png","response_code":200,"failed":false}
+{"url":"http://192.168.1.2","screenshot":"/path/to/screenshot3.png","response_code":404,"failed":false}`
 		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
 		}
@@ -478,9 +478,9 @@ func TestParseScreenshotJSONL(t *testing.T) {
 		tmpDir := t.TempDir()
 		jsonlPath := filepath.Join(tmpDir, "gowitness.jsonl")
 
-		jsonlContent := `{"url":"http://192.168.1.1","file":"/path/to/screenshot1.png","status":200}
-{"url":"https://192.168.1.1","file":"/path/to/screenshot2.png","status":200}
-{"url":"http://192.168.1.2","file":"/path/to/screenshot3.png","status":404}`
+		jsonlContent := `{"url":"http://192.168.1.1","screenshot":"/path/to/screenshot1.png","response_code":200,"failed":false}
+{"url":"https://192.168.1.1","screenshot":"/path/to/screenshot2.png","response_code":200,"failed":false}
+{"url":"http://192.168.1.2","screenshot":"/path/to/screenshot3.png","response_code":404,"failed":false}`
 
 		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
@@ -516,9 +516,9 @@ func TestParseScreenshotJSONL(t *testing.T) {
 		tmpDir := t.TempDir()
 		jsonlPath := filepath.Join(tmpDir, "gowitness.jsonl")
 
-		jsonlContent := `{"url":"http://192.168.1.1","file":"/path/to/screenshot1.png","status":200}
+		jsonlContent := `{"url":"http://192.168.1.1","screenshot":"/path/to/screenshot1.png","response_code":200,"failed":false}
 invalid json line
-{"url":"https://192.168.1.1","file":"/path/to/screenshot2.png","status":200}`
+{"url":"https://192.168.1.1","screenshot":"/path/to/screenshot2.png","response_code":200,"failed":false}`
 
 		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
@@ -529,6 +529,32 @@ invalid json line
 		// Should parse the valid lines and skip invalid
 		if len(got) != 2 {
 			t.Errorf("parseScreenshotJSONL() returned %d screenshots, want 2 (skipping invalid)", len(got))
+		}
+	})
+
+	t.Run("failed results are skipped", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		jsonlPath := filepath.Join(tmpDir, "gowitness.jsonl")
+
+		jsonlContent := `{"url":"http://192.168.1.1","screenshot":"/path/to/screenshot1.png","response_code":200,"failed":false}
+{"url":"http://192.168.1.2","screenshot":"","response_code":0,"failed":true,"failed_reason":"connection refused"}
+{"url":"https://192.168.1.1","screenshot":"/path/to/screenshot2.png","response_code":200,"failed":false}`
+
+		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
+			t.Fatalf("Failed to write JSONL file: %v", err)
+		}
+
+		got := parseScreenshotJSONL(jsonlPath)
+
+		if len(got) != 2 {
+			t.Errorf("parseScreenshotJSONL() returned %d screenshots, want 2 (failed result skipped)", len(got))
+		}
+
+		// Verify the failed IP is not present
+		for _, ss := range got {
+			if ss.IP == "192.168.1.2" {
+				t.Errorf("parseScreenshotJSONL() included failed result for 192.168.1.2")
+			}
 		}
 	})
 }

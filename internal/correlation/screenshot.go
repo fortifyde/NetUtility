@@ -91,45 +91,53 @@ func MergeScreenshotsIntoCorrelation(corr *CorrelationResult, screenshots []Scre
 	corr.Metadata["screenshots"] = existingScreenshots
 }
 
-// GetScreenshotsForHost retrieves screenshots for a specific host from correlation
-func GetScreenshotsForHost(corr *CorrelationResult) []ScreenshotInfo {
+// screenshotMapsFromMetadata normalises the metadata["screenshots"] value into
+// a concrete []map[string]string regardless of how it was stored or unmarshaled.
+func screenshotMapsFromMetadata(corr *CorrelationResult) []map[string]string {
 	if corr == nil || corr.Metadata == nil {
 		return nil
 	}
-
-	screenshots := make([]ScreenshotInfo, 0)
-
-	screenshotData, ok := corr.Metadata["screenshots"]
+	data, ok := corr.Metadata["screenshots"]
 	if !ok {
 		return nil
 	}
-
-	// Handle different JSON unmarshaling results
-	switch v := screenshotData.(type) {
-	case []ScreenshotInfo:
-		return v
+	switch v := data.(type) {
 	case []map[string]string:
-		for _, ss := range v {
-			screenshots = append(screenshots, ScreenshotInfo{
-				IP:         corr.Host,
-				URL:        ss["url"],
-				File:       ss["file"],
-				StatusCode: ss["status_code"],
-			})
+		return v
+	case []ScreenshotInfo:
+		out := make([]map[string]string, len(v))
+		for i, ss := range v {
+			out[i] = map[string]string{"url": ss.URL, "file": ss.File, "status_code": ss.StatusCode}
 		}
+		return out
 	case []interface{}:
+		out := make([]map[string]string, 0, len(v))
 		for _, item := range v {
 			if ssMap, ok := item.(map[string]interface{}); ok {
-				screenshots = append(screenshots, ScreenshotInfo{
-					IP:         corr.Host,
-					URL:        getStringFromMap(ssMap, "url"),
-					File:       getStringFromMap(ssMap, "file"),
-					StatusCode: getStringFromMap(ssMap, "status_code"),
+				out = append(out, map[string]string{
+					"url":         getStringFromMap(ssMap, "url"),
+					"file":        getStringFromMap(ssMap, "file"),
+					"status_code": getStringFromMap(ssMap, "status_code"),
 				})
 			}
 		}
+		return out
 	}
+	return nil
+}
 
+// GetScreenshotsForHost retrieves screenshots for a specific host from correlation.
+func GetScreenshotsForHost(corr *CorrelationResult) []ScreenshotInfo {
+	maps := screenshotMapsFromMetadata(corr)
+	screenshots := make([]ScreenshotInfo, 0, len(maps))
+	for _, ss := range maps {
+		screenshots = append(screenshots, ScreenshotInfo{
+			IP:         corr.Host,
+			URL:        ss["url"],
+			File:       ss["file"],
+			StatusCode: ss["status_code"],
+		})
+	}
 	return screenshots
 }
 
@@ -207,12 +215,18 @@ func parseScreenshotJSONL(jsonlPath string) []ScreenshotInfo {
 		}
 
 		var gowitnessResult struct {
-			URL    string `json:"url"`
-			File   string `json:"file"`
-			Status int    `json:"status"`
+			URL          string `json:"url"`
+			Screenshot   string `json:"screenshot"`
+			ResponseCode int    `json:"response_code"`
+			Failed       bool   `json:"failed"`
 		}
 
 		if err := json.Unmarshal([]byte(line), &gowitnessResult); err != nil {
+			continue
+		}
+
+		// Skip failed results or entries without a screenshot file
+		if gowitnessResult.Failed || gowitnessResult.URL == "" || gowitnessResult.Screenshot == "" {
 			continue
 		}
 
@@ -222,8 +236,8 @@ func parseScreenshotJSONL(jsonlPath string) []ScreenshotInfo {
 		screenshot := ScreenshotInfo{
 			IP:         ip,
 			URL:        gowitnessResult.URL,
-			File:       gowitnessResult.File,
-			StatusCode: fmt.Sprintf("%d", gowitnessResult.Status),
+			File:       gowitnessResult.Screenshot,
+			StatusCode: fmt.Sprintf("%d", gowitnessResult.ResponseCode),
 		}
 
 		screenshots = append(screenshots, screenshot)
@@ -232,7 +246,6 @@ func parseScreenshotJSONL(jsonlPath string) []ScreenshotInfo {
 	return screenshots
 }
 
-// extractIPFromURL extracts an IP address from a URL
 func extractIPFromURL(urlStr string) string {
 	// Remove protocol
 	urlStr = strings.TrimPrefix(urlStr, "http://")

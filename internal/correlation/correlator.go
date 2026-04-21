@@ -640,6 +640,62 @@ func (c *Correlator) saveResults() error {
 	return nil
 }
 
+// MergeScreenshotFiles scans the workspace for gowitness JSONL files and merges
+// discovered screenshots into the correlation data for each host.
+func (c *Correlator) MergeScreenshotFiles() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	screenshotsByIP := FindScreenshotsOnDisk(c.workspaceDir)
+	if len(screenshotsByIP) == 0 {
+		return nil
+	}
+
+	changed := false
+	for ip, screenshots := range screenshotsByIP {
+		corr, exists := c.correlations[ip]
+		if !exists {
+			corr = &CorrelationResult{
+				Host:            ip,
+				RelatedScans:    make([]string, 0),
+				Services:        make([]Service, 0),
+				Vulnerabilities: make([]Vulnerability, 0),
+				Timeline:        make([]TimelineEvent, 0),
+				Recommendations: make([]string, 0),
+				Metadata:        make(map[string]any),
+			}
+		}
+
+		// Count existing screenshots before merge to detect new entries
+		preCount := screenshotCount(corr)
+
+		MergeScreenshotsIntoCorrelation(corr, screenshots)
+
+		postCount := screenshotCount(corr)
+		if postCount > preCount {
+			corr.Timeline = append(corr.Timeline, TimelineEvent{
+				Timestamp:   time.Now(),
+				ScanType:    ScanTypeScreenshot,
+				Event:       "scan_completed",
+				Description: fmt.Sprintf("%d screenshots captured", postCount-preCount),
+				Source:      "gowitness",
+			})
+			changed = true
+		}
+
+		c.correlations[ip] = corr
+	}
+
+	if changed {
+		return c.saveResults()
+	}
+	return nil
+}
+
+func screenshotCount(corr *CorrelationResult) int {
+	return len(screenshotMapsFromMetadata(corr))
+}
+
 func (c *Correlator) manualOverridesPath() string {
 	if c.dataDir == "" {
 		return ""

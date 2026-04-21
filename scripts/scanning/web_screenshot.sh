@@ -316,10 +316,10 @@ if [ -f "$JSONL_FILE" ]; then
         fi
 
         # Parse JSONL fields
-        # gowitness JSONL format: {"url":"...","file":"...","status":200,...}
-        _url=$(echo "$_line" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p' | sed 's/\\u0026/\&/g; s/\\//g')
-        _file=$(echo "$_line" | sed -n 's/.*"file_name":"\([^"]*\)".*/\1/p' | sed 's/\\//g')
-        _status=$(echo "$_line" | sed -n 's/.*"status_code":\([0-9]*\).*/\1/p')
+        # gowitness Result struct: url, screenshot, response_code, ...
+        _url=$(echo "$_line" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
+        _file=$(echo "$_line" | sed -n 's/.*"screenshot":"\([^"]*\)".*/\1/p')
+        _status=$(echo "$_line" | sed -n 's/.*"response_code":\([0-9]*\).*/\1/p')
 
         if [ -z "$_url" ] || [ -z "$_file" ]; then
             log_debug "Skipping malformed JSONL line: $_line" "$SCRIPT_NAME"

@@ -407,6 +407,11 @@ func (t *TUI) loadWorkspaceResults() {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to load workspace result: %v\n", err)
 		}
 	}
+
+	// Merge screenshot data from gowitness JSONL files on disk
+	if err := t.correlator.MergeScreenshotFiles(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to merge screenshot files: %v\n", err)
+	}
 }
 
 // startCorrelationWorker re-scans the workspace after each completed job to pick up new result files.
