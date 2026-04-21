@@ -537,6 +537,12 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 	details.WriteString(fmt.Sprintf("Hostname: [white]%s[::-]\n", hostname))
 	details.WriteString(fmt.Sprintf("Services: [white]%d[::-]\n", len(corr.Services)))
 
+	// Screenshot count
+	screenshots := correlation.GetScreenshotsForHost(corr)
+	if len(screenshots) > 0 {
+		details.WriteString(fmt.Sprintf("Screenshots: [white]%d[::-]\n", len(screenshots)))
+	}
+
 	if corr.HostInfo != nil {
 		mac := corr.HostInfo.MACAddress
 		if mac == "" {
@@ -561,13 +567,18 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 
 	modal := tview.NewModal().
 		SetText(details.String()).
-		AddButtons([]string{"View Inventory", "Close"}).
+		AddButtons([]string{"View Inventory", "View Screenshot", "Close"}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			d.pages.RemovePage("host-details")
-			if buttonLabel == "View Inventory" {
+			switch buttonLabel {
+			case "View Inventory":
 				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
 					d.app.SetFocus(d.hostsTable)
 				}, "")
+			case "View Screenshot":
+				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
+					d.app.SetFocus(d.hostsTable)
+				}, hostIP)
 			}
 		})
 

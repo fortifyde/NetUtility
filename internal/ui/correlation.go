@@ -2,6 +2,11 @@ package ui
 
 import (
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	_ "image/png"
+	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -208,6 +213,7 @@ type CorrelationViewer struct {
 
 	// State
 	selectedHost         string
+	screenshotCache      map[string]image.Image
 	filterCategory       string // "" = all; "windows"/"linux"/"network_device"/"unknown" = filtered
 	filterText           string // "" = no text filter; non-empty = must match hostMatchesText
 	refreshTicker        *time.Ticker
@@ -226,6 +232,7 @@ func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator
 		stopChan:             make(chan struct{}),
 		returnToMainCallback: returnToMainCallback,
 		workspaceDir:         workspaceDir,
+		screenshotCache:      make(map[string]image.Image),
 	}
 
 	cv.setupUI()
@@ -280,6 +287,7 @@ func (cv *CorrelationViewer) updateControlsText() {
 [white]/[::-]        Search by IP, hostname, port, service
 %s
 [white]Space[::-]    Categorize host
+[white]s[::-]        View screenshot
 [white]q[::-]        Close
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`, filterLine))
 }
@@ -313,6 +321,9 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 				return nil
 			case ' ':
 				cv.openCategorizationModal()
+				return nil
+			case 's':
+				cv.showScreenshotModal()
 				return nil
 			}
 		}
@@ -404,7 +415,8 @@ func (cv *CorrelationViewer) updateHostsList() {
 		return compareIPs(entries[i].ip, entries[j].ip)
 	})
 
-	reSelectRow := 1 // default to first data row
+	reSelectRow := 1
+	found := false
 	for i, e := range entries {
 		row := i + 1
 		cat := hostCategory(e.result)
@@ -415,19 +427,21 @@ func (cv *CorrelationViewer) updateHostsList() {
 		cv.hostsList.SetCell(row, 4, tview.NewTableCell(hostOpenPorts(e.result)).SetExpansion(2))
 		if e.ip == prevSelected {
 			reSelectRow = row
+			found = true
 		}
 	}
-		
-	// If previous selection is no longer visible (e.g., due to category change),
-	// select the last row to maintain context instead of jumping to first
-	if reSelectRow == 1 && len(entries) > 0 {
+
+	// If a previous selection existed but is no longer visible (e.g., due to
+	// category filter change), select the last row to maintain context.
+	if prevSelected != "" && !found && len(entries) > 0 {
 		reSelectRow = len(entries)
 	}
-	
+
 	if cv.hostsList.GetRowCount() > 1 {
 		cv.hostsList.Select(reSelectRow, 0)
 	}
 }
+
 // updateDetailsPanel renders host identity, classification, and port data for the selected host.
 func (cv *CorrelationViewer) updateDetailsPanel() {
 	if cv.selectedHost == "" {
@@ -520,6 +534,23 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			b.WriteString(fmt.Sprintf("[white]%d/%s[::-]  %-8s  %s\n",
 				p.Number, p.Protocol, svc, ver))
 		}
+	}
+
+	// --- Screenshots ---
+	screenshots := correlation.GetScreenshotsForHost(result)
+	b.WriteString(fmt.Sprintf("\n[yellow]Screenshots (%d)[::-]\n", len(screenshots)))
+	if len(screenshots) == 0 {
+		b.WriteString("[gray]No screenshots available[::-]\n")
+	} else {
+		for i, ss := range screenshots {
+			statusColor := "green"
+			if ss.StatusCode != "200" {
+				statusColor = "yellow"
+			}
+			b.WriteString(fmt.Sprintf("[%s]%d.[:-] [white]%s[::-]  [gray](%s)[::-]\n",
+				statusColor, i+1, ss.URL, ss.StatusCode))
+		}
+		b.WriteString("\n[gray]Press [yellow]s[gray] to view screenshots[::-]\n")
 	}
 
 	cv.detailsPanel.SetText(b.String())
@@ -671,7 +702,12 @@ func (cv *CorrelationViewer) Close() {
 	default:
 	}
 	close(cv.stopChan)
+	cv.pages.RemovePage("screenshot-modal")
 	cv.pages.RemovePage("correlation")
+	// Release cached screenshots to free memory
+	for k := range cv.screenshotCache {
+		delete(cv.screenshotCache, k)
+	}
 	if cv.returnToMainCallback != nil {
 		cv.returnToMainCallback()
 	}
@@ -679,8 +715,161 @@ func (cv *CorrelationViewer) Close() {
 
 // ShowCorrelationViewer creates and displays a correlation viewer page.
 // For the main TUI use showCorrelationViewer() which passes a proper returnToMain callback.
-func ShowCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func(), workspaceDir string) {
+// If focusHost is non-empty, the viewer pre-selects that host and opens the screenshot modal.
+func ShowCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func(), workspaceDir string, focusHost ...string) {
 	correlationViewer := NewCorrelationViewer(app, pages, correlator, returnToMainCallback, workspaceDir)
 	pages.AddPage("correlation", correlationViewer, true, true)
 	app.SetFocus(correlationViewer.hostsList)
+
+	// Pre-select host and open screenshot modal if requested
+	if len(focusHost) > 0 && focusHost[0] != "" {
+		correlationViewer.selectHostByIP(focusHost[0])
+		correlationViewer.showScreenshotModal()
+	}
+}
+
+// selectHostByIP finds and selects a host in the table by its IP address.
+func (cv *CorrelationViewer) selectHostByIP(ip string) {
+	for row := 1; row < cv.hostsList.GetRowCount(); row++ {
+		cell := cv.hostsList.GetCell(row, 0)
+		if cell != nil && cell.Text == ip {
+			cv.hostsList.Select(row, 0)
+			cv.selectedHost = ip
+			cv.updateDetailsPanel()
+			return
+		}
+	}
+}
+
+// showNoScreenshotsNotice displays a brief modal when the selected host has no screenshots.
+func (cv *CorrelationViewer) showNoScreenshotsNotice() {
+	modal := tview.NewModal().
+		SetText("No screenshots available for this host.\n\nRun the web screenshot script to capture screenshots.").
+		AddButtons([]string{"OK"}).
+		SetDoneFunc(func(_ int, _ string) {
+			cv.pages.RemovePage("screenshot-notice")
+			cv.app.SetFocus(cv.hostsList)
+		})
+	cv.pages.AddPage("screenshot-notice", modal, true, true)
+	cv.app.SetFocus(modal)
+}
+
+// showScreenshotModal opens a full-screen modal to display screenshots for the selected host.
+func (cv *CorrelationViewer) showScreenshotModal() {
+	if cv.selectedHost == "" {
+		return
+	}
+
+	result, exists := cv.correlator.GetCorrelationForHost(cv.selectedHost)
+	if !exists {
+		return
+	}
+
+	screenshots := correlation.GetScreenshotsForHost(result)
+	if len(screenshots) == 0 {
+		cv.showNoScreenshotsNotice()
+		return
+	}
+
+	// Track current screenshot index for cycling
+	currentIdx := 0
+
+	// Create image widget
+	imgWidget := tview.NewImage()
+	imgWidget.SetBorder(true).SetTitle("Screenshot")
+
+	// Create info bar at the bottom
+	infoBar := tview.NewTextView().SetDynamicColors(true)
+	infoBar.SetBorder(true).SetTitle("Info")
+
+	// Helper to update the modal content
+	updateView := func() {
+		ss := screenshots[currentIdx]
+		title := fmt.Sprintf("Screenshot [%d/%d]", currentIdx+1, len(screenshots))
+		errLine := ""
+
+		if img, err := cv.loadScreenshot(ss.File); err == nil {
+			imgWidget.SetImage(img)
+		} else {
+			imgWidget.SetImage(nil)
+			title += " [red](load error)[::-]"
+			errLine = fmt.Sprintf("\n[red]Error:[::-] [gray]%v[::-]", err)
+		}
+		imgWidget.SetTitle(title)
+
+		infoBar.SetText(fmt.Sprintf(
+			"[yellow]URL:[::-] [white]%s[::-]   [yellow]Status:[::-] [white]%s[::-]   [yellow]File:[::-] [gray]%s[::-]%s\n\n[gray]Controls: [yellow]n[gray]=next  [yellow]p[gray]=prev  [yellow]o[gray]=open externally  [yellow]Esc/q[gray]=close",
+			ss.URL, ss.StatusCode, ss.File, errLine,
+		))
+	}
+
+	// Layout
+	modal := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(imgWidget, 0, 1, true).
+		AddItem(infoBar, 5, 0, false)
+
+	// Key bindings for the modal
+	modal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyEscape:
+			cv.pages.RemovePage("screenshot-modal")
+			cv.app.SetFocus(cv.hostsList)
+			return nil
+		case tcell.KeyRune:
+			switch event.Rune() {
+			case 'q':
+				cv.pages.RemovePage("screenshot-modal")
+				cv.app.SetFocus(cv.hostsList)
+				return nil
+			case 'n':
+				if currentIdx < len(screenshots)-1 {
+					currentIdx++
+					updateView()
+				}
+				return nil
+			case 'p':
+				if currentIdx > 0 {
+					currentIdx--
+					updateView()
+				}
+				return nil
+			case 'o':
+				// Open screenshot externally
+				ss := screenshots[currentIdx]
+				cv.app.Suspend(func() {
+					cmd := exec.Command("xdg-open", ss.File)
+					if err := cmd.Run(); err != nil {
+						fmt.Fprintf(os.Stderr, "failed to open %s: %v\n", ss.File, err)
+					}
+				})
+				return nil
+			}
+		}
+		return event
+	})
+
+	updateView()
+	cv.pages.AddPage("screenshot-modal", modal, true, true)
+	cv.app.SetFocus(modal)
+}
+
+// loadScreenshot loads a screenshot file from disk and caches it.
+func (cv *CorrelationViewer) loadScreenshot(path string) (image.Image, error) {
+	if img, ok := cv.screenshotCache[path]; ok {
+		return img, nil
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open screenshot: %w", err)
+	}
+	defer file.Close()
+
+	img, _, err := image.Decode(file)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode screenshot: %w", err)
+	}
+
+	cv.screenshotCache[path] = img
+	return img, nil
 }

@@ -1,0 +1,93 @@
+script:
+  name: "Web Screenshot Capture"
+  description: "Capture screenshots of web services using gowitness"
+  category: "scanning"
+  subcategory: "web"
+
+  file: "web_screenshot.sh"
+  requires_root: false
+  estimated_duration: "2-15 minutes"
+
+  cli_shortcuts:
+    - "screenshot"
+    - "web-screenshot"
+    - "ss"
+  keywords:
+    - "screenshot"
+    - "web"
+    - "gowitness"
+    - "capture"
+    - "http"
+    - "https"
+    - "recon"
+
+  parameters:
+    - name: "target_source"
+      type: "choice"
+      description: "Source of web targets"
+      required: false
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "All discovery sessions"
+          - value: "2"
+            description: "Specific discovery session"
+          - value: "3"
+            description: "Custom target file"
+          - value: "4"
+            description: "Single URL"
+    - name: "session"
+      type: "text"
+      description: "Discovery session name (when target_source=2)"
+      required: false
+    - name: "target_file"
+      type: "file_path"
+      description: "File with URLs/IPs (when target_source=3)"
+      required: false
+    - name: "single_url"
+      type: "text"
+      description: "Single URL to capture (when target_source=4)"
+      required: false
+
+  dependencies:
+    tools:
+      - name: "gowitness"
+        package: "gowitness"
+        check_command: "which gowitness"
+    scripts:
+      - "../common/colors.sh"
+      - "../common/logging.sh"
+      - "../common/utils.sh"
+
+  output:
+    creates_files: true
+    file_patterns:
+      - "captures/screenshots/*/*.png"
+      - "captures/screenshots/*/*.jpg"
+      - "captures/screenshots/*/gowitness.jsonl"
+      - "captures/screenshots/*/screenshot_report.txt"
+    workspace_subdirs:
+      - "captures/screenshots"
+
+  tags:
+    - "screenshot"
+    - "web"
+    - "recon"
+    - "visualization"
+    - "gowitness"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+
+  examples:
+    - description: "Capture screenshots from all discovery sessions"
+      command: "netutil screenshot"
+    - description: "Capture from specific session"
+      command: "netutil screenshot (select option 2)"
+    - description: "Capture custom URL list"
+      command: "netutil screenshot (select option 3)"
+
+  version: "1.0"
+  author: "fortifyde"
+  last_updated: "2025-01-20"

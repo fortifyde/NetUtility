@@ -26,6 +26,7 @@ const (
 	ScanTypeServiceScan        ScanType = "service_scan"
 	ScanTypeOSDetection        ScanType = "os_detection"
 	ScanTypeHostCategorization ScanType = "host_categorization"
+	ScanTypeScreenshot         ScanType = "screenshot"
 )
 
 // ScanResult represents the result of a network scan
@@ -229,6 +230,51 @@ func (c *Correlator) correlateHost(hostIP string) {
 			for _, host := range result.Hosts {
 				if host.IP == hostIP {
 					correlation.HostInfo = c.mergeHostInfo(correlation.HostInfo, &host)
+				}
+			}
+
+			// Merge screenshot metadata
+			if screenshotsData, ok := result.Metadata["screenshots"]; ok {
+				var screenshots []ScreenshotInfo
+				switch v := screenshotsData.(type) {
+				case []ScreenshotInfo:
+					screenshots = v
+				case []map[string]string:
+					// Produced by MergeScreenshotsIntoCorrelation on a second pass
+					for _, ss := range v {
+						screenshots = append(screenshots, ScreenshotInfo{
+							IP:         hostIP,
+							URL:        ss["url"],
+							File:       ss["file"],
+							StatusCode: ss["status_code"],
+						})
+					}
+				case []interface{}:
+					for _, item := range v {
+						switch s := item.(type) {
+						case ScreenshotInfo:
+							screenshots = append(screenshots, s)
+						case map[string]interface{}:
+							ss := ScreenshotInfo{
+								IP:         getStringFromMap(s, "ip"),
+								URL:        getStringFromMap(s, "url"),
+								File:       getStringFromMap(s, "file"),
+								StatusCode: getStringFromMap(s, "status_code"),
+							}
+							screenshots = append(screenshots, ss)
+						}
+					}
+				}
+
+				var hostScreenshots []ScreenshotInfo
+				for _, ss := range screenshots {
+					if ss.IP == hostIP {
+						hostScreenshots = append(hostScreenshots, ss)
+					}
+				}
+
+				if len(hostScreenshots) > 0 {
+					MergeScreenshotsIntoCorrelation(correlation, hostScreenshots)
 				}
 			}
 

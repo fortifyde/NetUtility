@@ -110,8 +110,12 @@ func TestMoveHostInHostfiles_HandlesEnrichedFiles(t *testing.T) {
 	}
 
 	linEnriched := readFile(t, filepath.Join(hf, "linux_hosts_enriched.txt"))
-	if strings.Contains(linEnriched, "10.0.0.5") {
-		t.Errorf("10.0.0.5 unexpectedly in linux_hosts_enriched.txt:\n%s", linEnriched)
+	if !strings.Contains(linEnriched, "10.0.0.5") {
+		t.Errorf("10.0.0.5 not found in linux_hosts_enriched.txt (enriched data should be preserved):\n%s", linEnriched)
+	}
+	// Category should be updated to "linux" in the enriched data
+	if !strings.Contains(linEnriched, "linux") {
+		t.Errorf("enriched data not updated with new category 'linux':\n%s", linEnriched)
 	}
 }
 
