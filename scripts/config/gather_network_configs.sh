@@ -39,6 +39,14 @@ fi
 HAS_EXPECT=0
 command -v expect >/dev/null 2>&1 && HAS_EXPECT=1
 
+# Detect ChannelTimeout support (OpenSSH 9.6+)
+# ssh -o ChannelTimeout=session=1 -V exits 0 if supported, 255 if unknown option
+CHANNEL_TIMEOUT_OPT=""
+if ssh -o ChannelTimeout=session=1 -V >/dev/null 2>&1; then
+    CHANNEL_TIMEOUT_OPT="-o ChannelTimeout=session=30"
+fi
+
+
 # Global variables
 VERSION="1.0.0"
 NETUTIL_WORKDIR="${NETUTIL_WORKDIR:-$HOME}"
@@ -201,9 +209,9 @@ run_sshpass() {
     _rsp_pass="$1"
     shift
     if [ -n "$SSH_OPTS_FILE" ]; then
-        sshpass -p "$_rsp_pass" ssh -F "$SSH_OPTS_FILE" "$@"
+        sshpass -p "$_rsp_pass" ssh -F "$SSH_OPTS_FILE" $CHANNEL_TIMEOUT_OPT "$@"
     else
-        sshpass -p "$_rsp_pass" ssh "$@"
+        sshpass -p "$_rsp_pass" ssh $CHANNEL_TIMEOUT_OPT "$@"
     fi
 }
 
@@ -236,7 +244,7 @@ try_version_command() {
             -o LogLevel=ERROR \
             "$username@$device_ip" "$cmd" 2>/dev/null | clean_output)
 
-        if echo "$output" | grep -qi "command execution is not supported"; then
+        if echo "$output" | grep -qi "command execution is not supported\|cmd exec error"; then
             break
         fi
         if [ -n "$output" ] && ! echo "$output" | grep -qi "invalid input\|unknown command\|% Invalid\|syntax error"; then
@@ -388,9 +396,13 @@ EXPEOF
     printf 'set _device_ip {%s}\n' "$_e_ip" >> "$_e_script"
     printf 'set _cmd {%s}\n' "$_e_cmd" >> "$_e_script"
 
-    cat >> "$_e_script" << 'EXPEOF'
-spawn sshpass -p $_password ssh -tt -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR $_username@$_device_ip
+    if [ -n "$CHANNEL_TIMEOUT_OPT" ]; then
+        printf 'spawn sshpass -p $_password ssh -tt -o ConnectTimeout=10 %s -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR $_username@$_device_ip\n' "$CHANNEL_TIMEOUT_OPT" >> "$_e_script"
+    else
+        printf 'spawn sshpass -p $_password ssh -tt -o ConnectTimeout=10 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR $_username@$_device_ip\n' >> "$_e_script"
+    fi
 
+    cat >> "$_e_script" << 'EXPEOF'
 expect {
     -re {Press any key to continue} {
         send "\r"
@@ -581,7 +593,7 @@ process_device() {
         -o UserKnownHostsFile=/dev/null \
         "$username@$device_ip" "exit" >"$_ssh_err" 2>&1; then
 
-        if grep -qi "no matching\|unable to negotiate\|key exchange\|host key" "$_ssh_err"; then
+        if grep -qi "no matching\|unable to negotiate\|host key type\|no matching host key" "$_ssh_err"; then
             print_info "Legacy SSH required for $device_ip, retrying..."
             LEGACY_SSH_MODE=1
             setup_ssh_opts
@@ -590,24 +602,45 @@ process_device() {
                 -o UserKnownHostsFile=/dev/null \
                 -o LogLevel=ERROR \
                 "$username@$device_ip" "exit" >>"$log_file" 2>&1; then
+                # Legacy SSH failed too. Try PTY before giving up.
+                print_info "Legacy SSH also failed, attempting PTY mode for $device_ip"
+                if { printf '\nexit\n'; sleep 3; } | run_sshpass "$password" -t \
+                    -o ConnectTimeout=10 \
+                    -o StrictHostKeyChecking=no \
+                    -o UserKnownHostsFile=/dev/null \
+                    -o LogLevel=ERROR \
+                    "$username@$device_ip" >/dev/null 2>&1; then
+                    SSH_REQUIRES_PTY=1
+                    echo "SUCCESS: Connection established (PTY mode after legacy failure)" >> "$log_file"
+                else
+                    rm -f "$_ssh_err"
+                    log_error "Failed to connect to $device_ip (all methods)" "$SCRIPT_NAME"
+                    print_error "Failed to connect to $device_ip"
+                    echo "$device_ip,connection_failed,Failed to establish SSH connection" >> "$FAILURES_FILE"
+                    echo "FAILURE: Connection failed (all methods)" >> "$log_file"
+                    return 1
+                fi
+            fi
+        else
+            # Exec failed for non-negotiation reason (e.g. "Cmd exec error", unsupported exec).
+            # Try PTY mode before giving up.
+            print_info "Exec channel failed for $device_ip, attempting PTY mode..."
+            if { printf '\nexit\n'; sleep 3; } | run_sshpass "$password" -t \
+                -o ConnectTimeout=10 \
+                -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null \
+                -o LogLevel=ERROR \
+                "$username@$device_ip" >/dev/null 2>&1; then
+                SSH_REQUIRES_PTY=1
+                echo "SUCCESS: Connection established (PTY mode)" >> "$log_file"
+            else
                 rm -f "$_ssh_err"
-                log_error "Failed to connect to $device_ip (legacy SSH)" "$SCRIPT_NAME"
-                print_error "Failed to connect to $device_ip (legacy SSH)"
-                echo "$device_ip,connection_failed,Failed to establish SSH connection (legacy)" >> "$FAILURES_FILE"
-                echo "FAILURE: Connection failed (legacy SSH)" >> "$log_file"
+                log_error "Failed to connect to $device_ip (exec and PTY)" "$SCRIPT_NAME"
+                print_error "Failed to connect to $device_ip"
+                echo "$device_ip,connection_failed,Failed to establish SSH connection" >> "$FAILURES_FILE"
+                echo "FAILURE: Connection failed (exec and PTY)" >> "$log_file"
                 return 1
             fi
-        elif grep -qi "command execution is not supported" "$_ssh_err"; then
-            print_info "Exec channel unsupported for $device_ip, using PTY mode"
-            SSH_REQUIRES_PTY=1
-            echo "SUCCESS: Connection established (PTY mode)" >> "$log_file"
-        else
-            rm -f "$_ssh_err"
-            log_error "Failed to connect to $device_ip" "$SCRIPT_NAME"
-            print_error "Failed to connect to $device_ip"
-            echo "$device_ip,connection_failed,Failed to establish SSH connection" >> "$FAILURES_FILE"
-            echo "FAILURE: Connection failed" >> "$log_file"
-            return 1
         fi
     else
         echo "SUCCESS: Connection established" >> "$log_file"
