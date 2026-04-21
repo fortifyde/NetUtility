@@ -87,6 +87,13 @@ ph7_collect_evidence() {
             | sed 's/^[^:]*:[[:space:]]*//')
         [ -n "$_p7_nmap_os" ] && printf 'nmap_os_string:%s\n' "$_p7_nmap_os" >> "$_p7_ev_file"
     fi
+
+    # --- HTTP title (Phase 6 web enum, nmap -oN format) ---
+    if [ -f "$PHASE6_DIR/raw_scans/nmap_web_enum.nmap" ]; then
+        _p7_http_title=$(extract_host_data "$_p7_ip" "$PHASE6_DIR/raw_scans/nmap_web_enum.nmap" \
+            | grep -i "_http-title:" | head -1 | sed 's/.*_http-title:[[:space:]]*//')
+        [ -n "$_p7_http_title" ] && printf 'http_title:%s\n' "$_p7_http_title" >> "$_p7_ev_file"
+    fi
 }
 
 # Classify a single host using the gated tier system.
@@ -115,6 +122,7 @@ ph7_classify() {
     _p7_dns_hostname=$(   grep "^dns_hostname:"    "$_p7_ev_file" | cut -d: -f2-)
     _p7_netbios_name=$(   grep "^netbios_name:"    "$_p7_ev_file" | cut -d: -f2-)
     _p7_nmap_os_string=$( grep "^nmap_os_string:"  "$_p7_ev_file" | cut -d: -f2-)
+    _p7_http_title=$(    grep "^http_title:"     "$_p7_ev_file" | cut -d: -f2-)
 
     # --- Initialize debug log ---
     {
@@ -277,6 +285,7 @@ EOF
             ssh_banner)     _p7_field_val="$_p7_ssh_banner" ;;
             nmap_os_string) _p7_field_val="$_p7_nmap_os_string" ;;
             snmp_sysdescr)  _p7_field_val="$_p7_snmp_sysdescr" ;;
+            http_title)     _p7_field_val="$_p7_http_title" ;;
             *)              _p7_field_val="" ;;
         esac
 
@@ -437,10 +446,63 @@ EOF
         printf '  [WIN] +10: no SSH\n' >> "$_p7_debug_file"
     fi
 
-    # TTL hard inhibitor: normalized TTL=64 is never Windows
-    if [ -n "$_p7_ttl_normalized" ] && [ "$_p7_ttl_normalized" = "64" ]; then
-        _p7_score_windows=0; _p7_ev_win=""
-        printf '  INHIBIT: ttl_normalized=64 → windows score zeroed\n' >> "$_p7_debug_file"
+    # TTL=64 disambiguation: when TTL=64, distinguish linux from network_device
+    _ttl64_check="${_p7_ttl_normalized:-$_p7_ttl_raw}"
+    _has_ttl64=false
+    if [ "$_ttl64_check" = "64" ]; then
+        _has_ttl64=true
+    elif [ -z "$_p7_ttl_normalized" ] && [ "$_ttl64_check" -ge 55 ] 2>/dev/null && [ "$_ttl64_check" -le 70 ] 2>/dev/null; then
+        _has_ttl64=true
+    fi
+
+    if [ "$_has_ttl64" = true ]; then
+        _has_ssh=false; _has_snmp=false; _has_telnet=false; _has_linux_ports=false
+        grep -q "^port_open_tcp:22$" "$_p7_ev_file" && _has_ssh=true
+        grep -q "^port_open_udp:161$" "$_p7_ev_file" && _has_snmp=true
+        grep -q "^port_open_tcp:23$" "$_p7_ev_file" && _has_telnet=true
+        grep -q "^port_open_tcp:111$" "$_p7_ev_file" && _has_linux_ports=true
+        grep -q "^port_open_tcp:2049$" "$_p7_ev_file" && _has_linux_ports=true
+
+        # SNMP + no SSH → management/infrastructure device
+        if [ "$_has_snmp" = true ] && [ "$_has_ssh" = false ]; then
+            _p7_score_nd=$((_p7_score_nd + 30)); _p7_ev_nd="${_p7_ev_nd}ttl64_snmp_no_ssh+"
+            printf '  [ND] +30: TTL=64 + SNMP - SSH → management device\n' >> "$_p7_debug_file"
+        fi
+
+        # Telnet + no SSH → legacy infrastructure device
+        if [ "$_has_telnet" = true ] && [ "$_has_ssh" = false ]; then
+            _p7_score_nd=$((_p7_score_nd + 25)); _p7_ev_nd="${_p7_ev_nd}ttl64_telnet_no_ssh+"
+            printf '  [ND] +25: TTL=64 + Telnet - SSH → legacy infrastructure\n' >> "$_p7_debug_file"
+        fi
+
+        # IPMI/RMCP → management controller
+        if grep -q "^port_open_udp:623$" "$_p7_ev_file"; then
+            _p7_score_nd=$((_p7_score_nd + 30)); _p7_ev_nd="${_p7_ev_nd}ttl64_ipmi+"
+            printf '  [ND] +30: TTL=64 + IPMI/RMCP → management controller\n' >> "$_p7_debug_file"
+        fi
+
+        # SSH + NFS/RPCBIND → Linux server
+        if [ "$_has_ssh" = true ] && [ "$_has_linux_ports" = true ]; then
+            _p7_score_linux=$((_p7_score_linux + 25)); _p7_ev_linux="${_p7_ev_linux}ttl64_ssh_nfs+"
+            printf '  [LIN] +25: TTL=64 + SSH + NFS/RPC → Linux server\n' >> "$_p7_debug_file"
+        fi
+    fi
+
+
+    # TTL hard inhibitor: normalized or fuzzy TTL=64 is never Windows
+    _ttl_for_inhibit="${_p7_ttl_normalized:-$_p7_ttl_raw}"
+    if [ -n "$_ttl_for_inhibit" ]; then
+        if [ "$_ttl_for_inhibit" = "64" ] || \
+           ([ -z "$_p7_ttl_normalized" ] && [ "$_ttl_for_inhibit" -ge 55 ] 2>/dev/null && [ "$_ttl_for_inhibit" -le 70 ] 2>/dev/null); then
+            _p7_score_windows=0; _p7_ev_win=""
+            printf '  INHIBIT: TTL %s → windows score zeroed\n' "$_ttl_for_inhibit" >> "$_p7_debug_file"
+        fi
+        # TTL ≥248 → zero linux and windows (near-certain network device)
+        if [ "$_ttl_for_inhibit" -ge 248 ] 2>/dev/null; then
+            _p7_score_linux=0; _p7_ev_linux=""
+            _p7_score_windows=0; _p7_ev_win=""
+            printf '  INHIBIT: TTL %s → linux+windows score zeroed (near-certain ND)\n' "$_ttl_for_inhibit" >> "$_p7_debug_file"
+        fi
     fi
 
     # =========================================================
@@ -463,9 +525,18 @@ EOF
         [ "$_p7_win_linux_diff" -lt 0 ] && _p7_win_linux_diff=$((-_p7_win_linux_diff))
         if [ "$_p7_score_windows" -ge 60 ] && [ "$_p7_score_linux" -ge 60 ] && \
            [ "$_p7_win_linux_diff" -lt 20 ]; then
-            _p7_category="unknown"; _p7_score=0; _p7_confidence="none"
-            _p7_evidence="contradictory:win=${_p7_score_windows},linux=${_p7_score_linux}"
-            printf '  CONFLICT: contradictory evidence\n' >> "$_p7_debug_file"
+            # TTL-based tiebreaker: strong TTL signal resolves ambiguity
+            if [ "$_p7_ttl_normalized" = "128" ] || { [ -z "$_p7_ttl_normalized" ] && [ "$_p7_ttl_raw" -ge 115 ] 2>/dev/null && [ "$_p7_ttl_raw" -le 142 ] 2>/dev/null; }; then
+                _p7_category="windows"; _p7_score=$_p7_score_windows; _p7_evidence="$_p7_ev_win"
+                printf '  TIEBREAK: TTL=128/128-range → windows wins\n' >> "$_p7_debug_file"
+            elif [ "$_p7_ttl_normalized" = "255" ]; then
+                _p7_category="network_device"; _p7_score=$_p7_score_nd; _p7_evidence="$_p7_ev_nd"
+                printf '  TIEBREAK: TTL=255 → network_device wins\n' >> "$_p7_debug_file"
+            else
+                _p7_category="unknown"; _p7_score=0; _p7_confidence="none"
+                _p7_evidence="contradictory:win=${_p7_score_windows},linux=${_p7_score_linux}"
+                printf '  CONFLICT: contradictory evidence (no TTL tiebreaker)\n' >> "$_p7_debug_file"
+            fi
         elif [ "$_p7_score_windows" -ge "$_p7_score_linux" ] && \
              [ "$_p7_score_windows" -ge "$_p7_score_nd" ]; then
             _p7_category="windows"; _p7_score=$_p7_score_windows; _p7_evidence="$_p7_ev_win"
@@ -483,6 +554,7 @@ EOF
         if   [ "$_p7_score" -ge 150 ]; then _p7_confidence="very_high"
         elif [ "$_p7_score" -ge 100 ]; then _p7_confidence="high"
         elif [ "$_p7_score" -ge 60  ]; then _p7_confidence="medium"
+        elif [ "$_p7_score" -ge 40  ]; then _p7_confidence="low"
         else
             _p7_evidence="${_p7_evidence}:below_threshold(${_p7_score})"
             _p7_category="unknown"; _p7_confidence="none"; _p7_score=0

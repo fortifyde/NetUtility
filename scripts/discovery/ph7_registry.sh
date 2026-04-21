@@ -96,11 +96,15 @@ udp:161:network_device:2:25
 udp:623:network_device:2:30
 tcp:515:network_device/printer:2:55
 tcp:631:network_device/printer:2:55
-tcp:9100:network_device/printer:2:60"
+tcp:9100:network_device/printer:2:60
+tcp:23:network_device:2:30
+tcp:179:network_device:2:40
+tcp:8443:network_device:2:15
+tcp:8080:network_device:2:10"
 
 # ---------------------------------------------------------------------------
 # TIER 2: Banner / header / OS-string signals
-# Field types: http_server | ssh_banner | nmap_os_string | snmp_sysdescr
+# Field types: http_server | http_title | ssh_banner | nmap_os_string | snmp_sysdescr
 # Patterns are passed to `grep -iE`; avoid colons in patterns.
 # ---------------------------------------------------------------------------
 BANNER_SIGNALS="http_server:Microsoft-IIS:windows:2:55
@@ -121,7 +125,20 @@ snmp_sysdescr:Linux:linux:2:55
 snmp_sysdescr:Windows:windows:2:55
 http_server:HP-iLO:network_device:2:70
 http_server:iDRAC:network_device:2:70
-http_server:iRMC:network_device:2:70"
+http_server:iRMC:network_device:2:70
+http_title:iDRAC:network_device:2:70
+http_title:iLO:network_device:2:70
+http_title:iRMC:network_device:2:70
+http_title:ProCurve:network_device:2:70
+http_title:Synology:network_device:2:65
+http_title:QNAP:network_device:2:65
+http_title:Dell.*Storage:network_device:2:65
+http_title:HP.*Switch:network_device:2:65
+http_title:ManageEngine:network_device:2:60
+http_title:UniFi:network_device:2:65
+http_title:pfSense:network_device:2:65
+http_title:OPNsense:network_device:2:65
+http_title:RouterOS:network_device:2:65"
 
 # ---------------------------------------------------------------------------
 # TIER 2: MAC vendor signals
@@ -150,9 +167,9 @@ Brocade:network_device:2:45"
 # ---------------------------------------------------------------------------
 # TIER 2: Normalized starting TTL (exact match after traceroute normalization)
 # ---------------------------------------------------------------------------
-TTL_SIGNALS="128:windows:2:40
-64:linux:2:40
-255:network_device:2:40"
+TTL_SIGNALS="128:windows:2:55
+64:linux:2:25
+255:network_device:2:55"
 
 # ---------------------------------------------------------------------------
 # TIER 3: DNS hostname pattern signals (max +20 contribution per category)

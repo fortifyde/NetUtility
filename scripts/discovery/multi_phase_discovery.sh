@@ -2459,7 +2459,11 @@ if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
     echo "  Sub-phase 1.1: Layer 2 ARP discovery..." >> "$REPORT_FILE"
     if command -v arp-scan >/dev/null 2>&1; then
         echo "Using arp-scan for Layer 2 discovery..." >> "$REPORT_FILE"
-        arp-scan --local --interface="$selected_interface" | grep -v "Interface:" | \
+        _arp_extra=""
+        [ -f /usr/share/arp-scan/ieee-oui.txt ] && _arp_extra="$_arp_extra -O /usr/share/arp-scan/ieee-oui.txt"
+        [ -f /etc/arp-scan/mac-vendor.txt ]     && _arp_extra="$_arp_extra -m /etc/arp-scan/mac-vendor.txt"
+        # shellcheck disable=SC2086
+        arp-scan --local $_arp_extra --interface="$selected_interface" | grep -v "Interface:" | \
             grep -E "^([0-9]+\.){3}[0-9]+" > "$arp_scan_raw"
         awk '{print $1}' "$arp_scan_raw" > "$PHASE1_DIR/arp_hosts.txt"
         awk '{print $1 "\t" $2 "\t" $3}' "$arp_scan_raw" >> "$REPORT_FILE"
