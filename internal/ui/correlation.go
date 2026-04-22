@@ -293,6 +293,7 @@ func (cv *CorrelationViewer) updateControlsText() {
 
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`, filterLine))
 }
+
 // setupKeyBindings configures keyboard shortcuts
 func (cv *CorrelationViewer) setupKeyBindings() {
 	cv.hostsList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {

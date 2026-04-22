@@ -80,3 +80,65 @@ show udld
 show ip dhcp snooping
 show ip dhcp pool
 show dhcp server
+
+
+# Cryptographic Mechanisms (SSH/Telnet)
+show ip ssh
+show ssh
+show running-config | section line
+show running-config | section ssh
+show crypto key mypubkey rsa
+
+# NTP Authentication and Time Synchronization
+show ntp associations
+show ntp status
+show ntp authentication
+show clock
+
+# Login Banner
+show running-config | section banner
+
+# Console and VTY Line Hardening
+show line
+show users
+
+# AAA Authorization and Accounting
+show aaa authorization
+show accounting
+show running-config | section aaa
+
+# Privilege Levels and Local Accounts
+show privilege
+show running-config | section privilege
+show running-config | section username
+
+# Password Policy and Encryption
+show running-config | section enable
+show running-config | section service password
+
+# Login Enhancements (Brute-Force Protection)
+show login
+show running-config | section login
+
+# Config Archive and Change Logging
+show archive
+show archive log config all
+
+# IP Source Guard and Dynamic ARP Inspection
+show ip source binding
+show ip verify source
+show ip arp inspection
+show ip arp inspection interfaces
+
+# Control Plane Policing (DoS)
+show control-plane host
+show policy-map control-plane
+
+# NetFlow (Traffic Visibility)
+show flow exporter
+show flow monitor
+show flow record
+
+# DNS and Name Resolution
+show running-config | section ip dns
+show hosts

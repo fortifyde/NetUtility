@@ -31,8 +31,10 @@ script:
           - value: "2"
             description: "Delete route"
           - value: "3"
-            description: "Show detailed routing table"
+            description: "Set default gateway"
           - value: "4"
+            description: "Show detailed routing table"
+          - value: "5"
             description: "Show route to destination"
   
   dependencies:

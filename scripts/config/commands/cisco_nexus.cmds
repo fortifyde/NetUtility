@@ -62,3 +62,62 @@ show logging
 
 # DHCP Services
 show ip dhcp snooping
+
+
+# Cryptographic Mechanisms (SSH/Telnet)
+show ssh server
+show ssh key
+show running-config | section ssh
+
+# NTP Authentication and Time Synchronization
+show ntp associations
+show ntp authentication-status
+show ntp source-interface
+show clock
+
+# Login Banner
+show running-config | section banner
+
+# Console and VTY Line Hardening
+show terminal
+show running-config | section line
+show users
+
+# AAA Authorization and Accounting
+show aaa authorization
+show accounting
+show running-config | section aaa
+
+# RBAC Roles and Local Accounts
+show role
+show running-config | section username
+show running-config | section role
+
+# Password Policy
+show running-config | section password
+
+# Login Enhancements (Brute-Force Protection)
+show running-config | section login
+
+# Feature Audit (Least Functionality)
+show feature
+show running-config | section feature
+
+# Control Plane Policing (CoPP)
+show copp policy
+show copp status
+
+# IP Source Guard and Dynamic ARP Inspection
+show ip arp inspection
+show ip verify source
+
+# VPC Consistency (Fabric Security)
+show vpc consistency-parameters
+
+# NetFlow (Traffic Visibility)
+show flow exporter
+show flow monitor
+show running-config | section sflow
+
+# DNS and Name Resolution
+show running-config | section ip domain

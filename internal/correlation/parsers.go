@@ -56,8 +56,6 @@ func (rp *ResultParser) ParseJobResult(scriptPath, outputContent string, timesta
 		return rp.parseServiceScan(result, outputContent)
 	case ScanTypeHostCategorization:
 		return rp.parseCategorizationDetails(result, outputContent)
-	case ScanTypeScreenshot:
-		return rp.parseScreenshot(result, outputContent)
 	default:
 		return rp.parseGenericOutput(result, outputContent)
 	}
@@ -83,9 +81,6 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 	if strings.Contains(scriptName, "capture") || strings.Contains(scriptName, "tshark") {
 		return ScanTypeCapture
 	}
-	if strings.Contains(scriptName, "screenshot") || strings.Contains(scriptName, "gowitness") {
-		return ScanTypeScreenshot
-	}
 	if strings.Contains(scriptName, "service") || strings.Contains(scriptName, "version") {
 		return ScanTypeServiceScan
 	}
@@ -103,10 +98,6 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 	if strings.Contains(contentLower, "host is up") || strings.Contains(contentLower, "ping statistics") {
 		return ScanTypeNetworkEnum
 	}
-	if strings.Contains(outputContent, "##NETUTIL:SCREENSHOT##") {
-		return ScanTypeScreenshot
-	}
-
 	// Default to network enumeration for network-related scripts
 	if strings.Contains(scriptPath, "network") {
 		return ScanTypeNetworkEnum
@@ -536,44 +527,4 @@ func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 	}
 
 	return results, nil
-}
-
-// parseScreenshot parses web screenshot capture output
-func (rp *ResultParser) parseScreenshot(result *ScanResult, content string) (*ScanResult, error) {
-	screenshots := ParseScreenshotMarkers(content)
-
-	ipToScreenshots := make(map[string][]ScreenshotInfo)
-	for _, ss := range screenshots {
-		if ss.IP != "" {
-			ipToScreenshots[ss.IP] = append(ipToScreenshots[ss.IP], ss)
-		}
-	}
-
-	for ip, ipScreenshots := range ipToScreenshots {
-		var urls, files []string
-		for _, ss := range ipScreenshots {
-			urls = append(urls, ss.URL)
-			files = append(files, ss.File)
-		}
-
-		host := Host{
-			IP:       ip,
-			Status:   "up",
-			LastSeen: result.Timestamp,
-			Ports:    make([]Port, 0),
-			Attributes: map[string]string{
-				"screenshot_urls":  strings.Join(urls, ","),
-				"screenshot_files": strings.Join(files, ","),
-			},
-		}
-
-		result.Hosts = append(result.Hosts, host)
-		result.Targets = append(result.Targets, ip)
-	}
-
-	if len(screenshots) > 0 {
-		result.Metadata["screenshots"] = screenshots
-	}
-
-	return result, nil
 }

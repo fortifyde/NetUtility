@@ -17,15 +17,16 @@ echo >&2
 echo "Route management options:" >&2
 echo "1. Add route" >&2
 echo "2. Delete route" >&2
-echo "3. Show detailed routing table" >&2
-echo "4. Show route to specific destination" >&2
-echo "5. Exit" >&2
+echo "3. Set default gateway" >&2
+echo "4. Show detailed routing table" >&2
+echo "5. Show route to specific destination" >&2
+echo "6. Exit" >&2
 
 echo >&2
 if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%sSelect option (1-5): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+    printf "%sSelect option (1-6): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
 else
-    printf "Select option (1-5): \n" >&2
+    printf "Select option (1-6): \n" >&2
 fi
 read -r option
 log_info "Route option selected: $option" "$SCRIPT_NAME"
@@ -119,13 +120,69 @@ case $option in
         fi
         ;;
     3)
+        echo "Setting default gateway:" >&2
+        echo >&2
+
+        # Show current default gateway if one exists
+        current_gw=$(ip route show default 2>/dev/null | head -n 1)
+        if [ -n "$current_gw" ]; then
+            echo "Current default gateway: $current_gw" >&2
+        else
+            echo "No default gateway currently configured" >&2
+        fi
+        echo >&2
+
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sEnter gateway IP: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Enter gateway IP: \n" >&2
+        fi
+        read -r gateway
+
+        if ! echo "$gateway" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
+            log_error "Failed to set default gateway: Invalid gateway IP format" "$SCRIPT_NAME"
+            echo "Error: Invalid gateway IP format" >&2
+            exit 1
+        fi
+
+        # Initialize interface as empty
+        interface=""
+
+        if confirm_action "Do you want to specify an interface?"; then
+            echo >&2
+            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                printf "%sEnter interface: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+            else
+                printf "Enter interface: \n" >&2
+            fi
+            read -r interface
+        fi
+
+        if [ -n "$interface" ]; then
+            if ! ip link show "$interface" >/dev/null 2>&1; then
+                log_error "Failed to set default gateway: Interface $interface not found" "$SCRIPT_NAME"
+                echo "Error: Interface $interface not found" >&2
+                exit 1
+            fi
+            log_debug "Setting default gateway: ip route replace default via $gateway dev $interface" "$SCRIPT_NAME"
+            ip route replace default via "$gateway" dev "$interface"
+            log_info "Default gateway set: via $gateway dev $interface" "$SCRIPT_NAME"
+            echo "Default gateway set: via $gateway dev $interface"
+        else
+            log_debug "Setting default gateway: ip route replace default via $gateway" "$SCRIPT_NAME"
+            ip route replace default via "$gateway"
+            log_info "Default gateway set: via $gateway" "$SCRIPT_NAME"
+            echo "Default gateway set: via $gateway"
+        fi
+        ;;
+    4)
         echo "Detailed routing table:"
         ip route show table all
         echo
         echo "Routing cache:"
         ip route show cache 2>/dev/null || echo "No cached routes"
         ;;
-    4)
+    5)
         echo >&2
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
             printf "%sEnter destination IP: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
@@ -142,7 +199,7 @@ case $option in
         echo "Route to $dest_ip:"
         ip route get "$dest_ip"
         ;;
-    5)
+    6)
         echo "Exiting..." >&2
         exit 0
         ;;

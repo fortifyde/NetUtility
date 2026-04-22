@@ -455,8 +455,10 @@ select_host_file() {
     rm -f /tmp/netutil_files.$$
     file_count=0
 
-    # Find all discovery session directories (both multi_phase_discovery and auto_discover)
-    find "$base_dir" -maxdepth 1 -type d \( -name "discovery_*" -o -name "auto_discovery_*" \) | sort -r > /tmp/netutil_sessions.$$
+    # Find all session directories (standalone + auto_discover).
+    # Standalone: main_network_<ts>, vlan<ID>_<ts>, routed_<sanitized>_<ts>
+    # Auto-discover: auto_discovery_<ts>
+    find "$base_dir" -maxdepth 1 -type d ! -name "." ! -name ".." ! -name "raw" | sort -r > /tmp/netutil_sessions.$$
 
     # Check if any sessions found
     if [ ! -s /tmp/netutil_sessions.$$ ]; then
@@ -468,59 +470,75 @@ select_host_file() {
     # Process each discovery session
     while read -r session_dir; do
         session_name=$(basename "$session_dir")
-        # Extract timestamp from session name (discovery_YYYYMMDD_HHMMSS)
-        timestamp=$(echo "$session_name" | sed 's/discovery_//')
 
-        # Find all network directories (main_network or vlan_*)
-        find "$session_dir" -maxdepth 1 -type d \( -name "main_network" -o -name "vlan_*" \) | sort > /tmp/netutil_networks.$$
+        # Use session name as the display label (it already contains timestamp)
+        display_session="$session_name"
 
-        while read -r network_dir; do
-            network_name=$(basename "$network_dir")
-            categorized_dir="$network_dir/categorized"
+        # Helper: process a hostfiles directory and add its files to the selection list
+        # Args: $1=hostfiles_dir $2=display_prefix
+        _process_hostfiles_dir() {
+            _hf_dir="$1"
+            _hf_prefix="$2"
 
-            # Check if categorized directory exists
-            if [ ! -d "$categorized_dir" ]; then
-                continue
+            if [ ! -d "$_hf_dir" ]; then
+                return
             fi
 
-            # Find top-level categorized files (exclude enriched versions)
             # Apply filter if specified
             if [ -n "$filter" ]; then
-                # Filter specified - only show matching category
-                find "$categorized_dir" -maxdepth 1 -type f -name "${filter}_hosts.txt" | sort > /tmp/netutil_catfiles.$$
+                find "$_hf_dir" -maxdepth 1 -type f -name "${filter}_hosts.txt" | sort > /tmp/netutil_catfiles.$$
             else
-                # No filter - show all categories
-                find "$categorized_dir" -maxdepth 1 -type f -name "*_hosts.txt" ! -name "*_enriched.txt" | sort > /tmp/netutil_catfiles.$$
+                find "$_hf_dir" -maxdepth 1 -type f -name "*_hosts.txt" ! -name "*_enriched.txt" | sort > /tmp/netutil_catfiles.$$
             fi
 
             while read -r host_file; do
+                [ -z "$host_file" ] && continue
                 category=$(basename "$host_file" .txt)
-                display_name="$timestamp/$network_name/$category"
+                display_name="$_hf_prefix/$category"
                 file_count=$((file_count + 1))
                 echo "$file_count:$host_file:$display_name" >> /tmp/netutil_files.$$
             done < /tmp/netutil_catfiles.$$
+            rm -f /tmp/netutil_catfiles.$$
 
             # Find vendor-specific files in network_devices subdirectory
-            # Only process if no filter OR filter is "network_devices"
-            if [ -d "$categorized_dir/network_devices" ]; then
+            if [ -d "$_hf_dir/network_devices" ]; then
                 if [ -z "$filter" ] || [ "$filter" = "network_devices" ]; then
-                    find "$categorized_dir/network_devices" -maxdepth 1 -type f -name "*.txt" | sort > /tmp/netutil_vendorfiles.$$
+                    find "$_hf_dir/network_devices" -maxdepth 1 -type f -name "*.txt" | sort > /tmp/netutil_vendorfiles.$$
 
                     while read -r vendor_file; do
+                        [ -z "$vendor_file" ] && continue
                         vendor=$(basename "$vendor_file" .txt)
-                        display_name="$timestamp/$network_name/$vendor"
+                        display_name="$_hf_prefix/$vendor"
                         file_count=$((file_count + 1))
                         echo "$file_count:$vendor_file:$display_name" >> /tmp/netutil_files.$$
                     done < /tmp/netutil_vendorfiles.$$
-
                     rm -f /tmp/netutil_vendorfiles.$$
                 fi
             fi
+        }
 
-            rm -f /tmp/netutil_catfiles.$$
-        done < /tmp/netutil_networks.$$
+        # Check if this is an auto_discover session (has subdirectories with hostfiles)
+        # or a standalone session (has hostfiles directly)
+        if [ -d "$session_dir/hostfiles" ]; then
+            # Standalone session: hostfiles is directly in the session directory
+            _process_hostfiles_dir "$session_dir/hostfiles" "$display_session"
+        else
+            # Auto-discover session: find subdirectories containing hostfiles
+            # Matches: main_network, vlan_*, and bare numeric directories (L3 mode)
+            find "$session_dir" -maxdepth 1 -type d \( -name "main_network" -o -name "vlan_*" -o -name "[0-9]*" \) | sort > /tmp/netutil_networks.$$
 
-        rm -f /tmp/netutil_networks.$$
+            while read -r network_dir; do
+                [ -z "$network_dir" ] && continue
+                network_name=$(basename "$network_dir")
+                hostfiles_dir="$network_dir/hostfiles"
+
+                if [ -d "$hostfiles_dir" ]; then
+                    _process_hostfiles_dir "$hostfiles_dir" "$display_session/$network_name"
+                fi
+            done < /tmp/netutil_networks.$$
+            rm -f /tmp/netutil_networks.$$
+        fi
+
     done < /tmp/netutil_sessions.$$
 
     rm -f /tmp/netutil_sessions.$$
