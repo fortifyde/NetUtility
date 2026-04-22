@@ -6,94 +6,6 @@ import (
 	"testing"
 )
 
-func TestParseScreenshotMarkers(t *testing.T) {
-	tests := []struct {
-		name       string
-		output     string
-		wantCount  int
-		wantURL    string
-		wantIP     string
-		wantFile   string
-		wantStatus string
-	}{
-		{
-			name:       "single screenshot marker",
-			output:     "##NETUTIL:SCREENSHOT## ip=192.168.1.1 url=http://192.168.1.1 file=/path/to/screenshot.png status=200",
-			wantCount:  1,
-			wantURL:    "http://192.168.1.1",
-			wantIP:     "192.168.1.1",
-			wantFile:   "/path/to/screenshot.png",
-			wantStatus: "200",
-		},
-		{
-			name: "multiple screenshot markers",
-			output: `##NETUTIL:SCREENSHOT## ip=192.168.1.1 url=http://192.168.1.1 file=/path/to/screenshot1.png status=200
-##NETUTIL:SCREENSHOT## ip=192.168.1.2 url=https://192.168.1.2 file=/path/to/screenshot2.png status=200`,
-			wantCount: 2,
-		},
-		{
-			name:       "marker with https URL and port",
-			output:     "##NETUTIL:SCREENSHOT## ip=10.0.0.1 url=https://10.0.0.1:8443 file=/path/to/screenshot.png status=401",
-			wantCount:  1,
-			wantURL:    "https://10.0.0.1:8443",
-			wantIP:     "10.0.0.1",
-			wantFile:   "/path/to/screenshot.png",
-			wantStatus: "401",
-		},
-		{
-			name:       "marker with 404 status",
-			output:     "##NETUTIL:SCREENSHOT## ip=192.168.1.100 url=http://192.168.1.100 file=/path/to/screenshot.png status=404",
-			wantCount:  1,
-			wantURL:    "http://192.168.1.100",
-			wantIP:     "192.168.1.100",
-			wantFile:   "/path/to/screenshot.png",
-			wantStatus: "404",
-		},
-		{
-			name:      "no screenshot markers",
-			output:    "some other output\nwithout screenshot markers",
-			wantCount: 0,
-		},
-		{
-			name: "mixed output with screenshot markers",
-			output: `Starting screenshot capture...
-##NETUTIL:SCREENSHOT## ip=192.168.1.1 url=http://192.168.1.1 file=/path/to/screenshot1.png status=200
-Processing...
-##NETUTIL:SCREENSHOT## ip=192.168.1.2 url=https://192.168.1.2 file=/path/to/screenshot2.png status=200
-Complete.`,
-			wantCount: 2,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := ParseScreenshotMarkers(tt.output)
-
-			if len(got) != tt.wantCount {
-				t.Errorf("ParseScreenshotMarkers() returned %d items, want %d", len(got), tt.wantCount)
-			}
-
-			if tt.wantCount > 0 && tt.wantURL != "" {
-				if len(got) == 0 {
-					t.Errorf("ParseScreenshotMarkers() returned no items, want at least 1")
-					return
-				}
-				if got[0].URL != tt.wantURL {
-					t.Errorf("ParseScreenshotMarkers()[0].URL = %v, want %v", got[0].URL, tt.wantURL)
-				}
-				if got[0].IP != tt.wantIP {
-					t.Errorf("ParseScreenshotMarkers()[0].IP = %v, want %v", got[0].IP, tt.wantIP)
-				}
-				if got[0].File != tt.wantFile {
-					t.Errorf("ParseScreenshotMarkers()[0].File = %v, want %v", got[0].File, tt.wantFile)
-				}
-				if got[0].StatusCode != tt.wantStatus {
-					t.Errorf("ParseScreenshotMarkers()[0].StatusCode = %v, want %v", got[0].StatusCode, tt.wantStatus)
-				}
-			}
-		})
-	}
-}
 
 func TestMergeScreenshotsIntoCorrelation(t *testing.T) {
 	tests := []struct {
@@ -339,9 +251,9 @@ func TestFindScreenshotsOnDisk(t *testing.T) {
 
 		// Create a test JSONL file
 		jsonlPath := filepath.Join(screenshotsDir, "gowitness.jsonl")
-		jsonlContent := `{"url":"http://192.168.1.1","screenshot":"/path/to/screenshot1.png","response_code":200,"failed":false}
-{"url":"https://192.168.1.1","screenshot":"/path/to/screenshot2.png","response_code":200,"failed":false}
-{"url":"http://192.168.1.2","screenshot":"/path/to/screenshot3.png","response_code":404,"failed":false}`
+		jsonlContent := `{"url":"http://192.168.1.1","file_name":"http--192.168.1.1-80.jpeg","screenshot":"","response_code":200,"failed":false}
+{"url":"https://192.168.1.1","file_name":"https--192.168.1.1-443.jpeg","screenshot":"","response_code":200,"failed":false}
+{"url":"http://192.168.1.2","file_name":"http--192.168.1.2-80.jpeg","screenshot":"","response_code":404,"failed":false}`
 		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
 		}
@@ -478,9 +390,9 @@ func TestParseScreenshotJSONL(t *testing.T) {
 		tmpDir := t.TempDir()
 		jsonlPath := filepath.Join(tmpDir, "gowitness.jsonl")
 
-		jsonlContent := `{"url":"http://192.168.1.1","screenshot":"/path/to/screenshot1.png","response_code":200,"failed":false}
-{"url":"https://192.168.1.1","screenshot":"/path/to/screenshot2.png","response_code":200,"failed":false}
-{"url":"http://192.168.1.2","screenshot":"/path/to/screenshot3.png","response_code":404,"failed":false}`
+		jsonlContent := `{"url":"http://192.168.1.1","final_url":"http://192.168.1.1/home","file_name":"http--192.168.1.1-80.jpeg","screenshot":"","response_code":200,"failed":false}
+{"url":"https://192.168.1.1","final_url":"","file_name":"https--192.168.1.1-443.jpeg","screenshot":"","response_code":200,"failed":false}
+{"url":"http://192.168.1.2","final_url":"http://192.168.1.2/dashboard","file_name":"http--192.168.1.2-80.jpeg","screenshot":"","response_code":404,"failed":false}`
 
 		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
@@ -492,15 +404,13 @@ func TestParseScreenshotJSONL(t *testing.T) {
 			t.Errorf("parseScreenshotJSONL() returned %d screenshots, want 3", len(got))
 		}
 
-		// Check first screenshot
-		if got[0].URL != "http://192.168.1.1" {
-			t.Errorf("parseScreenshotJSONL()[0].URL = %v, want 'http://192.168.1.1'", got[0].URL)
+		// Check first screenshot — should use final_url
+		if got[0].URL != "http://192.168.1.1/home" {
+			t.Errorf("parseScreenshotJSONL()[0].URL = %v, want 'http://192.168.1.1/home' (final_url)", got[0].URL)
 		}
-		if got[0].IP != "192.168.1.1" {
-			t.Errorf("parseScreenshotJSONL()[0].IP = %v, want '192.168.1.1'", got[0].IP)
-		}
-		if got[0].StatusCode != "200" {
-			t.Errorf("parseScreenshotJSONL()[0].StatusCode = %v, want '200'", got[0].StatusCode)
+		wantFile := filepath.Join(filepath.Dir(jsonlPath), "http--192.168.1.1-80.jpeg")
+		if got[0].File != wantFile {
+			t.Errorf("parseScreenshotJSONL()[0].File = %v, want %v", got[0].File, wantFile)
 		}
 	})
 
@@ -516,9 +426,9 @@ func TestParseScreenshotJSONL(t *testing.T) {
 		tmpDir := t.TempDir()
 		jsonlPath := filepath.Join(tmpDir, "gowitness.jsonl")
 
-		jsonlContent := `{"url":"http://192.168.1.1","screenshot":"/path/to/screenshot1.png","response_code":200,"failed":false}
+		jsonlContent := `{"url":"http://192.168.1.1","file_name":"http--192.168.1.1-80.jpeg","screenshot":"","response_code":200,"failed":false}
 invalid json line
-{"url":"https://192.168.1.1","screenshot":"/path/to/screenshot2.png","response_code":200,"failed":false}`
+{"url":"https://192.168.1.1","file_name":"https--192.168.1.1-443.jpeg","screenshot":"","response_code":200,"failed":false}`
 
 		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
@@ -536,9 +446,9 @@ invalid json line
 		tmpDir := t.TempDir()
 		jsonlPath := filepath.Join(tmpDir, "gowitness.jsonl")
 
-		jsonlContent := `{"url":"http://192.168.1.1","screenshot":"/path/to/screenshot1.png","response_code":200,"failed":false}
-{"url":"http://192.168.1.2","screenshot":"","response_code":0,"failed":true,"failed_reason":"connection refused"}
-{"url":"https://192.168.1.1","screenshot":"/path/to/screenshot2.png","response_code":200,"failed":false}`
+		jsonlContent := `{"url":"http://192.168.1.1","file_name":"http--192.168.1.1-80.jpeg","screenshot":"","response_code":200,"failed":false}
+{"url":"http://192.168.1.2","file_name":"","screenshot":"","response_code":0,"failed":true,"failed_reason":"connection refused"}
+{"url":"https://192.168.1.1","file_name":"https--192.168.1.1-443.jpeg","screenshot":"","response_code":200,"failed":false}`
 
 		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)

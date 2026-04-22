@@ -10,49 +10,6 @@ import (
 	"testing"
 )
 
-func TestSanitizeScreenshotFilename(t *testing.T) {
-	tests := []struct {
-		name   string
-		rawURL string
-		ip     string
-		want   string
-	}{
-		{
-			name:   "http with explicit port",
-			rawURL: "http://192.168.1.1:8080",
-			ip:     "192.168.1.1",
-			want:   "192-168-1-1_http_8080.png",
-		},
-		{
-			name:   "https default port",
-			rawURL: "https://10.0.0.5/",
-			ip:     "10.0.0.5",
-			want:   "10-0-0-5_https_443.png",
-		},
-		{
-			name:   "http default port",
-			rawURL: "http://172.16.0.1/index.html",
-			ip:     "172.16.0.1",
-			want:   "172-16-0-1_http_80.png",
-		},
-		{
-			name:   "https with explicit port",
-			rawURL: "https://192.168.1.50:8443/",
-			ip:     "192.168.1.50",
-			want:   "192-168-1-50_https_8443.png",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := sanitizeScreenshotFilename(tt.rawURL, tt.ip)
-			if got != tt.want {
-				t.Errorf("sanitizeScreenshotFilename(%q, %q) = %q, want %q", tt.rawURL, tt.ip, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestFormatScreenshotNotes(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -62,11 +19,11 @@ func TestFormatScreenshotNotes(t *testing.T) {
 		{
 			name: "single screenshot",
 			screenshots: []ScreenshotInfo{
-				{IP: "192.168.1.1", URL: "http://192.168.1.1", StatusCode: "200", File: "/tmp/test.png"},
+				{IP: "192.168.1.1", URL: "http://192.168.1.1", StatusCode: "200", File: "/tmp/http--192.168.1.1-80.jpeg"},
 			},
 			wantContains: []string{
 				"> [!screenshot]- http://192.168.1.1 (200)",
-				"> ![[screenshots/192-168-1-1_http_80.png]]",
+				"> ![[screenshots/http--192.168.1.1-80.jpeg]]",
 			},
 		},
 		{
@@ -506,7 +463,7 @@ func TestGenerateDistributionPackageWithScreenshots(t *testing.T) {
 	if err := os.MkdirAll(screenshotDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	screenshotPath := filepath.Join(screenshotDir, "test.png")
+	screenshotPath := filepath.Join(screenshotDir, "http--192.168.1.10-80.jpeg")
 	if err := os.WriteFile(screenshotPath, []byte("fake png data"), 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -561,10 +518,10 @@ func TestGenerateDistributionPackageWithScreenshots(t *testing.T) {
 		if err != nil {
 			t.Fatalf("reading tar: %v", err)
 		}
-		if strings.HasPrefix(hdr.Name, "screenshots/") && strings.HasSuffix(hdr.Name, ".png") {
+		if strings.HasPrefix(hdr.Name, "screenshots/") && strings.HasSuffix(hdr.Name, ".jpeg") {
 			foundScreenshot = true
-			// Verify screenshot has sanitized name.
-			expected := "screenshots/192-168-1-10_http_80.png"
+			// Verify screenshot has sanitized name (gowitness naming convention).
+			expected := "screenshots/http--192.168.1.10-80.jpeg"
 			if hdr.Name != expected {
 				t.Errorf("screenshot name = %q, want %q", hdr.Name, expected)
 			}

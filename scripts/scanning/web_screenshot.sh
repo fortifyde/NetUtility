@@ -284,14 +284,14 @@ echo >&2
 
 # Run gowitness
 # Note: gowitness file creates a JSONL file with screenshot results
-log_debug "Executing: gowitness scan file -f $TEMP_URL_LIST -s $SESSION_DIR --threads 4 --timeout 30 --write-jsonl --write-jsonl-file --http-code-filter 200" "$SCRIPT_NAME"
+log_debug "Executing: gowitness scan file -f $TEMP_URL_LIST -s $SESSION_DIR --threads 4 --timeout 30 --write-jsonl --write-jsonl-file $SESSION_DIR/gowitness.jsonl --http-code-filter 200" "$SCRIPT_NAME"
 
 if ! gowitness scan file -f "$TEMP_URL_LIST" \
     -s "$SESSION_DIR" \
     --threads 4 \
     --timeout 30 \
     --write-jsonl \
-    --write-jsonl-file \
+    --write-jsonl-file "$SESSION_DIR/gowitness.jsonl" \
     --http-code-filter 200 2>&1 | tee "$SESSION_DIR/gowitness_output.txt" >&2; then
     log_error "gowitness execution failed" "$SCRIPT_NAME"
     error_message "Screenshot capture failed. Check $SESSION_DIR/gowitness_output.txt for details."
@@ -305,46 +305,12 @@ echo >&2
 JSONL_FILE="$SESSION_DIR/gowitness.jsonl"
 
 if [ -f "$JSONL_FILE" ]; then
-    echo "Processing screenshot results..." >&2
-    log_info "Parsing gowitness JSONL output: $JSONL_FILE" "$SCRIPT_NAME"
-
-    _screenshot_count=0
-
-    while IFS= read -r _line || [ -n "$_line" ]; do
-        if [ -z "$_line" ]; then
-            continue
-        fi
-
-        # Parse JSONL fields
-        # gowitness Result struct: url, screenshot, response_code, ...
-        _url=$(echo "$_line" | sed -n 's/.*"url":"\([^"]*\)".*/\1/p')
-        _file=$(echo "$_line" | sed -n 's/.*"screenshot":"\([^"]*\)".*/\1/p')
-        _status=$(echo "$_line" | sed -n 's/.*"response_code":\([0-9]*\).*/\1/p')
-
-        if [ -z "$_url" ] || [ -z "$_file" ]; then
-            log_debug "Skipping malformed JSONL line: $_line" "$SCRIPT_NAME"
-            continue
-        fi
-
-        # Extract IP from URL (for correlation)
-        _ip=$(echo "$_url" | sed -n 's|.*//\([0-9.]*\):*\([0-9]*\)*|\1|p')
-        if [ -z "$_ip" ]; then
-            # Try to resolve hostname to IP (basic attempt)
-            _ip=$(echo "$_url" | sed -n 's|.*//\([^:/]*\).*|\1|p')
-        fi
-
-        # Emit NETUTIL screenshot marker (stdout — parsed by the correlator)
-        echo "##NETUTIL:SCREENSHOT## ip=$_ip url=$_url file=$_file status=${_status:-unknown}"
-
-        _screenshot_count=$((_screenshot_count + 1))
-        log_debug "Screenshot captured: $_url → $_file (status: ${_status:-unknown})" "$SCRIPT_NAME"
-
-    done < "$JSONL_FILE"
-
+    log_info "gowitness JSONL output: $JSONL_FILE" "$SCRIPT_NAME"
+    _screenshot_count=$(grep -c '"file_name":"[^"]' "$JSONL_FILE" 2>/dev/null) || _screenshot_count=0
     echo >&2
-    success_message "Processed $_screenshot_count screenshots" >&2
-
+    success_message "Captured $_screenshot_count screenshots" >&2
 else
+    _screenshot_count=0
     log_warning "gowitness JSONL output not found at $JSONL_FILE" "$SCRIPT_NAME"
     echo "Warning: Screenshot results file not found. Screenshots may still exist in $SESSION_DIR" >&2
 fi
@@ -375,7 +341,7 @@ REPORT_FILE="$SESSION_DIR/screenshot_report.txt"
     echo "  gowitness.jsonl    - JSONL metadata file"
     echo "  gowitness_output.txt - gowitness execution log"
     echo "  screenshot_report.txt - This summary report"
-    echo "  *.png              - Screenshot images"
+    echo "  *.jpeg             - Screenshot images"
     echo
 
 } > "$REPORT_FILE"
@@ -394,7 +360,7 @@ echo >&2
 echo "Files created:" >&2
 echo "  Report:           $REPORT_FILE" >&2
 echo "  JSONL metadata:   $JSONL_FILE" >&2
-echo "  Screenshots:      $SESSION_DIR/*.png" >&2
+echo "  Screenshots:      $SESSION_DIR/*.jpeg" >&2
 echo >&2
 
 log_info "Screenshot capture complete. Total: ${_screenshot_count:-0}. Session: $SESSION_DIR" "$SCRIPT_NAME"

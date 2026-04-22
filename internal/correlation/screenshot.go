@@ -18,38 +18,6 @@ type ScreenshotInfo struct {
 	StatusCode string `json:"status_code"`
 }
 
-// ParseScreenshotMarkers extracts screenshot information from NETUTIL markers
-func ParseScreenshotMarkers(output string) []ScreenshotInfo {
-	screenshots := make([]ScreenshotInfo, 0)
-	lines := strings.Split(output, "\n")
-
-	// Match pattern: ##NETUTIL:SCREENSHOT## ip=<ip> url=<url> file=<filepath> status=<code>
-	markerRegex := regexp.MustCompile(`##NETUTIL:SCREENSHOT##\s+ip=([^\s]+)\s+url=([^\s]+)\s+file=([^\s]+)\s+status=([^\s]+)`)
-
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "##NETUTIL:SCREENSHOT##") {
-			continue
-		}
-
-		matches := markerRegex.FindStringSubmatch(line)
-		if len(matches) < 5 {
-			continue
-		}
-
-		screenshot := ScreenshotInfo{
-			IP:         matches[1],
-			URL:        matches[2],
-			File:       matches[3],
-			StatusCode: matches[4],
-		}
-
-		screenshots = append(screenshots, screenshot)
-	}
-
-	return screenshots
-}
-
 // MergeScreenshotsIntoCorrelation merges screenshot data into a correlation result
 func MergeScreenshotsIntoCorrelation(corr *CorrelationResult, screenshots []ScreenshotInfo) {
 	if corr == nil || len(screenshots) == 0 {
@@ -216,7 +184,9 @@ func parseScreenshotJSONL(jsonlPath string) []ScreenshotInfo {
 
 		var gowitnessResult struct {
 			URL          string `json:"url"`
+			FinalURL     string `json:"final_url"`
 			Screenshot   string `json:"screenshot"`
+			Filename     string `json:"file_name"`
 			ResponseCode int    `json:"response_code"`
 			Failed       bool   `json:"failed"`
 		}
@@ -225,18 +195,24 @@ func parseScreenshotJSONL(jsonlPath string) []ScreenshotInfo {
 			continue
 		}
 
-		// Skip failed results or entries without a screenshot file
-		if gowitnessResult.Failed || gowitnessResult.URL == "" || gowitnessResult.Screenshot == "" {
+		// Prefer final_url (actual page screenshotted), fall back to original url
+		resolvedURL := gowitnessResult.FinalURL
+		if resolvedURL == "" {
+			resolvedURL = gowitnessResult.URL
+		}
+
+		// Skip failed results or entries without a screenshot file or resolved URL
+		if gowitnessResult.Failed || resolvedURL == "" || gowitnessResult.Filename == "" {
 			continue
 		}
 
-		// Extract IP from URL
-		ip := extractIPFromURL(gowitnessResult.URL)
+		// Extract IP from the resolved URL
+		ip := extractIPFromURL(resolvedURL)
 
 		screenshot := ScreenshotInfo{
 			IP:         ip,
-			URL:        gowitnessResult.URL,
-			File:       gowitnessResult.Screenshot,
+			URL:        resolvedURL,
+			File:       filepath.Join(filepath.Dir(jsonlPath), gowitnessResult.Filename),
 			StatusCode: fmt.Sprintf("%d", gowitnessResult.ResponseCode),
 		}
 

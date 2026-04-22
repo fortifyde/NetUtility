@@ -1163,7 +1163,7 @@ identify_network_devices() {
                   -oG "$snmp_output" >/dev/null 2>&1; then
                 
                 # Extract hosts with SNMP
-                snmp_hosts=$(grep "161/open" "$snmp_output" 2>/dev/null | awk '{print $2}' | sort -u)
+                snmp_hosts=$(grep -E "161/open/" "$snmp_output" 2>/dev/null | awk '{print $2}' | sort -u)
                 
                 if [ -n "$snmp_hosts" ]; then
                     echo "      Found SNMP services on:" >> "$REPORT_FILE"

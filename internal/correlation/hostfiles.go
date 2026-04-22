@@ -3,6 +3,7 @@ package correlation
 import (
 	"bufio"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -31,6 +32,8 @@ var allCategoryFilenames = []string{
 // hostfiles/ directory under workspaceDir/discovery/ that contains the host,
 // then appends the bare IP to the plain file for newCategory.
 // Sessions where ip is absent are skipped entirely.
+// It recursively walks the discovery directory to find hostfiles/ at any depth,
+// handling both standalone sessions and auto_discover sessions with nested subdirectories.
 // Per-session errors are discarded (best-effort); only invalid newCategory or
 // an unreadable discovery dir returns an error.
 func MoveHostInHostfiles(workspaceDir, ip, newCategory string) error {
@@ -40,26 +43,28 @@ func MoveHostInHostfiles(workspaceDir, ip, newCategory string) error {
 	}
 
 	discoveryDir := filepath.Join(workspaceDir, "discovery")
-	entries, err := os.ReadDir(discoveryDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("reading discovery dir: %w", err)
+	if _, err := os.Stat(discoveryDir); os.IsNotExist(err) {
+		return nil
 	}
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+	var firstErr error
+	err := filepath.WalkDir(discoveryDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
 		}
-		hostfilesDir := filepath.Join(discoveryDir, entry.Name(), "hostfiles")
-		if _, statErr := os.Stat(hostfilesDir); os.IsNotExist(statErr) {
-			continue
+		if !d.IsDir() || d.Name() != "hostfiles" {
+			return nil
 		}
-		// Best-effort per session.
-		_ = moveHostInSession(hostfilesDir, ip, targetFile, newCategory)
+		// Found a hostfiles/ directory — process it
+		if err := moveHostInSession(path, ip, targetFile, newCategory); err != nil && firstErr == nil {
+			firstErr = err
+		}
+		return fs.SkipDir // Don't recurse into hostfiles/
+	})
+	if err != nil {
+		return fmt.Errorf("walking discovery dir: %w", err)
 	}
-	return nil
+	return firstErr
 }
 
 // moveHostInSession handles a single hostfiles/ directory.

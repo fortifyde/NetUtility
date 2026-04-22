@@ -6,7 +6,6 @@ import (
 	"compress/gzip"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -116,7 +115,7 @@ func (c *Correlator) GenerateDistributionPackage() (string, error) {
 		for _, entries := range categoryEntries {
 			for _, e := range entries {
 				for _, ss := range e.ScreenshotFiles {
-					destName := sanitizeScreenshotFilename(ss.URL, e.IP)
+					destName := filepath.Base(ss.File)
 					destPath := filepath.Join(screenshotsDir, destName)
 					if err := copyFile(ss.File, destPath); err != nil {
 						// Best-effort: missing screenshots should not abort the package.
@@ -203,48 +202,11 @@ func buildHostEntry(ip string, corr *CorrelationResult) HostEntry {
 func formatScreenshotNotes(screenshots []ScreenshotInfo) string {
 	var blocks []string
 	for _, ss := range screenshots {
-		sanitizedName := sanitizeScreenshotFilename(ss.URL, ss.IP)
 		label := fmt.Sprintf("%s (%s)", ss.URL, ss.StatusCode)
-		block := fmt.Sprintf("> [!screenshot]- %s\n> ![[screenshots/%s]]", label, sanitizedName)
+		block := fmt.Sprintf("> [!screenshot]- %s\n> ![[screenshots/%s]]", label, filepath.Base(ss.File))
 		blocks = append(blocks, block)
 	}
 	return strings.Join(blocks, "<br>")
-}
-
-// sanitizeScreenshotFilename produces a predictable filename from a URL and IP.
-// Format: {ip}_{scheme}_{port}.png
-func sanitizeScreenshotFilename(rawURL, ip string) string {
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		// Fallback: sanitize the raw URL.
-		safe := strings.Map(sanitizeRune, rawURL)
-		return safe + ".png"
-	}
-
-	scheme := parsed.Scheme
-	if scheme == "" {
-		scheme = "http"
-	}
-
-	port := parsed.Port()
-	if port == "" {
-		switch scheme {
-		case "https":
-			port = "443"
-		default:
-			port = "80"
-		}
-	}
-
-	ipSafe := strings.ReplaceAll(ip, ".", "-")
-	return fmt.Sprintf("%s_%s_%s.png", ipSafe, scheme, port)
-}
-
-func sanitizeRune(r rune) rune {
-	if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
-		return r
-	}
-	return '_'
 }
 
 // writeMarkdownFile writes a markdown file with a table of host entries.
