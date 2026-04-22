@@ -296,36 +296,6 @@ validate_menu_choice() {
     validate_numeric_choice "$choice" 1 3 "menu option"
 }
 
-# Function to get valid IP address with CIDR (simplified to avoid stdin conflicts)
-get_ip_with_cidr() {
-    prompt="$1"
-    attempts=0
-    max_attempts=3
-
-    while [ $attempts -lt $max_attempts ]; do
-        echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%s%s%s\n" "$PROMPT_COLOR" "$prompt: " "$COLOR_RESET" >&2
-        else
-            printf "%s: \n" "$prompt" >&2
-        fi
-        read -r ip_input
-
-        if [ -n "$ip_input" ] && validate_ip_range "$ip_input"; then
-            echo "$ip_input"
-            return 0
-        fi
-        
-        attempts=$((attempts + 1))
-        if [ $attempts -lt $max_attempts ]; then
-            echo "Invalid IP address format. Please try again ($((max_attempts - attempts)) attempts remaining)..."
-        fi
-    done
-    
-    echo "Failed to get valid IP address after $max_attempts attempts"
-    return 1
-}
-
 # Function to run interactive mode
 run_interactive_mode() {
     echo "=== IP Address Configuration ==="
@@ -370,11 +340,8 @@ run_interactive_mode() {
 
         case "$choice" in
             1)
-                if ip_addr=$(get_ip_with_cidr "Enter IP address with CIDR (e.g., 192.168.1.100/24)"); then
-                    add_ip_address "$SELECTED_INTERFACE" "$ip_addr"
-                else
-                    warning_message "IP address input failed. Operation cancelled."
-                fi
+                ip_addr=$(prompt_for_cidr "Enter IP address with CIDR (e.g., 192.168.1.100/24)" "")
+                add_ip_address "$SELECTED_INTERFACE" "$ip_addr"
                 exit 0
                 ;;
             2)

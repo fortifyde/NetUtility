@@ -19,14 +19,14 @@ perform_ipv6_discovery_main() {
         echo "=== IPv6 Network Discovery ==="
         echo
         
-        echo "Available network interfaces:"
-        interface=$(select_interface)
-
-        if [ -z "$interface" ]; then
-            log_error "No interface selected" "$SCRIPT_NAME"
-            echo "No interface selected"
-            exit 1
-        fi
+        while true; do
+            echo "Available network interfaces:"
+            interface=$(select_interface)
+            if [ -n "$interface" ]; then
+                break
+            fi
+            echo "No interface selected. Please try again." >&2
+        done
         
         echo "Selected interface: $interface"
         

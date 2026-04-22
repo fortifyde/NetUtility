@@ -4,6 +4,7 @@
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/logging.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/validation.sh"
 
 echo "=== VLAN Extraction from Capture Files ==="
 echo
@@ -11,11 +12,13 @@ echo
 # Log script start
 log_script_start "extract_vlans.sh" "$@"
 
-capture_file=$(select_capture_file)
-if [ -z "$capture_file" ]; then
-    error_message "No capture file selected"
-    exit 1
-fi
+while true; do
+    capture_file=$(select_capture_file)
+    if [ -n "$capture_file" ]; then
+        break
+    fi
+    echo "No capture file selected. Please try again." >&2
+done
 
 success_message "Selected capture file: $capture_file"
 echo "Analyzing capture file: $capture_file"
@@ -73,12 +76,13 @@ if [ -s "$VLAN_FILE" ]; then
     
     echo >&2
     if confirm_action "Create VLAN subinterfaces?"; then
-        parent_interface=$(select_interface "Select parent interface for VLAN creation")
-        if [ -z "$parent_interface" ]; then
-            error_message "No interface selected"
-            log_error "No interface selected for VLAN creation"
-            exit 1
-        fi
+        while true; do
+            parent_interface=$(select_interface "Select parent interface for VLAN creation")
+            if [ -n "$parent_interface" ]; then
+                break
+            fi
+            echo "No interface selected. Please try again." >&2
+        done
         
         success_message "Selected parent interface: $parent_interface"
         log_info "Selected parent interface for VLAN creation: $parent_interface"

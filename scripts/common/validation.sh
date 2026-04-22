@@ -588,7 +588,7 @@ get_validated_input() {
         
         # Skip validation if no input and no default
         if [ -z "$user_input" ] && [ -z "$default_value" ]; then
-            echo "Input cannot be empty. Please try again."
+            echo "Input cannot be empty. Please try again." >&2
             continue
         fi
         
@@ -598,7 +598,7 @@ get_validated_input() {
                 echo "$user_input"
                 return 0
             else
-                echo "Invalid input. Please try again."
+                echo "Invalid input. Please try again." >&2
                 continue
             fi
         else
@@ -607,4 +607,67 @@ get_validated_input() {
             return 0
         fi
     done
+}
+
+# =============================================================================
+# CONVENIENCE PROMPT WRAPPERS
+# validate_domain_input — validates a domain name for use with get_validated_input.
+# Takes a single argument (the domain) and delegates to validate_safe_input.
+validate_domain_input() {
+	validate_safe_input "$1" '.-' 'domain'
+}
+# =============================================================================
+
+# Prompt with retry until a valid IPv4 address is entered.
+# Args: $1=prompt text, $2=default value (optional)
+# Outputs: validated IP to stdout
+prompt_for_ip() {
+    get_validated_input "$1" validate_ip_address "${2:-}"
+}
+
+# Prompt with retry until a valid CIDR notation is entered.
+# Args: $1=prompt text, $2=default value (optional)
+# Outputs: validated CIDR to stdout
+prompt_for_cidr() {
+    get_validated_input "$1" validate_ip_range "${2:-}"
+}
+
+# Prompt with retry until a valid duration (integer seconds) is entered.
+# Args: $1=prompt text, $2=min, $3=max, $4=default value (optional)
+# Outputs: validated integer to stdout
+prompt_for_duration() {
+    _pfd_min="${2:-1}"
+    _pfd_max="${3:-86400}"
+    get_validated_input "$1" "validate_duration_for_wrapper $_pfd_min $_pfd_max" "${4:-}"
+}
+
+# Internal: validate duration against caller-specified min and max.
+validate_duration_for_wrapper() {
+	_vdfw_min="$1"
+	_vdfw_max="$2"
+	shift 2
+	case "$1" in
+		''|*[!0-9]*) return 1 ;;
+	esac
+	if [ "$1" -lt "$_vdfw_min" ] || [ "$1" -gt "$_vdfw_max" ]; then
+		return 1
+	fi
+	return 0
+}
+
+# Prompt with retry until a valid numeric choice within range is entered.
+# Args: $1=prompt text, $2=min, $3=max, $4=default value (optional)
+# Outputs: validated choice number to stdout
+prompt_for_choice() {
+    _pfch_min="${2:-1}"
+    _pfch_max="${3:-1}"
+    get_validated_input "$1" "validate_numeric_choice_for_wrapper $_pfch_min $_pfch_max" "${4:-}"
+}
+
+# Internal: validate numeric choice with caller-specified range.
+validate_numeric_choice_for_wrapper() {
+    _vncw_min="$1"
+    _vncw_max="$2"
+    shift 2
+    validate_numeric_choice "$1" "$_vncw_min" "$_vncw_max"
 }

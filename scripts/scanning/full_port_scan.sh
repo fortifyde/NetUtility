@@ -9,6 +9,7 @@
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 . "$(dirname "$0")/../common/logging.sh"
+. "$(dirname "$0")/../common/validation.sh"
 SCRIPT_NAME="$(basename "$0")"
 
 echo "=========================================="
@@ -45,19 +46,12 @@ log_info "Target selected: $targets" "$SCRIPT_NAME"
 echo >&2
 
 # Scan intensity selection
-echo "Scan intensity:"
-echo "1. Quick scan (Top 1000 ports)"
-echo "2. Full scan (All 65535 ports)"
-echo "3. Custom port range"
+echo "Scan intensity:" >&2
+echo "1. Quick scan (Top 1000 ports)" >&2
+echo "2. Full scan (All 65535 ports)" >&2
+echo "3. Custom port range" >&2
 echo >&2
-
-echo >&2
-if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%sSelect scan intensity (1-3): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-else
-    printf "Select scan intensity (1-3): \n" >&2
-fi
-read -r intensity
+intensity=$(prompt_for_choice "Select scan intensity" 1 3)
 
 case $intensity in
     1)
@@ -69,18 +63,7 @@ case $intensity in
         scan_type="full"
         ;;
     3)
-        echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sEnter port range (e.g., 1-1000 or 80,443,8080): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-        else
-            printf "Enter port range (e.g., 1-1000 or 80,443,8080): \n" >&2
-        fi
-        read -r custom_ports
-        if [ -z "$custom_ports" ]; then
-            log_error "No custom port range specified" "$SCRIPT_NAME"
-            error_message "No port range specified"
-            exit 1
-        fi
+        custom_ports=$(get_validated_input "Enter port range (e.g., 1-1000 or 80,443,8080)" validate_port_range "")
         ports="-p $custom_ports"
         scan_type="custom"
         ;;

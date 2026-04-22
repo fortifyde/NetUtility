@@ -4,6 +4,7 @@
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 . "$(dirname "$0")/../common/logging.sh"
+. "$(dirname "$0")/../common/validation.sh"
 SCRIPT_NAME="$(basename "$0")"
 
 echo "=== VLAN Interface Management ==="
@@ -32,38 +33,13 @@ echo "4. List VLAN interfaces" >&2
 echo "5. Exit" >&2
 
 echo >&2
-if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%sSelect option (1-5): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-else
-    printf "Select option (1-5): \n" >&2
-fi
-read -r option
+option=$(prompt_for_choice "Select option (1-5)" 1 5)
 log_info "VLAN operation selected: option $option" "$SCRIPT_NAME"
 
 case $option in
     1)
         echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sEnter VLAN ID (1-4094): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-        else
-            printf "Enter VLAN ID (1-4094): \n" >&2
-        fi
-        read -r vlan_id
-        case "$vlan_id" in
-            *[!0-9]*|'')
-                error_message "Invalid VLAN ID. Must be between 1-4094"
-                log_error "Invalid VLAN ID: $vlan_id" "$SCRIPT_NAME"
-                exit 1
-                ;;
-            *)
-                if [ "$vlan_id" -lt 1 ] || [ "$vlan_id" -gt 4094 ]; then
-                    error_message "Invalid VLAN ID. Must be between 1-4094"
-                    log_error "Invalid VLAN ID: $vlan_id" "$SCRIPT_NAME"
-                    exit 1
-                fi
-                ;;
-        esac
-        
+        vlan_id=$(get_validated_input "Enter VLAN ID (1-4094)" validate_vlan_id "")
         vlan_interface="${parent_interface}.${vlan_id}"
         
         if ip link show "$vlan_interface" >/dev/null 2>&1; then
@@ -79,25 +55,10 @@ case $option in
         log_info "VLAN interface created: $vlan_interface (parent: $parent_interface, VLAN ID: $vlan_id)" "$SCRIPT_NAME"
         
         if confirm_action "Configure IP address for $vlan_interface?"; then
-            echo >&2
-            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-                printf "%sEnter IP address with CIDR (e.g., 192.168.100.1/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-            else
-                printf "Enter IP address with CIDR (e.g., 192.168.100.1/24): \n" >&2
-            fi
-            read -r ip_addr
-            case "$ip_addr" in
-                [0-9]*.[0-9]*.[0-9]*.[0-9]*/[0-9]*)
-                    # Basic IP/CIDR validation
-                    ;;
-                *)
-                    error_message "Invalid IP address format"
-                    exit 1
-                    ;;
-            esac
-                ip addr add "$ip_addr" dev "$vlan_interface"
-                success_message "IP address $ip_addr assigned to $vlan_interface"
-                log_info "IP assigned: $ip_addr -> $vlan_interface" "$SCRIPT_NAME"
+            ip_addr=$(get_validated_input "Enter IP address with CIDR (e.g., 192.168.100.1/24)" validate_ip_range "")
+            ip addr add "$ip_addr" dev "$vlan_interface"
+            success_message "IP address $ip_addr assigned to $vlan_interface"
+            log_info "IP assigned: $ip_addr -> $vlan_interface" "$SCRIPT_NAME"
         fi
         
         echo "VLAN interface details:" >&2
@@ -134,14 +95,13 @@ case $option in
                     exit 1
                     ;;
             esac
-            
             if [ "$range_start" -lt 1 ] || [ "$range_start" -gt 4094 ] || \
                [ "$range_end" -lt 1 ] || [ "$range_end" -gt 4094 ] || \
                [ "$range_start" -gt "$range_end" ]; then
                 error_message "Invalid VLAN range. Must be between 1-4094 and start <= end"
                 exit 1
             fi
-            
+
             # Generate VLAN list from range
             i="$range_start"
             while [ "$i" -le "$range_end" ]; do
@@ -152,7 +112,7 @@ case $option in
             # Handle comma or space separated input
             vlan_list=$(echo "$vlan_input" | tr ',' ' ')
         fi
-        
+
         # Validate each VLAN ID and check for duplicates
         validated_vlans=""
         for vlan_id in $vlan_list; do
@@ -192,12 +152,7 @@ case $option in
         echo "2. Skip IP configuration" >&2
         
         echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sSelect IP configuration mode (1-2): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-        else
-            printf "Select IP configuration mode (1-2): \n" >&2
-        fi
-        read -r ip_mode
+        ip_mode=$(prompt_for_choice "Select IP configuration mode (1-2)" 1 2)
         
         successful_vlans=""
         failed_vlans=""
@@ -322,54 +277,30 @@ case $option in
         echo "4. Return to main menu" >&2
         
         echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sSelect removal option (1-4): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-        else
-            printf "Select removal option (1-4): \n" >&2
-        fi
-        read -r removal_option
+        removal_option=$(prompt_for_choice "Select removal option (1-4)" 1 4)
         
         case $removal_option in
             1)
                 # Original single VLAN removal (backward compatible)
                 echo >&2
-                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-                    printf "%sSelect VLAN interface to remove (1-%s): %s\n" "$PROMPT_COLOR" "$max_vlan_num" "$COLOR_RESET" >&2
+                vlan_num=$(prompt_for_choice "Select VLAN interface to remove (1-$max_vlan_num)" 1 "$max_vlan_num")
+
+                # Find the selected interface
+                vlan_interface=""
+                while IFS=':' read -r num interface; do
+                    if [ "$num" = "$vlan_num" ]; then
+                        vlan_interface="$interface"
+                        break
+                    fi
+                done < /tmp/netutil_vlan_interfaces.$$
+
+                if [ -n "$vlan_interface" ]; then
+                    ip link delete "$vlan_interface" 2>/dev/null
+                    success_message "VLAN interface $vlan_interface removed"
+                    log_info "VLAN interface removed: $vlan_interface" "$SCRIPT_NAME"
                 else
-                    printf "Select VLAN interface to remove (1-%s): \n" "$max_vlan_num" >&2
+                    error_message "Interface not found"
                 fi
-                read -r vlan_num
-                
-                case "$vlan_num" in
-                    *[!0-9]*|'')
-                        error_message "Invalid selection"
-                        rm -f /tmp/netutil_vlan_interfaces.$$
-                        exit 1
-                        ;;
-                    *)
-                        if [ "$vlan_num" -ge 1 ] && [ "$vlan_num" -le "$max_vlan_num" ]; then
-                            # Find the selected interface
-                            while IFS=':' read -r num interface; do
-                                if [ "$num" = "$vlan_num" ]; then
-                                    vlan_interface="$interface"
-                                    break
-                                fi
-                            done < /tmp/netutil_vlan_interfaces.$$
-                            
-                            if [ -n "$vlan_interface" ]; then
-                                ip link delete "$vlan_interface" 2>/dev/null
-                                success_message "VLAN interface $vlan_interface removed"
-                                log_info "VLAN interface removed: $vlan_interface" "$SCRIPT_NAME"
-                            else
-                                error_message "Interface not found"
-                            fi
-                        else
-                            error_message "Invalid selection"
-                            rm -f /tmp/netutil_vlan_interfaces.$$
-                            exit 1
-                        fi
-                        ;;
-                esac
                 ;;
             2)
                 # Multiple VLAN removal
@@ -393,26 +324,22 @@ case $option in
                     case "$range_start" in
                         *[!0-9]*|'')
                             error_message "Invalid range start: $range_start"
-                            rm -f /tmp/netutil_vlan_interfaces.$$
                             exit 1
                             ;;
                     esac
                     case "$range_end" in
                         *[!0-9]*|'')
                             error_message "Invalid range end: $range_end"
-                            rm -f /tmp/netutil_vlan_interfaces.$$
                             exit 1
                             ;;
                     esac
-                    
                     if [ "$range_start" -lt 1 ] || [ "$range_start" -gt 4094 ] || \
                        [ "$range_end" -lt 1 ] || [ "$range_end" -gt 4094 ] || \
                        [ "$range_start" -gt "$range_end" ]; then
                         error_message "Invalid VLAN range. Must be between 1-4094 and start <= end"
-                        rm -f /tmp/netutil_vlan_interfaces.$$
                         exit 1
                     fi
-                    
+
                     # Generate VLAN list from range
                     i="$range_start"
                     while [ "$i" -le "$range_end" ]; do
@@ -569,6 +496,5 @@ case $option in
         ;;
     *)
         error_message "Invalid option"
-        exit 1
         ;;
 esac

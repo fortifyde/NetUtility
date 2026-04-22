@@ -4,6 +4,7 @@
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 . "$(dirname "$0")/../common/logging.sh"
+. "$(dirname "$0")/../common/validation.sh"
 SCRIPT_NAME="$(basename "$0")"
 
 echo "=== Network Interface Management ==="
@@ -24,12 +25,7 @@ echo "5. Show interface statistics" >&2
 echo "6. Exit" >&2
 
 echo >&2
-if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%sSelect action (1-6): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-else
-    printf "Select action (1-6): \n" >&2
-fi
-read -r action
+action=$(prompt_for_choice "Select action" 1 6)
 log_info "Interface action selected: $action" "$SCRIPT_NAME"
 
 case $action in
@@ -148,9 +144,8 @@ case $action in
         exit 0
         ;;
     *)
-        log_error "Invalid action selected: $action" "$SCRIPT_NAME"
+        log_error "Unexpected action: $action" "$SCRIPT_NAME"
         error_message "Invalid action selected"
-        exit 1
         ;;
 esac
 

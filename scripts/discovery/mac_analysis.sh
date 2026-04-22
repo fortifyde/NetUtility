@@ -5,6 +5,7 @@
 
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/logging.sh"
+. "$(dirname "$0")/../common/validation.sh"
 SCRIPT_NAME="$(basename "$0")"
 
 echo "=== MAC Address Intelligence Analysis ==="
@@ -143,13 +144,13 @@ ls -la "$CAPTURE_DIR"/*.pcap 2>/dev/null || {
 }
 
 echo
-capture_file=$(select_file "$CAPTURE_DIR" "*.pcap" "Select capture file for MAC analysis:")
-
-if [ ! -f "$capture_file" ]; then
-    echo "Error: Capture file not found"
-    log_error "Selected capture file not found: $capture_file" "$SCRIPT_NAME"
-    exit 1
-fi
+while true; do
+    capture_file=$(select_file "$CAPTURE_DIR" "*.pcap" "Select capture file for MAC analysis:")
+    if [ -f "$capture_file" ]; then
+        break
+    fi
+    echo "Selected file not found. Please try again." >&2
+done
 
 # OUI database is now always available offline
 # Use 'netutil update-oui' to update the database when needed

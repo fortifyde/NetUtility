@@ -10,6 +10,10 @@
 . "$(dirname "$0")/../common/logging.sh"
 # shellcheck source=../common/colors.sh
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+# shellcheck source=../common/validation.sh
+. "$(dirname "$0")/../common/validation.sh" 2>/dev/null || true
+# shellcheck source=../common/progress.sh
+. "$(dirname "$0")/../common/progress.sh" 2>/dev/null || true
 
 # Disable SC3059: Case modification (${var^^}) is a bashism but works in sh on modern systems
 # Disable SC2126: grep|wc is clearer than grep -c in context
@@ -45,6 +49,8 @@ trap 'rm -rf "$TEMP_DIR"' EXIT
 
 # Create reports session directory
 mkdir -p "$REPORT_SESSION_DIR"
+# Enable clean Ctrl+C handling during long-running discovery operations
+setup_cancellation
 
 # Convert dotted-decimal IP to a 32-bit integer
 ip_to_int() {
@@ -1434,15 +1440,18 @@ if [ "$discovery_mode" = "l3" ]; then
         printf "  %-30s %s\n" "$_lbl" "$_net" >&2
     done < "$VLAN_NETWORKS_FILE"
 
+    # Gate: verify and correct network ranges before scan
+    review_and_confirm_networks "$VLAN_NETWORKS_FILE"
+
     # Create session discovery directory for L3
     DISCOVERY_DIR="$WORKDIR/discovery"
-    SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery_${TIMESTAMP}"
-    mkdir -p "$SESSION_DISCOVERY_DIR"
+    SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery"
+    ensure_clean_session_dir "$SESSION_DISCOVERY_DIR"
 
     SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
     {
         echo "=== Auto-Discovery L3 Session Metadata ==="
-        echo "Session ID: auto_discovery_${TIMESTAMP}"
+        echo "Session ID: auto_discovery"
         echo "Started: $(date)"
         echo "Mode: L3 Routed"
         echo "Interface: $target_interface"
@@ -1537,7 +1546,7 @@ create_session_consolidation_reports() {
         echo "    AUTO-DISCOVERY SESSION CONSOLIDATED REPORT"
         echo "==============================================="
         echo "Generated: $(date)"
-        echo "Session: auto_discovery_${TIMESTAMP}"
+        echo "Session: auto_discovery"
         echo ""
         
         # Session overview
@@ -1616,7 +1625,7 @@ create_session_consolidation_reports() {
     {
         echo "=== SESSION-LEVEL TEAM COORDINATION ==="
         echo "Generated: $(date)"
-        echo "Session: auto_discovery_${TIMESTAMP}"
+        echo "Session: auto_discovery"
         echo ""
         echo "This file consolidates team assignments across all VLANs/networks"
         echo "in this auto-discovery session for coordinated assessment planning."
@@ -1694,6 +1703,84 @@ echo "  Consolidated report: $CONSOLIDATED_REPORT" >&2
 echo "  Team coordination: $SESSION_TEAM_HANDOFF_DIR/SESSION_TEAM_COORDINATION.txt" >&2
 }
 
+# ensure_clean_session_dir — offer to remove or reuse an existing session directory,
+# then create it. Args: $1=directory path
+ensure_clean_session_dir() {
+    if [ -d "$1" ] && [ -f "$1/session_metadata.txt" ]; then
+        echo "Found existing auto-discovery session: $1" >&2
+        if confirm_action "Remove existing session and start fresh?"; then
+            echo "Removing existing session..." >&2
+            rm -rf "$1"
+        else
+            echo "Reusing existing session directory." >&2
+        fi
+    fi
+    mkdir -p "$1"
+}
+
+# review_and_confirm_networks — interactive pre-scan review of collected network ranges.
+# Args: $1=path to networks file ("id network" per line)
+# Lets the user correct any entry before discovery begins; calls exit 0 on cancel.
+review_and_confirm_networks() {
+    _rcn_file="$1"
+    while true; do
+        echo "" >&2
+        echo "=== Pre-Discovery Network Review ===" >&2
+        if [ ! -s "$_rcn_file" ]; then
+            echo "  No networks configured for discovery." >&2
+            if ! confirm_action "Proceed anyway (no networks will be scanned)?"; then
+                echo "Discovery cancelled by user." >&2
+                echo "Status: CANCELLED" >> "$WORKFLOW_REPORT"
+                exit 0
+            fi
+            return 0
+        fi
+        echo "  The following networks are scheduled for discovery:" >&2
+        echo "" >&2
+        _rcn_idx=1
+        while IFS=' ' read -r _rcn_id _rcn_net; do
+            [ -n "$_rcn_id" ] || continue
+            printf "  %3d)  %-24s  %s\n" "$_rcn_idx" "$_rcn_id" "$_rcn_net" >&2
+            _rcn_idx=$((_rcn_idx + 1))
+        done < "$_rcn_file"
+        _rcn_total=$((_rcn_idx - 1))
+        echo "" >&2
+        echo "  p) Proceed with discovery" >&2
+        echo "  r) Reconfigure a network range" >&2
+        echo "  x) Cancel" >&2
+        echo "" >&2
+        _rcn_choice=$(get_validated_input "Choice [p/r/x]" "" "p")
+        case "$_rcn_choice" in
+            p|P)
+                return 0
+                ;;
+            r|R)
+                _rcn_sel=$(prompt_for_choice "Select entry to reconfigure (1-$_rcn_total)" 1 "$_rcn_total")
+                _rcn_line=$(awk "NR==$_rcn_sel" "$_rcn_file")
+                _rcn_vid=$(echo "$_rcn_line" | awk '{print $1}')
+                _rcn_cur=$(echo "$_rcn_line" | awk '{print $2}')
+                echo "" >&2
+                echo "  Network: $_rcn_vid" >&2
+                echo "  Current: $_rcn_cur" >&2
+                _rcn_new=$(prompt_for_cidr "New CIDR for $_rcn_vid" "$_rcn_cur")
+                _rcn_tmp=$(mktemp)
+                awk -v n="$_rcn_sel" -v vid="$_rcn_vid" -v net="$_rcn_new" \
+                    'NR==n { print vid " " net; next } { print }' "$_rcn_file" > "$_rcn_tmp"
+                mv "$_rcn_tmp" "$_rcn_file"
+                echo "  ✓ Updated: $_rcn_vid -> $_rcn_new" >&2
+                ;;
+            x|X|q|Q)
+                echo "Discovery cancelled by user." >&2
+                echo "Status: CANCELLED" >> "$WORKFLOW_REPORT"
+                exit 0
+                ;;
+            *)
+                echo "  Enter p to proceed, r to reconfigure, or x to cancel." >&2
+                ;;
+        esac
+    done
+}
+
 # Stage 4: Network Discovery
 if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
     printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4/5: NETWORK DISCOVERY — Multi-phase scan execution" "$COLOR_RESET"
@@ -1719,14 +1806,14 @@ if [ -x "$discovery_script" ]; then
         # Create session-based discovery structure with VLAN organization
         if [ -z "$SESSION_DISCOVERY_DIR" ]; then
             DISCOVERY_DIR="$WORKDIR/discovery"
-            SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery_${TIMESTAMP}"
-            mkdir -p "$SESSION_DISCOVERY_DIR"
+            SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery"
+            ensure_clean_session_dir "$SESSION_DISCOVERY_DIR"
 
             # Create session metadata (L2 mode — L3 metadata was written during network collection)
             SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
             {
                 echo "=== Auto-Discovery Session Metadata ==="
-                echo "Session ID: auto_discovery_${TIMESTAMP}"
+                echo "Session ID: auto_discovery"
                 echo "Started: $(date)"
                 echo "Interface: $target_interface"
                 echo "VLANs discovered: $selected_vlan_count"
@@ -1896,6 +1983,9 @@ if [ -x "$discovery_script" ]; then
 
         fi  # end L2 Stage 4a
 
+        # Gate: verify and correct collected VLAN network ranges before scan
+        review_and_confirm_networks "$VLAN_NETWORKS_FILE"
+
         # Stage 4b: Network Discovery Execution
         # Execute discoveries using pre-collected network ranges
         # In L3 mode Stage 4a is skipped; derive vlan_network_count from the already-populated file
@@ -1913,6 +2003,30 @@ if [ -x "$discovery_script" ]; then
             echo "Running network discovery on configured VLANs..." >&2
             echo >&2
         fi
+
+        # Pre-flight: resolve resume/fresh decisions before background launch.
+        # Subprocess output is fully captured, so interactive prompts must happen here.
+        # Leaving .phase_progress in place signals resume; deleting it signals fresh start.
+        while IFS=' ' read -r _pf_id _; do
+            [ -n "$_pf_id" ] || continue
+            if [ "$discovery_mode" = "l3" ]; then
+                _pf_dir="$SESSION_DISCOVERY_DIR/$_pf_id"
+            else
+                _pf_dir="$SESSION_DISCOVERY_DIR/vlan_$_pf_id"
+            fi
+            if [ -f "$_pf_dir/.phase_progress" ]; then
+                _pf_done=$(tr '\n' ' ' < "$_pf_dir/.phase_progress" | sed 's/phase//g; s/  */ /g; s/^ //; s/ $//')
+                echo "" >&2
+                echo "  Incomplete session found for $_pf_id:" >&2
+                echo "  Phases completed: $_pf_done" >&2
+                if confirm_action "  Resume $_pf_id from last completed phase?"; then
+                    echo "  Will resume $_pf_id." >&2
+                else
+                    rm -f "$_pf_dir/.phase_progress"
+                    echo "  Will restart $_pf_id from the beginning." >&2
+                fi
+            fi
+        done < "$VLAN_NETWORKS_FILE"
 
         # Concurrency cap: how many VLANs to scan simultaneously.
         echo >&2
@@ -2266,7 +2380,8 @@ if [ -x "$discovery_script" ]; then
         
         # Create session-based discovery structure for main network
         DISCOVERY_DIR="$WORKDIR/discovery"
-        SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery_${TIMESTAMP}"
+        SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery"
+        ensure_clean_session_dir "$SESSION_DISCOVERY_DIR"
         MAIN_NETWORK_DIR="$SESSION_DISCOVERY_DIR/main_network"
         mkdir -p "$MAIN_NETWORK_DIR/meta"
 
@@ -2274,7 +2389,7 @@ if [ -x "$discovery_script" ]; then
         SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
         {
             echo "=== Auto-Discovery Session Metadata ==="
-            echo "Session ID: auto_discovery_${TIMESTAMP}"
+            echo "Session ID: auto_discovery"
             echo "Started: $(date)"
             echo "Interface: $target_interface"
             echo "Discovery Mode: Standard (main network)"
@@ -2410,8 +2525,8 @@ echo "Capture size: $(du -h "$capture_file" | cut -f1)" >> "$WORKFLOW_REPORT"
 
 if [ "$interfaces_configured" -gt 0 ]; then
     echo "VLAN-specific discovery directories created:" >> "$WORKFLOW_REPORT"
-    find "$DISCOVERY_DIR" -name "${SESSION_NAME}_vlan_*" -type d 2>/dev/null | while read -r vlan_dir; do
-        vlan_name=$(basename "$vlan_dir" | sed "s/${SESSION_NAME}_//")
+    find "$SESSION_DISCOVERY_DIR" -maxdepth 1 -name "vlan_*" -type d 2>/dev/null | while read -r vlan_dir; do
+        vlan_name=$(basename "$vlan_dir")
         echo "  - $vlan_name" >> "$WORKFLOW_REPORT"
     done
 fi
@@ -2460,9 +2575,9 @@ echo "    ├── 📦 captures/ (packet captures)"
 echo "    │   └── auto_discover_capture_${TIMESTAMP}.pcap"
 echo "    ├── 🔍 discovery/ (network discovery results)"
 if [ "$interfaces_configured" -gt 0 ]; then
-    find "$DISCOVERY_DIR" -name "${SESSION_NAME}_vlan_*" -type d 2>/dev/null | while read -r vlan_dir; do
-        vlan_name=$(basename "$vlan_dir" | sed "s/${SESSION_NAME}_//")
-        echo "    │   └── ${SESSION_NAME}_$vlan_name/"
+    find "$SESSION_DISCOVERY_DIR" -maxdepth 1 -name "vlan_*" -type d 2>/dev/null | while read -r vlan_dir; do
+        vlan_name=$(basename "$vlan_dir")
+        echo "    │   └── $vlan_name/"
     done
 fi
 echo "    └── 🔗 latest/ (symlinks to most recent results)"

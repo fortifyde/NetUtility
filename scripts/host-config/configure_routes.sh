@@ -4,6 +4,7 @@
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 . "$(dirname "$0")/../common/logging.sh"
+. "$(dirname "$0")/../common/validation.sh"
 SCRIPT_NAME="$(basename "$0")"
 
 echo "=== IP Route Configuration ===" >&2
@@ -23,31 +24,16 @@ echo "5. Show route to specific destination" >&2
 echo "6. Exit" >&2
 
 echo >&2
-if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%sSelect option (1-6): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-else
-    printf "Select option (1-6): \n" >&2
-fi
-read -r option
+option=$(prompt_for_choice "Select option (1-6)" 1 6)
 log_info "Route option selected: $option" "$SCRIPT_NAME"
 
 case $option in
     1)
         echo "Adding a new route:" >&2
         echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sEnter destination network (e.g., 192.168.2.0/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-        else
-            printf "Enter destination network (e.g., 192.168.2.0/24): \n" >&2
-        fi
-        read -r dest_network
-        echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sEnter gateway IP: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-        else
-            printf "Enter gateway IP: \n" >&2
-        fi
-        read -r gateway
+        dest_network=$(prompt_for_cidr "Enter destination network (e.g., 192.168.2.0/24)" "")
+
+        gateway=$(prompt_for_ip "Enter gateway IP" "")
 
         # Initialize interface as empty
         interface=""
@@ -61,18 +47,6 @@ case $option in
                 printf "Enter interface: \n" >&2
             fi
             read -r interface
-        fi
-
-        if ! echo "$dest_network" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
-            log_error "Failed to add route: Invalid network format" "$SCRIPT_NAME"
-            echo "Error: Invalid network format" >&2
-            exit 1
-        fi
-
-        if ! echo "$gateway" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
-            log_error "Failed to add route: Invalid gateway IP format" "$SCRIPT_NAME"
-            echo "Error: Invalid gateway IP format" >&2
-            exit 1
         fi
 
         if [ -n "$interface" ]; then
@@ -95,18 +69,7 @@ case $option in
     2)
         echo "Deleting a route:" >&2
         echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sEnter destination network to delete (e.g., 192.168.2.0/24): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-        else
-            printf "Enter destination network to delete (e.g., 192.168.2.0/24): \n" >&2
-        fi
-        read -r dest_network
-
-        if ! echo "$dest_network" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$' >/dev/null; then
-            log_error "Failed to delete route: Invalid network format" "$SCRIPT_NAME"
-            echo "Error: Invalid network format" >&2
-            exit 1
-        fi
+        dest_network=$(prompt_for_cidr "Enter destination network to delete (e.g., 192.168.2.0/24)" "")
 
         if ip route show "$dest_network" >/dev/null 2>&1; then
             log_debug "Deleting route: ip route del $dest_network" "$SCRIPT_NAME"
@@ -132,18 +95,7 @@ case $option in
         fi
         echo >&2
 
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sEnter gateway IP: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-        else
-            printf "Enter gateway IP: \n" >&2
-        fi
-        read -r gateway
-
-        if ! echo "$gateway" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
-            log_error "Failed to set default gateway: Invalid gateway IP format" "$SCRIPT_NAME"
-            echo "Error: Invalid gateway IP format" >&2
-            exit 1
-        fi
+        gateway=$(prompt_for_ip "Enter gateway IP" "")
 
         # Initialize interface as empty
         interface=""
@@ -183,18 +135,7 @@ case $option in
         ip route show cache 2>/dev/null || echo "No cached routes"
         ;;
     5)
-        echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sEnter destination IP: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-        else
-            printf "Enter destination IP: \n" >&2
-        fi
-        read -r dest_ip
-        if ! echo "$dest_ip" | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' >/dev/null; then
-            log_error "Failed to show route: Invalid IP format" "$SCRIPT_NAME"
-            echo "Error: Invalid IP format" >&2
-            exit 1
-        fi
+        dest_ip=$(prompt_for_ip "Enter destination IP" "")
 
         echo "Route to $dest_ip:"
         ip route get "$dest_ip"

@@ -161,9 +161,9 @@ func TestMoveHostInHostfiles_UnknownCategory(t *testing.T) {
 }
 
 // makeNestedSession creates a hostfiles directory at an arbitrary depth under discoveryDir.
-// e.g. makeNestedSession(t, dir, "auto_discovery_20260422/vlan_10") creates
+// e.g. makeNestedSession(t, dir, "auto_discovery/vlan_10") creates
 //
-//	<dir>/discovery/auto_discovery_20260422/vlan_10/hostfiles/
+//	<dir>/discovery/auto_discovery/vlan_10/hostfiles/
 func makeNestedSession(t *testing.T, discoveryDir, subpath string, files map[string]string) string {
 	t.Helper()
 	hostfilesDir := filepath.Join(discoveryDir, subpath, "hostfiles")
@@ -183,12 +183,12 @@ func TestMoveHostInHostfiles_NestedAutoDiscover(t *testing.T) {
 	discoveryDir := filepath.Join(ws, "discovery")
 
 	// Create a nested auto_discover session with hostfiles two levels deep
-	makeNestedSession(t, discoveryDir, "auto_discovery_20260422/vlan_10", map[string]string{
+	makeNestedSession(t, discoveryDir, "auto_discovery/vlan_10", map[string]string{
 		"windows_hosts.txt": "10.0.0.1\n10.0.0.2\n",
 	})
 
 	// Also create a standalone session at the top level
-	makeSession(t, discoveryDir, "main_network_20260422", map[string]string{
+	makeSession(t, discoveryDir, "main_network", map[string]string{
 		"linux_hosts.txt": "10.0.0.3\n",
 	})
 
@@ -197,7 +197,7 @@ func TestMoveHostInHostfiles_NestedAutoDiscover(t *testing.T) {
 	}
 
 	// Verify 10.0.0.1 was moved in the nested session
-	nestedHF := filepath.Join(discoveryDir, "auto_discovery_20260422", "vlan_10", "hostfiles")
+	nestedHF := filepath.Join(discoveryDir, "auto_discovery", "vlan_10", "hostfiles")
 	win := readFile(t, filepath.Join(nestedHF, "windows_hosts.txt"))
 	if strings.Contains(win, "10.0.0.1") {
 		t.Errorf("10.0.0.1 still in nested windows_hosts.txt:\n%s", win)
@@ -208,7 +208,7 @@ func TestMoveHostInHostfiles_NestedAutoDiscover(t *testing.T) {
 	}
 
 	// Verify standalone session was NOT touched (10.0.0.1 was not in it)
-	standaloneHF := filepath.Join(discoveryDir, "main_network_20260422", "hostfiles")
+	standaloneHF := filepath.Join(discoveryDir, "main_network", "hostfiles")
 	standaloneLin := readFile(t, filepath.Join(standaloneHF, "linux_hosts.txt"))
 	if strings.Contains(standaloneLin, "10.0.0.1") {
 		t.Errorf("10.0.0.1 incorrectly added to standalone linux_hosts.txt:\n%s", standaloneLin)
@@ -220,7 +220,7 @@ func TestMoveHostInHostfiles_L3BareIDDir(t *testing.T) {
 	discoveryDir := filepath.Join(ws, "discovery")
 
 	// L3 mode auto_discover with bare numeric directory
-	makeNestedSession(t, discoveryDir, "auto_discovery_20260422/42", map[string]string{
+	makeNestedSession(t, discoveryDir, "auto_discovery/42", map[string]string{
 		"unknown.txt": "10.0.0.50\n10.0.0.51\n",
 	})
 
@@ -228,7 +228,7 @@ func TestMoveHostInHostfiles_L3BareIDDir(t *testing.T) {
 		t.Fatalf("MoveHostInHostfiles: %v", err)
 	}
 
-	nestedHF := filepath.Join(discoveryDir, "auto_discovery_20260422", "42", "hostfiles")
+	nestedHF := filepath.Join(discoveryDir, "auto_discovery", "42", "hostfiles")
 	unknown := readFile(t, filepath.Join(nestedHF, "unknown.txt"))
 	if strings.Contains(unknown, "10.0.0.50") {
 		t.Errorf("10.0.0.50 still in unknown.txt:\n%s", unknown)

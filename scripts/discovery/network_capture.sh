@@ -4,6 +4,9 @@
 . "$(dirname "$0")/../common/utils.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
 . "$(dirname "$0")/../common/logging.sh" 2>/dev/null || true
+. "$(dirname "$0")/../common/validation.sh"
+# shellcheck source=../common/progress.sh
+. "$(dirname "$0")/../common/progress.sh" 2>/dev/null || true
 SCRIPT_NAME="$(basename "$0")"
 
 echo "=== Network Packet Capture ==="
@@ -84,12 +87,10 @@ echo "5. Custom duration"
 echo "6. Manual stop (Ctrl+C)"
 
 echo >&2
-if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%sSelect option (1-6): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-else
-    printf "Select option (1-6): \n" >&2
-fi
-read -r option
+option=$(prompt_for_choice "Select option" 1 6)
+
+# Enable clean Ctrl+C handling during capture
+setup_cancellation
 
 case $option in
     1)
@@ -109,20 +110,7 @@ case $option in
         duration_text="1 hour"
         ;;
     5)
-        echo >&2
-        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sEnter duration in seconds: %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-        else
-            printf "Enter duration in seconds: \n" >&2
-        fi
-        read -r duration
-        case "$duration" in
-            *[!0-9]*|'')
-                error_message "Invalid duration"
-                log_error "Invalid capture duration entered" "$SCRIPT_NAME"
-                exit 1
-                ;;
-        esac
+        duration=$(prompt_for_duration "Enter duration in seconds" 1 86400 "")
         duration_text="$duration seconds"
         ;;
     6)

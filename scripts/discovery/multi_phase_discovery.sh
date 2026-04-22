@@ -10,6 +10,8 @@
 . "$(dirname "$0")/../common/utils.sh" 2>/dev/null || true
 . "$(dirname "$0")/../common/logging.sh"
 . "$(dirname "$0")/../common/colors.sh" 2>/dev/null || true
+# shellcheck source=../common/progress.sh
+. "$(dirname "$0")/../common/progress.sh" 2>/dev/null || true
 . "$(dirname "$0")/ph7_registry.sh"
 . "$(dirname "$0")/ph7_classify_lib.sh"
 
@@ -406,7 +408,7 @@ if [ "$AUTO_DISCOVERY_SESSION" = "true" ]; then
         log_info "Multiphase discovery running in auto-discovery VLAN context: $AUTO_DISCOVERY_VLAN_ID"
     else
         # Fallback to standard behavior
-        SESSION_ROOT_DIR="$DISCOVERY_DIR/discovery_${TIMESTAMP}"
+        SESSION_ROOT_DIR="$DISCOVERY_DIR/discovery"
         SESSION_DIR="$SESSION_ROOT_DIR"
         mkdir -p "$SESSION_DIR"
     fi
@@ -414,15 +416,45 @@ else
     # Standalone multiphase discovery — session dir sits directly under discovery/
     if [ "${ROUTED_VLAN_MODE:-false}" = "true" ]; then
         _ronly_san=$(echo "$network_range" | sed 's|[./]|_|g')
-        SESSION_DIR="$DISCOVERY_DIR/routed_${_ronly_san}_${TIMESTAMP}"
+        SESSION_DIR="$DISCOVERY_DIR/routed_${_ronly_san}"
+        # Handle existing session
+        if [ -d "$SESSION_DIR" ]; then
+            echo "Found existing discovery session: $SESSION_DIR" >&2
+            if confirm_action "Remove existing session and start fresh?"; then
+                echo "Removing existing session..." >&2
+                rm -rf "$SESSION_DIR"
+            else
+                echo "Reusing existing session directory." >&2
+            fi
+        fi
         echo "Standalone routed discovery mode: $network_range"
         log_info "Multiphase discovery running in standalone routed mode: $network_range"
     elif [ "$IS_VLAN_INTERFACE" = "true" ]; then
-        SESSION_DIR="$DISCOVERY_DIR/vlan${DETECTED_VLAN_ID}_${TIMESTAMP}"
+        SESSION_DIR="$DISCOVERY_DIR/vlan${DETECTED_VLAN_ID}"
+        # Handle existing session
+        if [ -d "$SESSION_DIR" ]; then
+            echo "Found existing discovery session: $SESSION_DIR" >&2
+            if confirm_action "Remove existing session and start fresh?"; then
+                echo "Removing existing session..." >&2
+                rm -rf "$SESSION_DIR"
+            else
+                echo "Reusing existing session directory." >&2
+            fi
+        fi
         echo "Standalone discovery mode: VLAN $DETECTED_VLAN_ID"
         log_info "Multiphase discovery running in standalone VLAN mode: VLAN $DETECTED_VLAN_ID"
     else
-        SESSION_DIR="$DISCOVERY_DIR/main_network_${TIMESTAMP}"
+        SESSION_DIR="$DISCOVERY_DIR/main_network"
+        # Handle existing session
+        if [ -d "$SESSION_DIR" ]; then
+            echo "Found existing discovery session: $SESSION_DIR" >&2
+            if confirm_action "Remove existing session and start fresh?"; then
+                echo "Removing existing session..." >&2
+                rm -rf "$SESSION_DIR"
+            else
+                echo "Reusing existing session directory." >&2
+            fi
+        fi
         echo "Standalone discovery mode: Main network"
         log_info "Multiphase discovery running in standalone main network mode"
     fi
@@ -433,6 +465,41 @@ fi
 
 # Ensure session directory exists
 mkdir -p "$SESSION_DIR"
+
+# Phase checkpoint/resume support
+PHASE_PROGRESS="$SESSION_DIR/.phase_progress"
+resume_mode=0
+
+# Check if a previous session has completed phases.
+# Under AUTO_DISCOVERY_SESSION the decision was already made by auto_discover.sh:
+# the file was deleted for fresh starts, so its presence means resume.
+if [ -f "$PHASE_PROGRESS" ]; then
+    completed=$(cat "$PHASE_PROGRESS")
+    if [ "${AUTO_DISCOVERY_SESSION:-false}" = "true" ]; then
+        resume_mode=1
+        echo "Resuming from checkpoint (completed: $completed)..." >&2
+    else
+        echo "Found existing session with completed phases: $completed" >&2
+        if confirm_action "Resume from last completed phase?"; then
+            resume_mode=1
+            echo "Resuming discovery..." >&2
+        else
+            echo "Starting fresh..." >&2
+            rm -f "$PHASE_PROGRESS"
+        fi
+    fi
+fi
+
+# phase_already_done — returns 0 (true) if the given phase was already completed
+# Usage: phase_already_done N && continue
+phase_already_done() {
+    [ "$resume_mode" = "1" ] && grep -q "^phase$1$" "$PHASE_PROGRESS" 2>/dev/null
+}
+
+# mark_phase_done — records a completed phase in the checkpoint file
+mark_phase_done() {
+    echo "phase$1" >> "$PHASE_PROGRESS"
+}
 
 META_DIR="$SESSION_DIR/meta"
 HOSTFILES_DIR="$SESSION_DIR/hostfiles"
@@ -488,12 +555,22 @@ NMAP_FAST_SCAN="$PHASE5_DIR/raw_scans/nmap_fast_scan.txt"
 
 # Discovery report (at session root for direct access)
 REPORT_FILE="$META_DIR/discovery_report.txt"
+# Initialize or append to the discovery report
+if [ "$resume_mode" = "1" ] && [ -f "$REPORT_FILE" ]; then
+	# Resuming — append separator instead of truncating
+	echo >> "$REPORT_FILE"
+	echo "=== RESUMED at $(date) ===" >> "$REPORT_FILE"
+	echo >> "$REPORT_FILE"
+else
+	echo "=== Multi-Phase Network Discovery Report ===" > "$REPORT_FILE"
+	echo "Interface: $selected_interface" >> "$REPORT_FILE"
+	echo "Network: $network_range" >> "$REPORT_FILE"
+	echo "Discovery started: $(date)" >> "$REPORT_FILE"
+	echo >> "$REPORT_FILE"
+fi
 
-echo "=== Multi-Phase Network Discovery Report ===" > "$REPORT_FILE"
-echo "Interface: $selected_interface" >> "$REPORT_FILE"
-echo "Network: $network_range" >> "$REPORT_FILE"
-echo "Discovery started: $(date)" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
+# Enable clean Ctrl+C handling during discovery phases
+setup_cancellation
 
 echo "Starting multi-phase discovery on $network_range..."
 log_info "Starting multi-phase discovery on $network_range"
@@ -2431,6 +2508,8 @@ enumerate_snmp_services() {
 # These functions are no longer part of auto discovery to improve efficiency
 # Use the dedicated vulnerability scanning workflow instead
 
+phase_already_done 1 || {
+
 # Phase 1: Enhanced Network Discovery
 echo "--- PHASE 1: ENHANCED NETWORK DISCOVERY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
@@ -2530,6 +2609,10 @@ echo "    ✓ Network segmentation analysis" >> "$REPORT_FILE"
 
 log_network_operation "Enhanced Phase 1 discovery" "$network_range" "Found $phase1_total hosts ($arp_count ARP, $topology_count topology, $infrastructure_count infrastructure, $segmentation_findings segmentation)"
 echo >> "$REPORT_FILE"
+
+mark_phase_done 1
+}
+phase_already_done 2 || {
 
 # Phase 2: Comprehensive Host Discovery
 echo "--- PHASE 2: COMPREHENSIVE HOST DISCOVERY ---" >> "$REPORT_FILE"
@@ -2633,6 +2716,10 @@ echo >> "$REPORT_FILE"
 
 log_network_operation "Enhanced Phase 2 discovery" "$network_range" "Found $all_hosts_count total hosts (ICMP:$ping_count, TCP:$tcp_count, UDP:$udp_count, Masscan:$masscan_count, IPv6:$ipv6_count)"
 
+mark_phase_done 2
+}
+phase_already_done 3 || {
+
 # Phase 3: DNS Reverse Lookup
 echo "--- PHASE 3: DNS REVERSE LOOKUP ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
@@ -2674,6 +2761,10 @@ else
 fi
 
 echo >> "$REPORT_FILE"
+
+mark_phase_done 3
+}
+phase_already_done 4 || {
 
 # Phase 4: Windows-Specific Discovery
 echo "--- PHASE 4: WINDOWS-SPECIFIC DISCOVERY ---" >> "$REPORT_FILE"
@@ -2747,6 +2838,10 @@ echo >> "$REPORT_FILE"
 echo "Found $smb_count hosts with SMB services" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 
+mark_phase_done 4
+}
+phase_already_done 5 || {
+
 # Phase 5: Progressive Port Scan
 echo "--- PHASE 5: PROGRESSIVE PORT SCAN ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
@@ -2809,6 +2904,10 @@ else
 fi
 
 echo >> "$REPORT_FILE"
+
+mark_phase_done 5
+}
+phase_already_done 6 || {
 
 # Phase 6: Service Enumeration
 echo "--- PHASE 6: SERVICE ENUMERATION ---" >> "$REPORT_FILE"
@@ -2920,6 +3019,10 @@ else
 fi
 
 echo >> "$REPORT_FILE"
+
+mark_phase_done 6
+}
+phase_already_done 7 || {
 
 # Phase 7: Host Categorization
 echo "--- PHASE 7: HOST CATEGORIZATION ---" >> "$REPORT_FILE"
@@ -3058,6 +3161,10 @@ create_enriched_service_targets
 
 echo >> "$REPORT_FILE"
 
+mark_phase_done 7
+}
+phase_already_done 8 || {
+
 # Phase 8: Evidence Processing and Manifest Creation
 echo "--- PHASE 8: EVIDENCE PROCESSING ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
@@ -3179,6 +3286,8 @@ echo "  Evidence processing completed - $(wc -l < "$META_DIR/comprehensive_servi
 
 echo >> "$REPORT_FILE"
 
+mark_phase_done 8
+}
 # Summary statistics
 echo "--- DISCOVERY SUMMARY ---" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
