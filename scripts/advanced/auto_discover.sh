@@ -1001,6 +1001,21 @@ echo "  Created: $vlan_interface" >> "$WORKFLOW_REPORT"
                     log_error "Failed to create VLAN interface $vlan_interface"
                 fi
             else
+                # Interface already exists — ensure it is UP before proceeding.
+                _iface_state=$(ip -br link show "$vlan_interface" 2>/dev/null | awk '{print $2}')
+                case "$_iface_state" in
+                    UP)
+                        : ;;
+                    *)
+                        echo "  ⚠ Interface $vlan_interface exists but is $_iface_state — bringing up..." >&2
+                        if ! ip link set "$vlan_interface" up; then
+                            log_error "Failed to bring up interface $vlan_interface"
+                            echo "✗ Failed to bring up $vlan_interface" >&2
+                        fi
+                        ip -6 addr flush dev "$vlan_interface" scope link 2>/dev/null || true
+                        ;;
+                esac
+
                 existing_ip=$(ip addr show "$vlan_interface" 2>/dev/null | grep "inet " | head -1 | awk '{print $2}')
                 if [ -n "$existing_ip" ]; then
                     echo "  ✓ Already configured with IP: $existing_ip" >&2

@@ -23,6 +23,28 @@ CORRELATIONS_DIR="$PROJECT_ROOT/correlations"
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
+# Parse arguments
+EXCLUDE_IP_FILE=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        -f|--file)
+            shift
+            EXCLUDE_IP_FILE="$1"
+            ;;
+        -h|--help)
+            echo "Usage: $0 [-f|--file <ip_list_file>]"
+            echo "  Without arguments: auto-detect team IPs via MAC/OUI"
+            echo "  -f, --file: Provide a file of IPs to exclude (one per line)"
+            exit 0
+            ;;
+        *)
+            echo "Unknown argument: $1" >&2
+            exit 1
+            ;;
+    esac
+    shift
+done
+
 # ---- OUI helper detection (same locations as mac_analysis.sh) ----
 
 OUIHELPER_BIN=""
@@ -156,6 +178,88 @@ process_session_tree() {
     done < "$TMPDIR/ip_file_dirs.txt"
 }
 
+
+# ---- Interactive mode selection (TUI / terminal) ----
+if [ -z "$EXCLUDE_IP_FILE" ]; then
+    echo "" >&2
+    echo "Select exclusion mode:" >&2
+    echo "  1) Auto-detect team IPs via MAC/OUI fingerprinting" >&2
+    echo "  2) Provide a list of IPs to exclude" >&2
+    echo "" >&2
+    printf "  Choice [1/2]: " >&2
+    read -r _exclude_mode
+    case "$_exclude_mode" in
+        2)
+            printf "  Enter path to IP list file: " >&2
+            read -r EXCLUDE_IP_FILE
+            if [ -z "$EXCLUDE_IP_FILE" ]; then
+                echo "No file provided. Falling back to auto-detect." >&2
+                EXCLUDE_IP_FILE=""
+            elif [ ! -f "$EXCLUDE_IP_FILE" ]; then
+                echo "Error: File not found: $EXCLUDE_IP_FILE" >&2
+                exit 1
+            fi
+            ;;
+        *)
+            echo "  Defaulting to auto-detect." >&2
+            ;;
+    esac
+fi
+
+
+# ---- Skip auto-detection if IP file provided ----
+if [ -n "$EXCLUDE_IP_FILE" ]; then
+    if [ ! -f "$EXCLUDE_IP_FILE" ]; then
+        echo "Error: File not found: $EXCLUDE_IP_FILE" >&2
+        exit 1
+    fi
+
+    : > "$TMPDIR/final_ips.txt"
+    ip_count=0
+    while read -r line; do
+        # Strip leading/trailing whitespace
+        line=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+
+        # Skip blank lines and comments
+        case "$line" in
+            ''|'#'*) continue ;;
+        esac
+
+        # Basic IPv4 validation
+        if echo "$line" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "$line" >> "$TMPDIR/final_ips.txt"
+            ip_count=$((ip_count + 1))
+        else
+            echo "Warning: Skipping invalid IP: $line" >&2
+        fi
+    done < "$EXCLUDE_IP_FILE"
+
+    if [ "$ip_count" -eq 0 ]; then
+        echo "Error: No valid IPs found in $EXCLUDE_IP_FILE" >&2
+        exit 1
+    fi
+
+    final_count=$ip_count
+    echo "" >&2
+    echo "Loaded $final_count IP(s) from $EXCLUDE_IP_FILE" >&2
+    echo "IPs to exclude ($final_count):" >&2
+    while read -r ip; do
+        printf "  - %s\n" "$ip" >&2
+    done < "$TMPDIR/final_ips.txt"
+    echo "" >&2
+
+    if ! confirm_action "Proceed with exclusion?"; then
+        echo "Cancelled." >&2
+        exit 0
+    fi
+
+    # Deduplicate the loaded IPs
+    sort -u "$TMPDIR/final_ips.txt" > "${TMPDIR}/final_ips_sorted.txt"
+    mv "${TMPDIR}/final_ips_sorted.txt" "$TMPDIR/final_ips.txt"
+    final_count=$(wc -l < "$TMPDIR/final_ips.txt")
+fi
+
+if [ -z "$EXCLUDE_IP_FILE" ]; then
 # ===================================================================
 # Phase 1 – Host fingerprinting
 # ===================================================================
@@ -381,6 +485,8 @@ if ! confirm_action "Proceed with exclusion?"; then
     echo "Cancelled." >&2
     exit 0
 fi
+
+fi # end auto-detect phases 1-3
 
 # ===================================================================
 # Phase 4 – Remove from discovery files

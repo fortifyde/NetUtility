@@ -512,6 +512,11 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 	} else {
 		b.WriteString(fmt.Sprintf("Confidence: [white]%s[::-]\n", confidence))
 	}
+	if result.HostInfo != nil {
+		if ttl, ok := result.HostInfo.Attributes["ttl_normalized"]; ok && ttl != "" {
+			b.WriteString(fmt.Sprintf("TTL:        [white]%s[::-]\n", ttl))
+		}
+	}
 	b.WriteString("\n")
 
 	// --- Ports & Services ---

@@ -23,7 +23,7 @@ func TestFormatScreenshotNotes(t *testing.T) {
 			},
 			wantContains: []string{
 				"> [!screenshot]- http://192.168.1.1 (200)",
-				"> ![[screenshots/http--192.168.1.1-80.jpeg]]",
+				"> [[screenshots/http--192.168.1.1-80.jpeg]]",
 			},
 		},
 		{
@@ -537,7 +537,7 @@ func TestGenerateDistributionPackageWithScreenshots(t *testing.T) {
 			if !strings.Contains(content, "> [!screenshot]-") {
 				t.Error("windows.md missing Obsidian callout")
 			}
-			if !strings.Contains(content, "![[screenshots/") {
+			if !strings.Contains(content, "[[screenshots/") {
 				t.Error("windows.md missing wikilink screenshot reference")
 			}
 		}

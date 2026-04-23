@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-
 func TestMergeScreenshotsIntoCorrelation(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -465,6 +464,38 @@ invalid json line
 			if ss.IP == "192.168.1.2" {
 				t.Errorf("parseScreenshotJSONL() included failed result for 192.168.1.2")
 			}
+		}
+	})
+
+	t.Run("hostname redirect falls back to original URL IP", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		jsonlPath := filepath.Join(tmpDir, "gowitness.jsonl")
+
+		// gowitness scanned http://192.168.1.1 but it redirected to http://router.local/home
+		jsonlContent := `{"url":"http://192.168.1.1","final_url":"http://router.local/home","file_name":"http--192.168.1.1-80.jpeg","screenshot":"","response_code":200,"failed":false}
+{"url":"https://192.168.1.2","final_url":"https://device.local/","file_name":"https--192.168.1.2-443.jpeg","screenshot":"","response_code":301,"failed":false}`
+
+		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
+			t.Fatalf("Failed to write JSONL file: %v", err)
+		}
+
+		got := parseScreenshotJSONL(jsonlPath)
+
+		if len(got) != 2 {
+			t.Fatalf("parseScreenshotJSONL() returned %d screenshots, want 2", len(got))
+		}
+
+		// Both should have IP extracted from original url, not hostname final_url
+		if got[0].IP != "192.168.1.1" {
+			t.Errorf("got[0].IP = %q, want 192.168.1.1 (fallback from hostname final_url)", got[0].IP)
+		}
+		if got[1].IP != "192.168.1.2" {
+			t.Errorf("got[1].IP = %q, want 192.168.1.2 (fallback from hostname final_url)", got[1].IP)
+		}
+
+		// URL should still be the final_url (what was actually screenshotted)
+		if got[0].URL != "http://router.local/home" {
+			t.Errorf("got[0].URL = %q, want http://router.local/home", got[0].URL)
 		}
 	})
 }

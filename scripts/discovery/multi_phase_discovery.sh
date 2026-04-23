@@ -1774,17 +1774,34 @@ collect_ttl_values() {
                 # Normalize starting TTL: measure hop count via traceroute
                 hops=$(traceroute -n -q1 -w1 "$ip" 2>/dev/null \
                     | grep -v '^\s*\*' | tail -1 | awk '{print $1}')
+                traceroute_valid=false
+                # Accept hop count only when it is numeric and realistic (<=20 hops).
+                # Anything above 20 indicates traceroute did not reach the host
+                # (all-star run to max TTL) and the reported hop is an artifact.
                 case "$hops" in
-                    [0-9]|[0-9][0-9]|[0-9][0-9][0-9])
-                        starting_ttl=$((ttl + hops - 1)) ;;
-                    *)
-                        starting_ttl="$ttl" ;;
+                    [0-9]|[0-9][0-9])
+                        if [ "$hops" -le 20 ] 2>/dev/null; then
+                            starting_ttl=$((ttl + hops - 1))
+                            traceroute_valid=true
+                        fi
+                        ;;
                 esac
-                # Snap to nearest standard starting TTL (64, 128, 255) if within 3
+                if [ "$traceroute_valid" = "false" ]; then
+                    # Traceroute failed or returned implausible hop count.
+                    # Snap raw TTL directly to nearest standard value.
+                    starting_ttl=$ttl
+                fi
+                # Snap to nearest standard starting TTL (64, 128, 255) if within tolerance.
+                # Use wider tolerance when traceroute failed since we lack hop count.
+                if [ "$traceroute_valid" = "true" ]; then
+                    _tol=3
+                else
+                    _tol=8
+                fi
                 for _snap in 64 128 255; do
                     _d=$((starting_ttl - _snap))
                     [ "$_d" -lt 0 ] && _d=$((-_d))
-                    if [ "$_d" -le 3 ]; then starting_ttl=$_snap; break; fi
+                    if [ "$_d" -le "$_tol" ]; then starting_ttl=$_snap; break; fi
                 done
                 printf "%s %s %s\n" "$ip" "$ttl" "$starting_ttl" > "$ttl_tmp_dir/$ip_key"
             fi
@@ -3045,7 +3062,7 @@ mkdir -p "$PHASE7_DIR"
 # HOSTFILES_DIR already created at session init; vendor files are flat inside it
 
 # Create categorization details file header
-printf 'IP\tHostname\tCategory\tVendor\tConfidence\tScore\tEvidence\tMAC\n' \
+printf 'IP\tHostname\tCategory\tVendor\tConfidence\tScore\tEvidence\tMAC\tTTL\n' \
     > "$PHASE7_DIR/categorization_details.txt"
 
 # Categorize based on advanced scoring system
@@ -3070,9 +3087,12 @@ while read -r host; do
         # Get MAC address from evidence file (written by ph7_collect_evidence)
         mac_addr=$(grep "^mac_address:" "$PHASE7_DIR/evidence/${host}.ev" 2>/dev/null | cut -d: -f2-)
 
-        # Write to categorization details (8 columns: IP, Hostname, Category, Vendor, Confidence, Score, Evidence, MAC)
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$host" "$hostname" "$category" "$vendor" "$confidence" "$score" "$evidence" "$mac_addr" \
+        # Write to categorization details (9 columns: IP, Hostname, Category, Vendor, Confidence, Score, Evidence, MAC, TTL)
+        # Get TTL values from evidence file
+        ttl_norm=$(grep '^ttl_normalized:' "$PHASE7_DIR/evidence/${host}.ev" 2>/dev/null | cut -d: -f2-)
+
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$host" "$hostname" "$category" "$vendor" "$confidence" "$score" "$evidence" "$mac_addr" "${ttl_norm:-}" \
             >> "$PHASE7_DIR/categorization_details.txt"
 
         # Add to appropriate category files (files created on first write)

@@ -176,6 +176,7 @@ func parseScreenshotJSONL(jsonlPath string) []ScreenshotInfo {
 	defer file.Close()
 
 	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // up to 10 MB per line
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
@@ -206,8 +207,12 @@ func parseScreenshotJSONL(jsonlPath string) []ScreenshotInfo {
 			continue
 		}
 
-		// Extract IP from the resolved URL
+		// Extract IP from the resolved URL; if final_url redirected to a hostname,
+		// fall back to the original url which contains the raw IP used for discovery.
 		ip := extractIPFromURL(resolvedURL)
+		if ip == "" && gowitnessResult.URL != "" && resolvedURL != gowitnessResult.URL {
+			ip = extractIPFromURL(gowitnessResult.URL)
+		}
 
 		screenshot := ScreenshotInfo{
 			IP:         ip,

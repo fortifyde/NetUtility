@@ -274,6 +274,7 @@ _dedup_count=$(wc -l < "$TEMP_URL_LIST" 2>/dev/null || echo "0")
 if [ "$_dedup_count" -lt "$_url_count" ]; then
     log_info "Deduplicated URLs: $_url_count → $_dedup_count" "$SCRIPT_NAME"
 fi
+emit_progress "Starting web screenshot capture ($_dedup_count URLs)" "0" "$_dedup_count"
 
 # Display scan information
 echo "Session directory: $SESSION_DIR" >&2
@@ -282,17 +283,50 @@ echo "Starting gowitness screenshot capture..." >&2
 echo "Command: gowitness scan file -f $TEMP_URL_LIST -s $SESSION_DIR --threads 4 --timeout 30" >&2
 echo >&2
 
-# Run gowitness
+# Run gowitness in background to capture PID for progress polling
 # Note: gowitness file creates a JSONL file with screenshot results
 log_debug "Executing: gowitness scan file -f $TEMP_URL_LIST -s $SESSION_DIR --threads 4 --timeout 30 --write-jsonl --write-jsonl-file $SESSION_DIR/gowitness.jsonl --http-code-filter 200" "$SCRIPT_NAME"
 
-if ! gowitness scan file -f "$TEMP_URL_LIST" \
+gowitness scan file -f "$TEMP_URL_LIST" \
     -s "$SESSION_DIR" \
     --threads 4 \
     --timeout 30 \
     --write-jsonl \
     --write-jsonl-file "$SESSION_DIR/gowitness.jsonl" \
-    --http-code-filter 200 2>&1 | tee "$SESSION_DIR/gowitness_output.txt" >&2; then
+    --http-code-filter 200 > "$SESSION_DIR/gowitness_output.txt" 2>&1 &
+_GOWITNESS_PID=$!
+
+# Background progress poller for TUI status bar
+(
+    _p_total=$_dedup_count
+    _p_last=0
+    sleep 3
+    while [ ! -f "$SESSION_DIR/gowitness.jsonl" ] && kill -0 $_GOWITNESS_PID 2>/dev/null; do
+        sleep 1
+    done
+    while kill -0 $_GOWITNESS_PID 2>/dev/null; do
+        _p_done=$(grep -c '"file_name"' "$SESSION_DIR/gowitness.jsonl" 2>/dev/null || echo 0)
+        if [ "$_p_done" -ne "$_p_last" ]; then
+            emit_progress "Capturing web screenshots" "$_p_done" "$_p_total"
+            _p_last=$_p_done
+        fi
+        sleep 2
+    done
+    # Final count
+    _p_done=$(grep -c '"file_name"' "$SESSION_DIR/gowitness.jsonl" 2>/dev/null || echo 0)
+    emit_progress "Capture complete" "$_p_done" "$_p_total"
+) &
+_PROGRESS_PID=$!
+
+# Wait for gowitness to complete
+wait $_GOWITNESS_PID
+_gowitness_exit=$?
+
+# Kill progress poller
+kill $_PROGRESS_PID 2>/dev/null
+wait $_PROGRESS_PID 2>/dev/null
+
+if [ "$_gowitness_exit" -ne 0 ]; then
     log_error "gowitness execution failed" "$SCRIPT_NAME"
     error_message "Screenshot capture failed. Check $SESSION_DIR/gowitness_output.txt for details."
     exit 1

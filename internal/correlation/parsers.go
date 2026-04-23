@@ -423,6 +423,12 @@ func (rp *ResultParser) parseCategorizationDetails(result *ScanResult, content s
 				host.MACAddress = mac
 			}
 		}
+		// Column 9 (index 8): Normalized TTL (optional, added in later format version)
+		if len(fields) > 8 {
+			if ttl := strings.TrimSpace(fields[8]); ttl != "" && ttl != "-" {
+				host.Attributes["ttl_normalized"] = ttl
+			}
+		}
 
 		result.Hosts = append(result.Hosts, host)
 		result.Targets = append(result.Targets, ip)

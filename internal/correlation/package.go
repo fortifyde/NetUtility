@@ -203,7 +203,7 @@ func formatScreenshotNotes(screenshots []ScreenshotInfo) string {
 	var blocks []string
 	for _, ss := range screenshots {
 		label := fmt.Sprintf("%s (%s)", ss.URL, ss.StatusCode)
-		block := fmt.Sprintf("> [!screenshot]- %s\n> ![[screenshots/%s]]", label, filepath.Base(ss.File))
+		block := fmt.Sprintf("> [!screenshot]- %s\n> [[screenshots/%s]]", label, filepath.Base(ss.File))
 		blocks = append(blocks, block)
 	}
 	return strings.Join(blocks, "<br>")
@@ -225,7 +225,7 @@ func writeMarkdownFile(path, category string, entries []HostEntry) error {
 	}
 
 	_, _ = fmt.Fprintf(w, "# %s\n\n", title)
-	_, _ = fmt.Fprintf(w, "| IP | Hostname | Vendor | OS Detection | Open Ports | Notes | Check |\n")
+	_, _ = fmt.Fprintf(w, "| IP | Hostname | MAC Vendor | OS Detection | Top 1k TCP Ports | Notes | Check |\n")
 	_, _ = fmt.Fprintf(w, "|---|---|---|---|---|---|---|\n")
 
 	for _, e := range entries {
