@@ -26,7 +26,7 @@ Terminal-based network assessment toolkit. Automates VLAN discovery, host catego
 
 ## Installation
 
-**Requirements:** Linux, Go 1.24+, `arp-scan`, `nmap`, `tshark`/`tcpdump`, `fping`, `masscan` (optional), `jq`, `sshpass`
+**Requirements:** Linux, Go 1.26+, `arp-scan`, `nmap`, `tshark`/`tcpdump`, `fping`, `masscan` (optional), `jq`, `sshpass`
 
 ```bash
 git clone https://github.com/fortifyde/NetUtility.git
