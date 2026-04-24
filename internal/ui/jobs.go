@@ -59,10 +59,14 @@ func (jv *JobsViewer) setupUI() {
 	// Set table headers
 	headers := []string{"ID", "Name", "Status", "Duration", "Progress"}
 	for i, header := range headers {
-		jv.jobsList.SetCell(0, i, tview.NewTableCell(header).
+		cell := tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
 			SetAlign(tview.AlignCenter).
-			SetSelectable(false))
+			SetSelectable(false)
+		if i == 4 {
+			cell.SetExpansion(1)
+		}
+		jv.jobsList.SetCell(0, i, cell)
 	}
 
 	// Create stats panel
@@ -158,10 +162,14 @@ func (jv *JobsViewer) updateJobsList() {
 	// Reset headers
 	headers := []string{"ID", "Name", "Status", "Duration", "Progress"}
 	for i, header := range headers {
-		jv.jobsList.SetCell(0, i, tview.NewTableCell(header).
+		cell := tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
 			SetAlign(tview.AlignCenter).
-			SetSelectable(false))
+			SetSelectable(false)
+		if i == 4 {
+			cell.SetExpansion(1)
+		}
+		jv.jobsList.SetCell(0, i, cell)
 	}
 
 	// Add job rows
@@ -178,9 +186,6 @@ func (jv *JobsViewer) updateJobsList() {
 		}
 
 		jobName := job.Name
-		if len(jobName) > 20 {
-			jobName = jobName[:17] + "..."
-		}
 
 		status := string(job.GetStatus())
 		statusColor := jv.getStatusColor(job.GetStatus())
@@ -197,7 +202,7 @@ func (jv *JobsViewer) updateJobsList() {
 		jv.jobsList.SetCell(row, 1, tview.NewTableCell(jobName))
 		jv.jobsList.SetCell(row, 2, tview.NewTableCell(status).SetTextColor(statusColor))
 		jv.jobsList.SetCell(row, 3, tview.NewTableCell(duration))
-		jv.jobsList.SetCell(row, 4, tview.NewTableCell(progress))
+		jv.jobsList.SetCell(row, 4, tview.NewTableCell(progress).SetExpansion(1))
 
 		// Store mapping from row to actual full job ID
 		jv.jobIDMapping[row] = job.ID
