@@ -186,24 +186,36 @@ if [ -z "$EXCLUDE_IP_FILE" ]; then
     echo "  1) Auto-detect team IPs via MAC/OUI fingerprinting" >&2
     echo "  2) Provide a list of IPs to exclude" >&2
     echo "" >&2
-    echo "  Choice [1/2]: " >&2
-    read -r _exclude_mode
-    case "$_exclude_mode" in
-        2)
-            echo "  Enter path to IP list file: " >&2
-            read -r EXCLUDE_IP_FILE
-            if [ -z "$EXCLUDE_IP_FILE" ]; then
-                echo "No file provided. Falling back to auto-detect." >&2
-                EXCLUDE_IP_FILE=""
-            elif [ ! -f "$EXCLUDE_IP_FILE" ]; then
-                echo "Error: File not found: $EXCLUDE_IP_FILE" >&2
-                exit 1
-            fi
-            ;;
-        *)
-            echo "  Defaulting to auto-detect." >&2
-            ;;
-    esac
+
+    while true; do
+        echo "  Choice [1/2]: " >&2
+        read -r _exclude_mode
+        case "$_exclude_mode" in
+            1)
+                echo "  Using auto-detect." >&2
+                break
+                ;;
+            2)
+                while true; do
+                    echo "  Enter path to IP list file: " >&2
+                    read -r EXCLUDE_IP_FILE
+                    if [ -z "$EXCLUDE_IP_FILE" ]; then
+                        echo "  No file provided. Please enter a path or press Ctrl+C to cancel." >&2
+                        continue
+                    elif [ ! -f "$EXCLUDE_IP_FILE" ]; then
+                        echo "  Error: File not found: $EXCLUDE_IP_FILE" >&2
+                        EXCLUDE_IP_FILE=""
+                        continue
+                    fi
+                    break
+                done
+                break
+                ;;
+            *)
+                echo "  Invalid choice. Please enter 1 or 2." >&2
+                ;;
+        esac
+    done
 fi
 
 
@@ -396,48 +408,67 @@ if [ "$cand_count" -gt 0 ]; then
     done < "$TMPDIR/candidates.txt"
 
     echo "" >&2
-    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-        printf "%sChoice ( a All / s Select / c Custom / [ Cancel ] ): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-    else
-        printf "Choice ( a All / s Select / c Custom / [ Cancel ] ): \n" >&2
-    fi
-    read -r action
+    while true; do
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sChoice ( a All / s Select / c Custom / [ Cancel ] ): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Choice ( a All / s Select / c Custom / [ Cancel ] ): \n" >&2
+        fi
+        read -r action
 
-    case "$action" in
-        a|A)
-            cp "$TMPDIR/cand_ips.txt" "$TMPDIR/confirmed_ips.txt"
-            cnt=$(wc -l < "$TMPDIR/confirmed_ips.txt")
-            echo "  All $cnt candidate(s) confirmed" >&2
-            ;;
-        s|S)
-            if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-                printf "%sSelect numbers (space-separated): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-            else
-                printf "Select numbers (space-separated): \n" >&2
-            fi
-            read -r sels
-            for num in $sels; do
-                case "$num" in *[!0-9]*) continue ;; esac
-                sip=$(sed -n "${num}p" "$TMPDIR/cand_ips.txt" 2>/dev/null)
-                [ -n "$sip" ] && echo "$sip" >> "$TMPDIR/confirmed_ips.txt"
-            done
-            ;;
-        c|C) ;;
-        *) echo "Cancelled." >&2; exit 0 ;;
-    esac
+        case "$action" in
+            a|A)
+                cp "$TMPDIR/cand_ips.txt" "$TMPDIR/confirmed_ips.txt"
+                cnt=$(wc -l < "$TMPDIR/confirmed_ips.txt")
+                echo "  All $cnt candidate(s) confirmed" >&2
+                break
+                ;;
+            s|S)
+                if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+                    printf "%sSelect numbers (space-separated): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+                else
+                    printf "Select numbers (space-separated): \n" >&2
+                fi
+                read -r sels
+                _found=0
+                for num in $sels; do
+                    case "$num" in *[!0-9]*) continue ;; esac
+                    sip=$(sed -n "${num}p" "$TMPDIR/cand_ips.txt" 2>/dev/null)
+                    if [ -n "$sip" ]; then
+                        echo "$sip" >> "$TMPDIR/confirmed_ips.txt"
+                        _found=$((_found + 1))
+                    fi
+                done
+                if [ "$_found" -eq 0 ]; then
+                    echo "  No valid selections. Please try again." >&2
+                    continue
+                fi
+                echo "  $_found IP(s) selected" >&2
+                break
+                ;;
+            c|C)
+                break
+                ;;
+            *)
+                echo "  Invalid choice. Enter a/s/c or press Enter to cancel." >&2
+                ;;
+        esac
+    done
 else
     echo "" >&2
-    if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-        printf "%sChoice ( c=custom IP / Enter=Cancel ): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
-    else
-        printf "Choice ( c=custom IP / Enter=Cancel ): \n" >&2
-    fi
-    read -r action
+    while true; do
+        if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
+            printf "%sChoice ( c=custom IP / Enter=Cancel ): %s\n" "$PROMPT_COLOR" "$COLOR_RESET" >&2
+        else
+            printf "Choice ( c=custom IP / Enter=Cancel ): \n" >&2
+        fi
+        read -r action
 
-    case "$action" in
-        c|C) ;;
-        *) echo "Cancelled." >&2; exit 0 ;;
-    esac
+        case "$action" in
+            c|C) break ;;
+            *) echo "  Invalid choice. Enter c or press Enter to cancel." >&2 ;;
+        esac
+    done
 fi
 
 # Custom IP entry
