@@ -45,8 +45,8 @@ sudo ./netutil
 ```bash
 sudo ./netutil auto-discover    # Automated discovery workflow
 sudo ./netutil capture          # Packet capture
-sudo ./netutil safe-scan        # Safe NSE service enumeration
-sudo ./netutil vuln             # Vulnerability scan
+sudo ./netutil port-scan        # Port & service scan
+sudo ./netutil vuln             # Vulnerability assessment
 sudo ./netutil interfaces       # Manage network interfaces
 sudo ./netutil config-ip        # Configure IP addresses
 sudo ./netutil setup-fileserver # Set up authenticated file server

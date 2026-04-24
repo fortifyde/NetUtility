@@ -213,8 +213,8 @@ func (t *TUI) getHardcodedCategories() []Category {
 		{
 			Name: "Port Scanning",
 			Tasks: []Task{
-				{Name: "Deep Scan with NSE", Description: "Full port scan with service detection and NSE vulnerability scripts", Script: s("scanning", "deep_nse_scan.sh")},
-				{Name: "Vulnerability Analysis", Description: "Analyze results for known vulnerabilities", Script: s("scanning", "vuln_analysis.sh")},
+				{Name: "Port & Service Scan", Description: "Comprehensive port scan with service version detection and OS fingerprinting", Script: s("scanning", "port_service_scan.sh")},
+				{Name: "Vulnerability Assessment", Description: "Safe vulnerability assessment using NSE scripts and supplementary tools", Script: s("scanning", "vulnerability_assessment.sh")},
 			},
 		},
 		{

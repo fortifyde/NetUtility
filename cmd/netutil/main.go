@@ -165,7 +165,6 @@ func main() {
 		os.Exit(1)
 	}
 
-
 	// Default TUI mode - now with integrated streaming execution
 	tui := ui.NewTUI(scriptsDir, cfg.WorkspaceDir)
 	if err := tui.Run(); err != nil {
@@ -184,10 +183,10 @@ var commandMappings = map[string]ScriptInfo{
 	"mac-analysis":    {"scripts/discovery/mac_analysis.sh", "MAC Address Analysis"},
 	"packet-analysis": {"scripts/discovery/advanced_packet_analysis.sh", "Advanced Packet Analysis"},
 	// Scanning
-	"safe-scan":     {"scripts/scanning/safe_nse_scan.sh", "Safe NSE Scan"},
-	"full-scan":     {"scripts/scanning/full_port_scan.sh", "Full Port Scan"},
-	"vuln":          {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
-	"vulnerability": {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
+	"port-scan":     {"scripts/scanning/port_service_scan.sh", "Port & Service Scan"},
+	"full-scan":     {"scripts/scanning/port_service_scan.sh", "Port & Service Scan"},
+	"vuln":          {"scripts/scanning/vulnerability_assessment.sh", "Vulnerability Assessment"},
+	"vulnerability": {"scripts/scanning/vulnerability_assessment.sh", "Vulnerability Assessment"},
 	// Host configuration
 	"config-ip":        {"scripts/host-config/configure_ip.sh", "Configure IP"},
 	"ip":               {"scripts/host-config/configure_ip.sh", "Configure IP"},
@@ -240,7 +239,7 @@ func runFirstTimeSetup(cfg *config.Config) error {
 var numericShortcuts = map[string]ScriptInfo{
 	"1": {"scripts/network/network_enum.sh", "Network Enumeration"},
 	"2": {"scripts/network/network_capture.sh", "Network Capture"},
-	"3": {"scripts/scanning/deep_nse_scan.sh", "Vulnerability Scan"},
+	"3": {"scripts/scanning/vulnerability_assessment.sh", "Vulnerability Assessment"},
 	"4": {"scripts/system/configure_ip.sh", "Configure IP"},
 	"5": {"scripts/system/network_interfaces.sh", "Network Interfaces"},
 }
@@ -397,7 +396,7 @@ func showHelp() {
 	fmt.Printf("  1-5                        # Most common tasks\n")
 	fmt.Printf("  scan, enum                 # Network enumeration\n")
 	fmt.Printf("  capture                    # Packet capture\n")
-	fmt.Printf("  vuln, vulnerability        # Vulnerability scan\n")
+	fmt.Printf("  vuln, vulnerability        # Vulnerability assessment\n")
 	fmt.Printf("  ip, config-ip              # Configure IP addresses\n")
 	fmt.Printf("  interfaces                 # Manage network interfaces\n\n")
 	fmt.Printf("OPTIONS:\n")
