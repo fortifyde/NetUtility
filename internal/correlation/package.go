@@ -35,7 +35,7 @@ type HostEntry struct {
 	Vendor          string
 	OSDetection     string
 	OpenPorts       string // comma-separated sorted port numbers
-	Notes           string // Obsidian screenshot callout markdown (may be empty)
+	Notes           string // screenshot wikilinks joined by <br> (may be empty)
 	ScreenshotFiles []ScreenshotInfo
 }
 
@@ -196,17 +196,15 @@ func buildHostEntry(ip string, corr *CorrelationResult) HostEntry {
 	return entry
 }
 
-// formatScreenshotNotes generates Obsidian foldable callout markdown for
-// each screenshot. Multiple screenshots are separated by HTML <br> tags
-// so they render inline within a markdown table cell.
+// formatScreenshotNotes generates Obsidian wikilinks for each screenshot file.
+// Multiple screenshots are separated by HTML <br> tags so they render inline
+// within a markdown table cell.
 func formatScreenshotNotes(screenshots []ScreenshotInfo) string {
-	var blocks []string
+	var links []string
 	for _, ss := range screenshots {
-		label := fmt.Sprintf("%s (%s)", ss.URL, ss.StatusCode)
-		block := fmt.Sprintf("> [!screenshot]- %s\n> [[screenshots/%s]]", label, filepath.Base(ss.File))
-		blocks = append(blocks, block)
+		links = append(links, fmt.Sprintf("[[screenshots/%s]]", filepath.Base(ss.File)))
 	}
-	return strings.Join(blocks, "<br>")
+	return strings.Join(links, "<br>")
 }
 
 // writeMarkdownFile writes a markdown file with a table of host entries.

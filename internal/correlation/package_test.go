@@ -22,8 +22,7 @@ func TestFormatScreenshotNotes(t *testing.T) {
 				{IP: "192.168.1.1", URL: "http://192.168.1.1", StatusCode: "200", File: "/tmp/http--192.168.1.1-80.jpeg"},
 			},
 			wantContains: []string{
-				"> [!screenshot]- http://192.168.1.1 (200)",
-				"> [[screenshots/http--192.168.1.1-80.jpeg]]",
+				"[[screenshots/http--192.168.1.1-80.jpeg]]",
 			},
 		},
 		{
@@ -33,8 +32,8 @@ func TestFormatScreenshotNotes(t *testing.T) {
 				{IP: "192.168.1.1", URL: "https://192.168.1.1", StatusCode: "301", File: "/tmp/b.png"},
 			},
 			wantContains: []string{
-				"> [!screenshot]- http://192.168.1.1 (200)",
-				"> [!screenshot]- https://192.168.1.1 (301)",
+				"[[screenshots/a.png]]",
+				"[[screenshots/b.png]]",
 				"<br>",
 			},
 		},
@@ -254,7 +253,7 @@ func TestWriteMarkdownFile(t *testing.T) {
 			Vendor:      "HP",
 			OSDetection: "Windows 11",
 			OpenPorts:   "80, 443",
-			Notes:       "> [!screenshot]- test",
+			Notes:       "[[screenshots/test.png]]",
 		},
 	}
 
@@ -286,7 +285,7 @@ func TestWriteMarkdownFile(t *testing.T) {
 	if !strings.Contains(content, "135, 445") {
 		t.Error("missing ports")
 	}
-	if !strings.Contains(content, "> [!screenshot]- test") {
+	if !strings.Contains(content, "[[screenshots/test.png]]") {
 		t.Error("missing screenshot notes")
 	}
 
@@ -527,18 +526,15 @@ func TestGenerateDistributionPackageWithScreenshots(t *testing.T) {
 			}
 		}
 
-		// Verify markdown contains Obsidian callout.
+		// Verify markdown contains screenshot wikilinks.
 		if hdr.Name == "windows.md" {
 			var buf strings.Builder
 			if _, err := io.Copy(&buf, tr); err != nil {
 				t.Fatalf("reading windows.md: %v", err)
 			}
 			content := buf.String()
-			if !strings.Contains(content, "> [!screenshot]-") {
-				t.Error("windows.md missing Obsidian callout")
-			}
-			if !strings.Contains(content, "[[screenshots/") {
-				t.Error("windows.md missing wikilink screenshot reference")
+			if !strings.Contains(content, "[[screenshots/http--192.168.1.10-80.jpeg]]") {
+				t.Error("windows.md missing screenshot wikilink")
 			}
 		}
 	}
