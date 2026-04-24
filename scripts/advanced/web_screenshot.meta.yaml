@@ -1,7 +1,7 @@
 script:
   name: "Web Screenshot Capture"
   description: "Capture screenshots of web services using gowitness"
-  category: "scanning"
+  category: "advanced"
   subcategory: "web"
 
   file: "web_screenshot.sh"
