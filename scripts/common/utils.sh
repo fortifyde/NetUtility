@@ -652,41 +652,64 @@ detect_common_ranges() {
     # Clear previous range data
     rm -f /tmp/netutil_ranges.$$
     
-    # Get IP addresses from interfaces
-    ip addr show | while read -r line; do
-        case "$line" in
-            *inet\ [0-9]*.[0-9]*.[0-9]*.[0-9]*/[0-9]*)
-                # Extract IP and prefix using sed
-                ip_with_prefix=$(echo "$line" | sed -n 's/.*inet \([0-9]*\.[0-9]*\.[0-9]*\.[0-9]*\/[0-9]*\).*/\1/p')
-                if [ -n "$ip_with_prefix" ]; then
-                    ip=$(echo "$ip_with_prefix" | cut -d/ -f1)
-                    prefix=$(echo "$ip_with_prefix" | cut -d/ -f2)
-                    
-                    # Try to calculate network (fallback to simple method if ipcalc unavailable)
-                    if command -v ipcalc >/dev/null 2>&1; then
-                        network=$(ipcalc -n "$ip_with_prefix" 2>/dev/null | cut -d= -f2 2>/dev/null)
-                        if [ -n "$network" ]; then
-                            echo "$network/$prefix" >> /tmp/netutil_ranges.$$
-                        fi
-                    else
-                        # Simple fallback - just use the IP range as-is
-                        echo "$ip_with_prefix" >> /tmp/netutil_ranges.$$
-                    fi
-                fi
+    # Collect IPv4 addresses only from interfaces that are UP
+    # ip -br addr show outputs: NAME STATE IP/...
+    ip -br addr show 2>/dev/null | while read -r iface state rest; do
+        case "$state" in
+            UP|UNKNOWN)
+                # UNKNOWN covers interfaces like tailscale0 that are
+                # operationally active but report UNKNOWN state
+                ;;
+            *)
+                # Skip DOWN and other inactive states
+                continue
                 ;;
         esac
-    done
-    
-    # Add common ranges if not already present
-    common_ranges="192.168.1.0/24 192.168.0.0/24 10.0.0.0/8 172.16.0.0/12"
-    for range in $common_ranges; do
-        if [ -f /tmp/netutil_ranges.$$ ]; then
-            if ! grep -q "^$range$" /tmp/netutil_ranges.$$ 2>/dev/null; then
-                echo "$range" >> /tmp/netutil_ranges.$$
-            fi
-        else
-            echo "$range" >> /tmp/netutil_ranges.$$
-        fi
+
+        # Skip loopback
+        case "$iface" in
+            lo) continue ;;
+        esac
+
+        # Extract IPv4 addresses from this interface's detailed output
+        ip -4 addr show "$iface" 2>/dev/null | while read -r line; do
+            case "$line" in
+                *inet\ *[0-9]*.[0-9]*.[0-9]*.[0-9]*/[0-9]*)
+                    ip_with_prefix=$(echo "$line" | sed -n 's/.*inet \([0-9]*\.[0-9]*\.[0-9]*\.[0-9]*\/[0-9]*\).*/\1/p')
+                    if [ -n "$ip_with_prefix" ]; then
+                        ip_addr=$(echo "$ip_with_prefix" | cut -d/ -f1)
+                        prefix=$(echo "$ip_with_prefix" | cut -d/ -f2)
+                        
+                        # Skip link-local and loopback addresses
+                        case "$ip_addr" in
+                            127.*|169.254.*) continue ;;
+                        esac
+                        
+                        # Try to calculate network address via ipcalc
+                        if command -v ipcalc >/dev/null 2>&1; then
+                            network=$(ipcalc -n "$ip_with_prefix" 2>/dev/null | cut -d= -f2 2>/dev/null)
+                            if [ -n "$network" ]; then
+                                range_entry="$network/$prefix"
+                            else
+                                range_entry="$ip_with_prefix"
+                            fi
+                        else
+                            # No ipcalc - use IP/prefix as-is
+                            range_entry="$ip_with_prefix"
+                        fi
+                        
+                        # Deduplicate
+                        if [ -f /tmp/netutil_ranges.$$ ]; then
+                            if ! grep -q "^$range_entry$" /tmp/netutil_ranges.$$ 2>/dev/null; then
+                                echo "$range_entry" >> /tmp/netutil_ranges.$$
+                            fi
+                        else
+                            echo "$range_entry" >> /tmp/netutil_ranges.$$
+                        fi
+                    fi
+                    ;;
+            esac
+        done
     done
     
     # Output ranges
