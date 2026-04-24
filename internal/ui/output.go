@@ -694,6 +694,18 @@ func (ov *OutputViewer) cancelJob() {
 		ov.jobManager.CancelJob(jobID)
 	}
 }
+
+// CancelAndReturn cancels the running job, stops the viewer, and returns to main.
+// This is the Ctrl+C / Esc action: kill the job and go back.
+func (ov *OutputViewer) CancelAndReturn() {
+	ov.cancelJob()
+	ov.Stop()
+	if ov.returnToMainCallback != nil {
+		ov.returnToMainCallback()
+	} else {
+		ov.pages.RemovePage("output")
+	}
+}
 func (ov *OutputViewer) Stop() {
 	ov.mu.Lock()
 	if !ov.running {

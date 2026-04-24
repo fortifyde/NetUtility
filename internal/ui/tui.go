@@ -567,8 +567,8 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 	// their own cancellation — the output viewer uses it to stop streaming, the main page
 	// has no use for it. Either way the TUI must stay alive.
 	if event.Key() == tcell.KeyCtrlC {
-		if t.outputViewer != nil && t.outputViewer.IsRunning() {
-			t.outputViewer.Stop()
+		if t.outputViewer != nil {
+			t.outputViewer.CancelAndReturn()
 		}
 		return nil
 	}
