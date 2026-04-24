@@ -305,7 +305,7 @@ _GOWITNESS_PID=$!
         sleep 1
     done
     while kill -0 $_GOWITNESS_PID 2>/dev/null; do
-        _p_done=$(grep -c '"file_name"' "$SESSION_DIR/gowitness.jsonl" 2>/dev/null || echo 0)
+        _p_done=$(grep -c '"file_name"' "$SESSION_DIR/gowitness.jsonl" 2>/dev/null) || _p_done=0
         if [ "$_p_done" -ne "$_p_last" ]; then
             emit_progress "Capturing web screenshots" "$_p_done" "$_p_total"
             _p_last=$_p_done
@@ -313,7 +313,7 @@ _GOWITNESS_PID=$!
         sleep 2
     done
     # Final count
-    _p_done=$(grep -c '"file_name"' "$SESSION_DIR/gowitness.jsonl" 2>/dev/null || echo 0)
+    _p_done=$(grep -c '"file_name"' "$SESSION_DIR/gowitness.jsonl" 2>/dev/null) || _p_done=0
     emit_progress "Capture complete" "$_p_done" "$_p_total"
 ) &
 _PROGRESS_PID=$!
