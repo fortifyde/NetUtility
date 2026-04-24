@@ -186,11 +186,11 @@ if [ -z "$EXCLUDE_IP_FILE" ]; then
     echo "  1) Auto-detect team IPs via MAC/OUI fingerprinting" >&2
     echo "  2) Provide a list of IPs to exclude" >&2
     echo "" >&2
-    printf "  Choice [1/2]: " >&2
+    echo "  Choice [1/2]: " >&2
     read -r _exclude_mode
     case "$_exclude_mode" in
         2)
-            printf "  Enter path to IP list file: " >&2
+            echo "  Enter path to IP list file: " >&2
             read -r EXCLUDE_IP_FILE
             if [ -z "$EXCLUDE_IP_FILE" ]; then
                 echo "No file provided. Falling back to auto-detect." >&2
