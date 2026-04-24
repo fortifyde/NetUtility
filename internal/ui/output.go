@@ -40,6 +40,7 @@ type OutputViewer struct {
 	waitingInput bool
 	completed    bool
 	passwordMode bool
+	connectedJobID string
 	mu           sync.RWMutex
 
 	outputChan <-chan executor.OutputLine
@@ -64,7 +65,7 @@ func NewOutputViewer(app *tview.Application, pages *tview.Pages, jobManager *job
 
 	statusLine := tview.NewTextView().
 		SetDynamicColors(true).
-		SetText("[green]Ready[::-] - Tab=Switch | Ctrl+J=Jobs | Ctrl+D=Dashboard | Ctrl+N=Hosts | Ctrl+B=Background | Ctrl+Z=Main | Esc=Close")
+		SetText("[green]Ready[::-] - Space=Pause f=Follow t=Time s=Source /=Search g/G=Scroll | q=Back Esc=Cancel")
 
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
@@ -99,6 +100,7 @@ func (ov *OutputViewer) setupKeyBindings() {
 	ov.outputView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape:
+			ov.cancelJob()
 			ov.Stop()
 			if ov.returnToMainCallback != nil {
 				ov.returnToMainCallback()
@@ -109,12 +111,9 @@ func (ov *OutputViewer) setupKeyBindings() {
 		case tcell.KeyCtrlC:
 			ov.Stop()
 			return nil
-		case tcell.KeyCtrlB:
-			ov.BackgroundTask()
-			return nil
 		case tcell.KeyTab:
 			ov.app.SetFocus(ov.inputField)
-			ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Z=Main")
+			ov.statusLine.SetText("[yellow]Input Mode[::-] - Enter=Submit Tab=View | q=Back Esc=Cancel")
 			return nil
 		}
 
@@ -154,7 +153,7 @@ func (ov *OutputViewer) setupKeyBindings() {
 				return nil
 			case 'l':
 				ov.app.SetFocus(ov.inputField)
-				ov.statusLine.SetText("[yellow]Input Mode[::-] - Type response + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Z=Main")
+				ov.statusLine.SetText("[yellow]Input Mode[::-] - Enter=Submit Tab=View | q=Back Esc=Cancel")
 				return nil
 			}
 		}
@@ -167,6 +166,7 @@ func (ov *OutputViewer) setupInputField() {
 	ov.inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape:
+			ov.cancelJob()
 			ov.Stop()
 			if ov.returnToMainCallback != nil {
 				ov.returnToMainCallback()
@@ -177,12 +177,9 @@ func (ov *OutputViewer) setupInputField() {
 		case tcell.KeyCtrlC:
 			ov.Stop()
 			return nil
-		case tcell.KeyCtrlB:
-			ov.BackgroundTask()
-			return nil
 		case tcell.KeyTab:
 			ov.app.SetFocus(ov.outputView)
-			ov.statusLine.SetText("[green]View Mode[::-] - Tab=Input | Ctrl+J=Jobs | Ctrl+D=Dashboard | Ctrl+N=Hosts | Ctrl+B=Background | Ctrl+Z=Main | Esc=Close")
+			ov.statusLine.SetText("[green]View Mode[::-] - Tab=Input Space=Pause f=Follow t=Time s=Source /=Search g/G=Scroll | q=Back Esc=Cancel")
 			return nil
 		case tcell.KeyEnter:
 			ov.mu.RLock()
@@ -246,7 +243,7 @@ func (ov *OutputViewer) sendInputToScript(input string) {
 		if isPassword {
 			ov.inputField.SetMaskCharacter(0)
 		}
-		ov.statusLine.SetText("[green]Input sent[::-] - Waiting for response | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Z=Main")
+		ov.statusLine.SetText("[green]Input sent[::-] - Waiting for response... | q=Back Esc=Cancel")
 	})
 }
 
@@ -290,6 +287,7 @@ func (ov *OutputViewer) ConnectToJob(job *jobs.Job) error {
 	ov.executor = job.Executor
 	ov.result = job.Result
 	ov.scriptPath = job.ScriptPath
+	ov.connectedJobID = job.ID
 	ov.running = true
 
 	historicalLines := job.GetOutputLines()
@@ -336,7 +334,7 @@ func (ov *OutputViewer) pollJobOutput(job *jobs.Job, startIdx int) {
 					ov.progressText = text
 					ov.mu.Unlock()
 					ov.app.QueueUpdateDraw(func() {
-						ov.statusLine.SetText(fmt.Sprintf("[cyan]%s[white] | Tab=Switch | Ctrl+J=Jobs | Ctrl+B=Background | Esc=Close", text))
+						ov.statusLine.SetText(fmt.Sprintf("[cyan]%s[white] | q=Back Esc=Cancel", text))
 					})
 					continue
 				}
@@ -391,7 +389,7 @@ func (ov *OutputViewer) pollJobOutput(job *jobs.Job, startIdx int) {
 					ov.mu.Lock()
 					ov.updateTitleLocked(scriptPath, fmt.Sprintf("%s - Duration: %v", finalStatus, finalDuration.Round(time.Second)))
 					ov.mu.Unlock()
-					ov.statusLine.SetText(fmt.Sprintf("[%s]ENTER=Continue | Ctrl+J=Jobs | Ctrl+Z=Main | ESC=Close[::-]", finalColor))
+					ov.statusLine.SetText(fmt.Sprintf("[%s]Enter=Continue | q=Back Esc=Close[::-]", finalColor))
 				})
 				return
 			}
@@ -437,7 +435,7 @@ func (ov *OutputViewer) processOutput() {
 				ov.mu.Lock()
 				ov.updateTitleLocked(scriptPath, fmt.Sprintf("%s - Duration: %v", finalStatus, result.Duration.Round(time.Second)))
 				ov.mu.Unlock()
-				ov.statusLine.SetText(fmt.Sprintf("[%s]ENTER=Continue | Ctrl+J=Jobs | Ctrl+Z=Main | ESC=Close[::-]", finalColor))
+				ov.statusLine.SetText(fmt.Sprintf("[%s]Enter=Continue | q=Back Esc=Close[::-]", finalColor))
 			})
 		}
 	}()
@@ -454,7 +452,7 @@ func (ov *OutputViewer) processOutput() {
 				ov.progressText = text
 				ov.mu.Unlock()
 				ov.app.QueueUpdateDraw(func() {
-					ov.statusLine.SetText(fmt.Sprintf("[cyan]%s[white] | Tab=Switch | Ctrl+J=Jobs | Ctrl+B=Background | Esc=Close", text))
+					ov.statusLine.SetText(fmt.Sprintf("[cyan]%s[white] | q=Back Esc=Cancel", text))
 				})
 				continue
 			}
@@ -512,7 +510,7 @@ func (ov *OutputViewer) handlePromptDetection(line executor.OutputLine) {
 		ov.app.QueueUpdateDraw(func() {
 			if ov.HasFocus() {
 				ov.app.SetFocus(ov.inputField)
-				ov.statusLine.SetText("[yellow]Waiting for input[::-] - Enter selection + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Z=Main")
+				ov.statusLine.SetText("[yellow]Waiting for input[::-] - Enter=Submit Tab=View | q=Back Esc=Cancel")
 			}
 		})
 	}
@@ -525,7 +523,7 @@ func (ov *OutputViewer) handlePromptDetection(line executor.OutputLine) {
 			if ov.HasFocus() {
 				ov.inputField.SetMaskCharacter('*')
 				ov.app.SetFocus(ov.inputField)
-				ov.statusLine.SetText("[yellow]Password input[::-] - Type password + Enter | Ctrl+J=Jobs | Ctrl+B=Background | Ctrl+Z=Main")
+				ov.statusLine.SetText("[yellow]Password input[::-] - Enter=Submit Tab=View | q=Back Esc=Cancel")
 			}
 		})
 	}
@@ -684,6 +682,18 @@ func (ov *OutputViewer) ShowHistoricalOutput(jobName string, status jobs.JobStat
 	ov.statusLine.SetText(fmt.Sprintf("[%s]%s - read-only[::-] | Esc=Close | Enter=Close", statusColor, string(status)))
 }
 
+
+// cancelJob attempts to cancel the running job if connected via ConnectToJob.
+// If no job is connected (e.g. StartScript path), this is a no-op.
+func (ov *OutputViewer) cancelJob() {
+	ov.mu.RLock()
+	jobID := ov.connectedJobID
+	ov.mu.RUnlock()
+
+	if jobID != "" && ov.jobManager != nil {
+		ov.jobManager.CancelJob(jobID)
+	}
+}
 func (ov *OutputViewer) Stop() {
 	ov.mu.Lock()
 	if !ov.running {
@@ -691,6 +701,7 @@ func (ov *OutputViewer) Stop() {
 		return
 	}
 	ov.running = false
+	ov.connectedJobID = ""
 	ov.mu.Unlock()
 
 	ov.stopOnce.Do(func() { close(ov.stopChan) })
@@ -819,7 +830,8 @@ func (ov *OutputViewer) ShowHelp() {
 	helpText := `Output Viewer Help
 
 Controls:
-  Esc, q       Close viewer and stop script
+  Esc          Cancel job and return to main
+  q            Return to main (job keeps running)
   Ctrl+C       Stop script execution
   Space        Pause/resume output display
   f            Toggle auto-scroll (following)
@@ -839,7 +851,8 @@ Display Features:
   - Timestamp and source information
 
 Script Control:
-  - Scripts can be stopped with Ctrl+C or Esc
+  - Scripts can be cancelled with Esc (kills the job)
+  - Press q to return to main while keeping the job running
   - Input can be sent to interactive scripts
   - Full execution history is maintained`
 
@@ -853,20 +866,6 @@ Script Control:
 	ov.pages.AddPage("output-help", helpModal, true, true)
 }
 
-func (ov *OutputViewer) BackgroundTask() {
-	ov.mu.Lock()
-	if !ov.running {
-		ov.mu.Unlock()
-		ov.pages.RemovePage("output")
-		return
-	}
-	ov.running = false
-	ov.mu.Unlock()
-
-	ov.stopOnce.Do(func() { close(ov.stopChan) })
-
-	ov.pages.RemovePage("output")
-}
 
 func (ov *OutputViewer) FocusView() {
 	ov.app.SetFocus(ov.outputView)
