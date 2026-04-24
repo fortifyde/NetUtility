@@ -38,6 +38,7 @@ type TUI struct {
 	jobsViewer             *JobsViewer
 	dashboardViewer        *Dashboard
 	corrViewer             *CorrelationViewer
+	outputViewer           *OutputViewer
 	taskListIsContinuation []bool // true for wrapped-description continuation rows
 
 	jobCounter atomic.Int64
@@ -561,6 +562,17 @@ func (t *TUI) setupUI() {
 }
 
 func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
+	// Consume Ctrl+C to prevent tview's built-in handler from stopping the application.
+	// tview calls a.Stop() on unhandled Ctrl+C (application.go ~L433). All pages handle
+	// their own cancellation — the output viewer uses it to stop streaming, the main page
+	// has no use for it. Either way the TUI must stay alive.
+	if event.Key() == tcell.KeyCtrlC {
+		if t.outputViewer != nil && t.outputViewer.IsRunning() {
+			t.outputViewer.Stop()
+		}
+		return nil
+	}
+
 	// Handle global Ctrl+key shortcuts that work everywhere (including output viewer)
 	if event.Key() == tcell.KeyCtrlJ {
 		// Global Job Manager access - works even during script execution
@@ -773,12 +785,12 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 	}
 
 	// Job started successfully - show live output
-	outputViewer := NewOutputViewer(t.app, t.pages, t.jobManager, t.returnToMain)
-	t.pages.AddPage("output", outputViewer, true, true)
-	outputViewer.FocusView()
+	t.outputViewer = NewOutputViewer(t.app, t.pages, t.jobManager, t.returnToMain)
+	t.pages.AddPage("output", t.outputViewer, true, true)
+	t.outputViewer.FocusView()
 
 	// Connect OutputViewer to the running job
-	if err := outputViewer.ConnectToJob(job); err != nil {
+	if err := t.outputViewer.ConnectToJob(job); err != nil {
 		t.showErrorModal("Connection Error", fmt.Sprintf("Failed to connect to job: %v", err))
 		t.pages.RemovePage("output")
 		return

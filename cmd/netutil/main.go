@@ -165,6 +165,7 @@ func main() {
 		os.Exit(1)
 	}
 
+
 	// Default TUI mode - now with integrated streaming execution
 	tui := ui.NewTUI(scriptsDir, cfg.WorkspaceDir)
 	if err := tui.Run(); err != nil {
