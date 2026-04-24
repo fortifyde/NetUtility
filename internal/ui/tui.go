@@ -349,7 +349,23 @@ func mergeCaptureAnalysisTasks(categories []Category) []Category {
 	return categories
 }
 
+// ensureTrueColor sets COLORTERM=truecolor if not already set, enabling
+// tcell to use 24-bit RGB color sequences. Terminals that don't support
+// these sequences will silently ignore them.
+func ensureTrueColor() {
+	if os.Getenv("COLORTERM") != "" {
+		return
+	}
+	_ = os.Setenv("COLORTERM", "truecolor")
+}
+
 func NewTUI(scriptsDir, workspaceDir string) *TUI {
+
+	// Ensure TrueColor is available for screenshot rendering.
+	// Many terminals (e.g., qterminal) support 24-bit color but don't set
+	// COLORTERM, which tcell uses to decide whether to emit RGB escape sequences.
+	ensureTrueColor()
+
 	app := tview.NewApplication()
 
 	// Initialize script registry with provided scripts directory

@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image"
+	"image/draw"
 	_ "image/jpeg"
 	_ "image/png"
 	"os"
@@ -15,6 +16,9 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+
+	xdraw "golang.org/x/image/draw"
+
 	"netutil/internal/correlation"
 )
 
@@ -737,7 +741,7 @@ func (cv *CorrelationViewer) startRefreshTimer() {
 	}()
 }
 
-// Close closes the correlation viewer
+// Close closes the correlation viewer.
 func (cv *CorrelationViewer) Close() {
 	if cv.refreshTicker != nil {
 		cv.refreshTicker.Stop()
@@ -802,6 +806,9 @@ func (cv *CorrelationViewer) showNoScreenshotsNotice() {
 }
 
 // showScreenshotModal opens a full-screen modal to display screenshots for the selected host.
+// Images are rendered as colored halfblock Unicode characters via tcell's cell
+// buffer (screen.SetContent). This approach works with any terminal and avoids
+// the timing/fd issues of writing escape sequences directly to /dev/tty.
 func (cv *CorrelationViewer) showScreenshotModal() {
 	if cv.selectedHost == "" {
 		return
@@ -818,55 +825,97 @@ func (cv *CorrelationViewer) showScreenshotModal() {
 		return
 	}
 
-	// Track current screenshot index for cycling
 	currentIdx := 0
+	// Cached cell data for the image. Rebuilt when image or dimensions change.
+	var cachedCells []tcellCell
+	var cachedCellW, cachedCellH int
 
-	// Create image widget
-	imgWidget := tview.NewImage()
-	imgWidget.SetBorder(true).SetTitle("Screenshot")
+	// imageBox displays the screenshot as colored halfblock characters.
+	// SetDrawFunc is called during Box.Draw, after the border is drawn.
+	// The callback uses screen.SetContent to place each colored cell.
+	imageBox := tview.NewBox().SetBorder(true).SetTitle("Screenshot")
+	imageBox.SetDrawFunc(func(screen tcell.Screen, x, y, w, h int) (int, int, int, int) {
+		// The callback receives the outer rect (including border).
+		// Inner area starts at (x+1, y+1) with size (w-2, h-2).
+		innerX := x + 1
+		innerY := y + 1
+		innerW := w - 2
+		innerH := h - 2
+		if innerW <= 0 || innerH <= 0 {
+			return innerX, innerY, innerW, innerH
+		}
 
-	// Create info bar at the bottom
+		// Rebuild cell data if image or dimensions changed.
+		if innerW != cachedCellW || innerH != cachedCellH || len(cachedCells) != innerW*innerH {
+			ss := screenshots[currentIdx]
+			if img, err := cv.loadScreenshot(ss.File); err == nil {
+				cachedCells = renderHalfblocks(img, innerW, innerH)
+			} else {
+				cachedCells = nil
+			}
+			cachedCellW = innerW
+			cachedCellH = innerH
+		}
+
+		// Write cells to the tcell buffer.
+		for i, c := range cachedCells {
+			row := i / innerW
+			col := i % innerW
+			screen.SetContent(innerX+col, innerY+row, c.char, nil,
+				tcell.StyleDefault.Foreground(c.fg).Background(c.bg))
+		}
+
+		return innerX, innerY, innerW, innerH
+	})
+
 	infoBar := tview.NewTextView().SetDynamicColors(true)
 	infoBar.SetBorder(true).SetTitle("Info")
 
-	// Helper to update the modal content
+	// Layout
+	modal := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(imageBox, 0, 1, true).
+		AddItem(infoBar, 5, 0, false)
+
+	// closeScreenshot removes the modal.
+	closeScreenshot := func() {
+		cv.pages.RemovePage("screenshot-modal")
+		cv.app.SetFocus(cv.hostsList)
+	}
+
+	// updateView updates the info bar and invalidates the render cache.
+	// The next draw cycle will regenerate and display the image.
 	updateView := func() {
 		ss := screenshots[currentIdx]
 		title := fmt.Sprintf("Screenshot [%d/%d]", currentIdx+1, len(screenshots))
 		errLine := ""
 
-		if img, err := cv.loadScreenshot(ss.File); err == nil {
-			imgWidget.SetImage(img)
-		} else {
-			imgWidget.SetImage(nil)
+		if _, err := cv.loadScreenshot(ss.File); err != nil {
 			title += " [red](load error)[::-]"
 			errLine = fmt.Sprintf("\n[red]Error:[::-] [gray]%v[::-]", err)
 		}
-		imgWidget.SetTitle(title)
+		imageBox.SetTitle(title)
 
 		infoBar.SetText(fmt.Sprintf(
 			"[yellow]URL:[::-] [white]%s[::-]   [yellow]Status:[::-] [white]%s[::-]   [yellow]File:[::-] [gray]%s[::-]%s\n\n[gray]Controls: [yellow]n[gray]=next  [yellow]p[gray]=prev  [yellow]o[gray]=open externally  [yellow]Esc/q[gray]=close",
 			ss.URL, ss.StatusCode, ss.File, errLine,
 		))
+
+		// Invalidate cache to force re-render on next draw.
+		cachedCells = nil
+		cachedCellW = 0
+		cachedCellH = 0
 	}
 
-	// Layout
-	modal := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(imgWidget, 0, 1, true).
-		AddItem(infoBar, 5, 0, false)
-
-	// Key bindings for the modal
+	// Key bindings
 	modal.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape:
-			cv.pages.RemovePage("screenshot-modal")
-			cv.app.SetFocus(cv.hostsList)
+			closeScreenshot()
 			return nil
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'q':
-				cv.pages.RemovePage("screenshot-modal")
-				cv.app.SetFocus(cv.hostsList)
+				closeScreenshot()
 				return nil
 			case 'n':
 				if currentIdx < len(screenshots)-1 {
@@ -881,7 +930,6 @@ func (cv *CorrelationViewer) showScreenshotModal() {
 				}
 				return nil
 			case 'o':
-				// Open screenshot externally
 				ss := screenshots[currentIdx]
 				cv.app.Suspend(func() {
 					cmd := exec.Command("xdg-open", ss.File)
@@ -895,9 +943,56 @@ func (cv *CorrelationViewer) showScreenshotModal() {
 		return event
 	})
 
-	updateView()
 	cv.pages.AddPage("screenshot-modal", modal, true, true)
 	cv.app.SetFocus(modal)
+	updateView()
+	cv.app.ForceDraw()
+}
+
+// tcellCell holds a single character cell with foreground and background colors.
+type tcellCell struct {
+	char rune
+	fg   tcell.Color
+	bg   tcell.Color
+}
+
+// renderHalfblocks converts an image.Image into a grid of colored halfblock
+// cells. Each cell uses the '▀' (upper half block) rune with the top pixel's
+// color as foreground and the bottom pixel's color as background. This gives
+// 2x vertical resolution per cell row.
+func renderHalfblocks(img image.Image, cellW, cellH int) []tcellCell {
+	bounds := img.Bounds()
+	imgW := bounds.Dx()
+	imgH := bounds.Dy()
+	if imgW <= 0 || imgH <= 0 || cellW <= 0 || cellH <= 0 {
+		return nil
+	}
+
+	cells := make([]tcellCell, cellW*cellH)
+
+	// Pre-resize source image to exact half-block pixel dimensions using
+	// high-quality CatmullRom interpolation. This avoids aliasing artifacts
+	// from point-sampling when source and target dimensions don't match.
+	targetW := cellW
+	targetH := cellH * 2 // 2 pixel rows per cell (top=foreground, bottom=background)
+	resized := image.NewRGBA(image.Rect(0, 0, targetW, targetH))
+	xdraw.CatmullRom.Scale(resized, resized.Bounds(), img, img.Bounds(), draw.Over, nil)
+
+	// Sample 1:1 from the resized image — no scaling math needed.
+	for row := 0; row < cellH; row++ {
+		for col := 0; col < cellW; col++ {
+			topR, topG, topB, _ := resized.RGBAAt(col, row*2).RGBA()
+			botR, botG, botB, _ := resized.RGBAAt(col, row*2+1).RGBA()
+
+			cells[row*cellW+col] = tcellCell{
+				char: '▀',
+				fg:   tcell.NewRGBColor(int32(topR>>8), int32(topG>>8), int32(topB>>8)),
+				bg:   tcell.NewRGBColor(int32(botR>>8), int32(botG>>8), int32(botB>>8)),
+			}
+		}
+	}
+
+	return cells
 }
 
 // loadScreenshot loads a screenshot file from disk and caches it.
