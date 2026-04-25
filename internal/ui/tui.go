@@ -865,7 +865,7 @@ func (t *TUI) showJobsManager() {
 		t.jobsViewer = NewJobsViewer(t.app, t.pages, t.jobManager, func() {
 			t.jobsViewer = nil
 			t.returnToMain()
-		})
+		}, t.str)
 	}
 	t.pages.AddPage("jobs", t.jobsViewer, true, true)
 	t.app.SetFocus(t.jobsViewer.jobsList)

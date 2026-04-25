@@ -31,10 +31,13 @@ type JobsViewer struct {
 
 	// Callback for returning to main TUI with proper focus restoration
 	returnToMainCallback func()
+
+	// Internationalization
+	str *Strings
 }
 
 // NewJobsViewer creates a new jobs viewer
-func NewJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager, returnToMainCallback func()) *JobsViewer {
+func NewJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager, returnToMainCallback func(), str *Strings) *JobsViewer {
 	jv := &JobsViewer{
 		Flex:                 tview.NewFlex(),
 		app:                  app,
@@ -43,6 +46,7 @@ func NewJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.
 		jobIDMapping:         make(map[int]string),
 		stopChan:             make(chan struct{}),
 		returnToMainCallback: returnToMainCallback,
+		str:                  str,
 	}
 
 	jv.setupUI()
@@ -54,10 +58,10 @@ func NewJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.
 func (jv *JobsViewer) setupUI() {
 	// Create jobs table
 	jv.jobsList = tview.NewTable().SetBorders(true).SetSelectable(true, false)
-	jv.jobsList.SetBorder(true).SetTitle("Active Jobs")
+	jv.jobsList.SetBorder(true).SetTitle(jv.str.PaneTitleActiveJobs)
 
 	// Set table headers
-	headers := []string{"ID", "Name", "Status", "Duration", "Progress"}
+	headers := []string{jv.str.JobsHeaderID, jv.str.JobsHeaderName, jv.str.JobsHeaderStatus, jv.str.JobsHeaderDuration, jv.str.JobsHeaderProgress}
 	for i, header := range headers {
 		cell := tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
@@ -71,18 +75,12 @@ func (jv *JobsViewer) setupUI() {
 
 	// Create stats panel
 	jv.statsText = tview.NewTextView().SetDynamicColors(true)
-	jv.statsText.SetBorder(true).SetTitle("Statistics")
+	jv.statsText.SetBorder(true).SetTitle(jv.str.PaneTitleStatistics)
 
 	// Create controls panel
 	jv.controlsText = tview.NewTextView().SetDynamicColors(true)
-	jv.controlsText.SetBorder(true).SetTitle("Controls")
-	jv.controlsText.SetText(`[yellow]Controls:[::-]
-[white]Enter[::-]    View job output
-[white]c[::-]        Cancel selected job
-[white]C[::-]        Clear completed jobs
-[white]1-9[::-]      Set max concurrent jobs
-[white]q[::-]        Close
-[yellow]Global:[::-] [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+N[::-]=Hosts  [white]Ctrl+Z[::-]=Main`)
+	jv.controlsText.SetBorder(true).SetTitle(jv.str.PaneTitleControls)
+	jv.controlsText.SetText(jv.str.JobsControlsText)
 
 	// Layout: Left panel (table), Right panel (stats + controls)
 	rightPanel := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -160,7 +158,7 @@ func (jv *JobsViewer) updateJobsList() {
 	jv.jobIDMapping = make(map[int]string)
 
 	// Reset headers
-	headers := []string{"ID", "Name", "Status", "Duration", "Progress"}
+	headers := []string{jv.str.JobsHeaderID, jv.str.JobsHeaderName, jv.str.JobsHeaderStatus, jv.str.JobsHeaderDuration, jv.str.JobsHeaderProgress}
 	for i, header := range headers {
 		cell := tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
@@ -223,16 +221,7 @@ func (jv *JobsViewer) updateJobsList() {
 func (jv *JobsViewer) updateStats() {
 	stats := jv.jobManager.GetStats()
 
-	statsText := fmt.Sprintf(`[yellow]Job Statistics:[::-]
-
-[white]Total Jobs:[::-]      %d
-[green]Running:[::-]         %d/%d
-[blue]Pending:[::-]         %d
-[green]Completed:[::-]       %d
-[red]Failed:[::-]           %d
-[gray]Cancelled:[::-]       %d
-
-[yellow]Capacity:[::-]        %d/%d`,
+	statsText := fmt.Sprintf(jv.str.FmtJobStats,
 		stats.TotalJobs,
 		stats.RunningJobs, stats.MaxConcurrent,
 		stats.PendingJobs,
@@ -281,7 +270,7 @@ func (jv *JobsViewer) formatDuration(d time.Duration) string {
 func (jv *JobsViewer) getJobProgress(job *jobs.Job) string {
 	switch job.GetStatus() {
 	case jobs.JobStatusPending:
-		return "⏳ Waiting"
+		return jv.str.ProgressWaiting
 	case jobs.JobStatusRunning:
 		current, total, desc := job.GetPhaseProgress()
 		if total > 0 {
@@ -289,15 +278,15 @@ func (jv *JobsViewer) getJobProgress(job *jobs.Job) string {
 		}
 		indicators := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
 		idx := int(time.Now().Unix()) % len(indicators)
-		return fmt.Sprintf("%s Running", indicators[idx])
+		return fmt.Sprintf("%s %s", indicators[idx], jv.str.ProgressRunning)
 	case jobs.JobStatusCompleted:
-		return "✅ Done"
+		return jv.str.ProgressDone
 	case jobs.JobStatusFailed:
-		return "❌ Failed"
+		return jv.str.ProgressFailed
 	case jobs.JobStatusCancelled:
-		return "🚫 Cancelled"
+		return jv.str.ProgressCancelled
 	default:
-		return "❓ Unknown"
+		return jv.str.ProgressUnknown
 	}
 }
 
@@ -374,7 +363,7 @@ func (jv *JobsViewer) cancelSelectedJob() {
 // clearCompletedJobs removes all completed jobs
 func (jv *JobsViewer) clearCompletedJobs() {
 	removed := jv.jobManager.ClearCompletedJobs()
-	jv.showInfo(fmt.Sprintf("Removed %d completed jobs", removed))
+	jv.showInfo(fmt.Sprintf(jv.str.FmtRemovedCompleted, removed))
 	jv.refresh()
 }
 
@@ -382,11 +371,11 @@ func (jv *JobsViewer) clearCompletedJobs() {
 // maximum concurrent job limit before applying it.
 func (jv *JobsViewer) confirmSetMaxConcurrent(max int) {
 	modal := tview.NewModal().
-		SetText(fmt.Sprintf("Set max concurrent jobs to %d?", max)).
-		AddButtons([]string{"Yes", "No"}).
+		SetText(fmt.Sprintf(jv.str.FmtSetMaxConcurrent, max)).
+		AddButtons([]string{jv.str.BtnYes, jv.str.BtnNo}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			jv.pages.RemovePage("confirm-concurrency")
-			if buttonLabel == "Yes" {
+			if buttonLabel == jv.str.BtnYes {
 				jv.setMaxConcurrent(max)
 			}
 		})
@@ -396,7 +385,7 @@ func (jv *JobsViewer) confirmSetMaxConcurrent(max int) {
 // setMaxConcurrent sets the maximum number of concurrent jobs
 func (jv *JobsViewer) setMaxConcurrent(max int) {
 	jv.jobManager.SetMaxConcurrent(max)
-	jv.showInfo(fmt.Sprintf("Max concurrent jobs set to %d", max))
+	jv.showInfo(fmt.Sprintf(jv.str.FmtMaxConcurrentSet, max))
 }
 
 // refresh updates all UI components
@@ -427,8 +416,8 @@ func (jv *JobsViewer) startRefreshTimer() {
 
 // ShowJobsViewer creates and displays a new jobs viewer page.
 // For the main TUI use showJobsManager() which reuses a cached instance.
-func ShowJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager, returnToMainCallback func()) {
-	jv := NewJobsViewer(app, pages, jobManager, returnToMainCallback)
+func ShowJobsViewer(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager, returnToMainCallback func(), str *Strings) {
+	jv := NewJobsViewer(app, pages, jobManager, returnToMainCallback, str)
 	pages.AddPage("jobs", jv, true, true)
 	app.SetFocus(jv.jobsList)
 }
@@ -455,7 +444,7 @@ func (jv *JobsViewer) Close() {
 func (jv *JobsViewer) showError(message string) {
 	modal := tview.NewModal().
 		SetText(fmt.Sprintf("Error: %s", message)).
-		AddButtons([]string{"OK"}).
+		AddButtons([]string{jv.str.BtnOK}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			jv.pages.RemovePage("error")
 		})
@@ -467,7 +456,7 @@ func (jv *JobsViewer) showError(message string) {
 func (jv *JobsViewer) showInfo(message string) {
 	modal := tview.NewModal().
 		SetText(message).
-		AddButtons([]string{"OK"}).
+		AddButtons([]string{jv.str.BtnOK}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			jv.pages.RemovePage("info")
 		})
