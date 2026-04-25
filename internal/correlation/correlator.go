@@ -468,10 +468,14 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 	factors := make([]RiskFactorDetail, 0)
 
 	// --- Vulnerability factor (max 500) ---
+	// sslscan findings are handled separately in the SSL factor below.
 	vulnScore := 0
 	criticalCount := 0
 	highCount := 0
 	for _, vuln := range correlation.Vulnerabilities {
+		if vuln.Source == "sslscan" {
+			continue
+		}
 		var pts int
 		sev := strings.ToLower(vuln.Severity)
 		switch sev {

@@ -274,7 +274,7 @@ func TestCalculateRiskScore(t *testing.T) {
 					{Severity: "critical", Title: "SSLv3 enabled", Source: "sslscan"},
 				},
 			},
-			wantScore: 250, // 150 vuln + 100 ssl
+			wantScore: 100, // 100 ssl only — sslscan findings excluded from vuln factor
 		},
 		{
 			name: "telnet service exposure",

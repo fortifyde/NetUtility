@@ -583,22 +583,24 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 		return rp.parseGenericOutput(result, content)
 	}
 
+	seenHosts := make(map[string]bool)
 	for _, details := range scan.ScanDetails {
 		ip := details.TargetIP
 		if ip == "" {
 			continue
 		}
 
-		// Add host
-		host := Host{
-			IP:       ip,
-			Hostname: details.TargetHost,
-			Status:   "up",
-			LastSeen: result.Timestamp,
-			Ports:    make([]Port, 0),
+		if !seenHosts[ip] {
+			seenHosts[ip] = true
+			result.Hosts = append(result.Hosts, Host{
+				IP:       ip,
+				Hostname: details.TargetHost,
+				Status:   "up",
+				LastSeen: result.Timestamp,
+				Ports:    make([]Port, 0),
+			})
+			result.Targets = append(result.Targets, ip)
 		}
-		result.Hosts = append(result.Hosts, host)
-		result.Targets = append(result.Targets, ip)
 
 		// Parse port if available
 		port := 0
@@ -637,9 +639,10 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 	return result, nil
 }
 
-// niktoSeverity assigns a heuristic severity to a nikto finding based on keywords.
+// niktoSeverity assigns a heuristic severity to a nikto finding based on the
+// structured description attribute, which is nikto's canonical finding summary.
 func niktoSeverity(item niktoItem) string {
-	text := strings.ToLower(item.Description + " " + item.Text)
+	text := strings.ToLower(item.Description)
 
 	highKW := []string{"vulnerable", "unrestricted", "credentials", "default password",
 		"default credential", "admin panel", "backdoor", "shell",
@@ -668,6 +671,7 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 	// sslscan can contain results for multiple hosts separated by "--- Host: <ip> ---"
 	var currentIP string
 	var currentPort int
+	seenHosts := make(map[string]bool)
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -679,15 +683,14 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 			ip := strings.TrimSpace(hostLine)
 			if ip != "" {
 				currentIP = ip
-				if currentIP != "" {
-					// Add host
-					host := Host{
+				if !seenHosts[currentIP] {
+					seenHosts[currentIP] = true
+					result.Hosts = append(result.Hosts, Host{
 						IP:       currentIP,
 						Status:   "up",
 						LastSeen: result.Timestamp,
 						Ports:    make([]Port, 0),
-					}
-					result.Hosts = append(result.Hosts, host)
+					})
 					result.Targets = append(result.Targets, currentIP)
 				}
 			}
