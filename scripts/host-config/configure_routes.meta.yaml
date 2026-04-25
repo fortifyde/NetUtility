@@ -1,6 +1,8 @@
 script:
   name: "Configure Routes"
   description: "Manage IP routing table entries and network routes"
+  name_de: "Routen konfigurieren"
+  description_de: "Routingtabelle einsehen und Netzwerkrouten verwalten"
   category: "host-config"
   subcategory: "networking"
   

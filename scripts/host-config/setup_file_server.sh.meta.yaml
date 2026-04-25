@@ -1,6 +1,8 @@
 script:
   name: "Setup File Server"
-  description: "Configure HTTP file server with authentication for sharing scan results across VLANs"
+  description: "Configure HTTP(s) file server with authentication for sharing scan results across VLANs"
+  name_de: "Webserver einrichten"
+  description_de: "HTTP(s)-Dateiserver mit Authentifizierung zum Teilen von Scan-Ergebnissen über VLANs hinweg konfigurieren"
   category: "utilities"
   subcategory: "services"
 

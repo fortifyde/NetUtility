@@ -1,6 +1,8 @@
 script:
   name: "Packet Capture Analysis"
   description: "Analyze pcap files for protocol statistics and security assessment"
+  name_de: "Analyse Netzwerkmitschnitt"
+  description_de: "pcap-Dateien auf Protokollstatistiken und grundliegende Sicherheitsmängel analysieren"
   category: "discovery"
   subcategory: "analysis"
   

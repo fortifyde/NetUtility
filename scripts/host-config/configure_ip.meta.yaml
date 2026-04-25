@@ -1,6 +1,8 @@
 script:
   name: "Configure IP Addresses"
   description: "IP address configuration with validation"
+  name_de: "IP-Adressen konfigurieren"
+  description_de: "IP-Adresskonfiguration mit Validierung"
   category: "host-config"
   subcategory: "networking"
   

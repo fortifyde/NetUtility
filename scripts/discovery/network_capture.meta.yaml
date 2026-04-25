@@ -1,6 +1,8 @@
 script:
   name: "Network Capture"
   description: "Capture and analyze network traffic with advanced filtering options"
+  name_de: "Netzwerkaufzeichnung"
+  description_de: "Netzwerkmitschnitt aufzeichnen und mit erweiterten Filteroptionen analysieren"
   category: "discovery"
   subcategory: "capture"
   

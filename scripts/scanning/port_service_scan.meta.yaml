@@ -1,6 +1,8 @@
 script:
   name: "Port & Service Scan"
   description: "Comprehensive port scanning with service version detection and OS fingerprinting"
+  name_de: "Port- und Service-Scan"
+  description_de: "Umfassender Port-Scan mit Service-Versionserkennung und OS-Fingerprinting"
   category: "scanning"
   subcategory: "discovery"
 

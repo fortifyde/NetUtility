@@ -1,6 +1,8 @@
 script:
-  name: "Web Screenshot Capture"
-  description: "Capture screenshots of web services using gowitness"
+  name: "Web Services Gatherer"
+  description: "Capture screenshots of available web services using gowitness"
+  name_de: "Webdienste Gatherer"
+  description_de: "Screenshots von verfügbaren Webdiensten mit gowitness erfassen"
   category: "advanced"
   subcategory: "web"
 

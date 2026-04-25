@@ -1,6 +1,8 @@
 script:
   name: "Select Working Directory"
   description: "Choose and configure the working directory for NetUtility operations"
+  name_de: "Arbeitsverzeichnis auswählen"
+  description_de: "Arbeitsverzeichnis für NetUtility-Vorgänge neu konfigurieren"
   category: "utilities"
   subcategory: "configuration"
   

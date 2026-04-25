@@ -1,6 +1,8 @@
 script:
   name: "Manage Network Interfaces"
   description: "Manage network interface states"
+  name_de: "Netzwerkschnittstellen verwalten"
+  description_de: "Netzwerkschnittstellenstatus verwalten"
   category: "host-config"
   subcategory: "networking"
   

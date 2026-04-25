@@ -1,6 +1,8 @@
 script:
   name: "Script Template"
+  # name_de: "Skriptvorlage"  # Optional: German display name
   description: "Template demonstrating standardized script patterns and best practices"
+  # description_de: "Vorlage zur Demonstration standardisierter Skriptmuster und bewährter Methoden"  # Optional: German description
   category: "template"
   subcategory: "development"
   

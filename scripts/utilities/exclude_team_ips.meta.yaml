@@ -1,6 +1,8 @@
 script:
   name: "Exclude Team IPs"
   description: "Detect audit team systems via MAC/vendor matching and remove their IPs from all discovery outputs"
+  name_de: "Team-IPs ausschließen"
+  description_de: "IPs der Team-Systeme aus allen Discovery-Ergebnissen entfernen"
   category: "utilities"
   subcategory: "discovery-cleanup"
 

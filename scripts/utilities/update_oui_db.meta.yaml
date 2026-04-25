@@ -1,6 +1,8 @@
 script:
   name: "Update OUI Database"
   description: "Download and update the IEEE OUI database for MAC address vendor identification (REQUIRES INTERNET)"
+  name_de: "OUI-Datenbank aktualisieren"
+  description_de: "IEEE-OUI-Datenbank für MAC-Adressen-Herstelleridentifikation herunterladen und aktualisieren (ERFORDERT INTERNET)"
   category: "utilities"
   subcategory: "database"
   

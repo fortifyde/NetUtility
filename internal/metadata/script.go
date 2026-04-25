@@ -64,6 +64,8 @@ type Example struct {
 type ScriptInfo struct {
 	Name              string       `yaml:"name"`
 	Description       string       `yaml:"description"`
+	NameDE            string       `yaml:"name_de,omitempty"`
+	DescriptionDE     string       `yaml:"description_de,omitempty"`
 	Category          string       `yaml:"category"`
 	Subcategory       string       `yaml:"subcategory,omitempty"`
 	File              string       `yaml:"file"`
@@ -82,6 +84,24 @@ type ScriptInfo struct {
 	Version           string       `yaml:"version"`
 	Author            string       `yaml:"author"`
 	LastUpdated       string       `yaml:"last_updated"`
+}
+
+// LocalizedName returns the German name if lang is "de" and a German name exists,
+// otherwise returns the English name.
+func (s *ScriptInfo) LocalizedName(lang string) string {
+	if lang == "de" && s.NameDE != "" {
+		return s.NameDE
+	}
+	return s.Name
+}
+
+// LocalizedDescription returns the German description if lang is "de" and a German
+// description exists, otherwise returns the English description.
+func (s *ScriptInfo) LocalizedDescription(lang string) string {
+	if lang == "de" && s.DescriptionDE != "" {
+		return s.DescriptionDE
+	}
+	return s.Description
 }
 
 // ScriptMetadata represents the complete metadata for a script

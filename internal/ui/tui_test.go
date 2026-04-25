@@ -28,9 +28,9 @@ func TestFormatCategoryName(t *testing.T) {
 }
 
 func TestMergeInterfaceTasks(t *testing.T) {
-	ifaceTask := Task{Name: "Manage Network Interfaces", Description: "Manage interface states", Script: "/scripts/network_interfaces.sh"}
-	vlanTask := Task{Name: "Manage VLAN Interfaces", Description: "Create VLAN subinterfaces", Script: "/scripts/add_vlan.sh"}
-	otherTask := Task{Name: "Configure IP Addresses", Description: "Set IPs", Script: "/scripts/configure_ip.sh"}
+	ifaceTask := Task{Name: "Manage Network Interfaces", CanonicalName: "Manage Network Interfaces", Description: "Manage interface states", Script: "/scripts/network_interfaces.sh"}
+	vlanTask := Task{Name: "Manage VLAN Interfaces", CanonicalName: "Manage VLAN Interfaces", Description: "Create VLAN subinterfaces", Script: "/scripts/add_vlan.sh"}
+	otherTask := Task{Name: "Configure IP Addresses", CanonicalName: "Configure IP Addresses", Description: "Set IPs", Script: "/scripts/configure_ip.sh"}
 
 	input := []Category{
 		{
@@ -87,8 +87,8 @@ func TestMergeInterfaceTasksPartialMatch(t *testing.T) {
 		{
 			Name: "Host Configuration",
 			Tasks: []Task{
-				{Name: "Manage Network Interfaces", Script: "/scripts/network_interfaces.sh"},
-				{Name: "Configure IP Addresses", Script: "/scripts/configure_ip.sh"},
+				{Name: "Manage Network Interfaces", CanonicalName: "Manage Network Interfaces", Script: "/scripts/network_interfaces.sh"},
+				{Name: "Configure IP Addresses", CanonicalName: "Configure IP Addresses", Script: "/scripts/configure_ip.sh"},
 			},
 		},
 	}
@@ -106,7 +106,7 @@ func TestMergeInterfaceTasksNoOp(t *testing.T) {
 	input := []Category{
 		{
 			Name:  "Host Configuration",
-			Tasks: []Task{{Name: "Configure IP Addresses", Script: "/scripts/configure_ip.sh"}},
+			Tasks: []Task{{Name: "Configure IP Addresses", CanonicalName: "Configure IP Addresses", Script: "/scripts/configure_ip.sh"}},
 		},
 	}
 	result := mergeInterfaceTasks(input, stringsEN)
@@ -116,10 +116,10 @@ func TestMergeInterfaceTasksNoOp(t *testing.T) {
 }
 
 func TestMergeCaptureAnalysisTasks(t *testing.T) {
-	vlanTask := Task{Name: "Extract VLANs", Description: "Extract VLANs from capture", Script: "/scripts/extract_vlans.sh"}
-	macTask := Task{Name: "MAC Address Analysis", Description: "Analyze MAC addresses", Script: "/scripts/mac_analysis.sh"}
-	captureTask := Task{Name: "Packet Capture Analysis", Description: "Analyze pcap files", Script: "/scripts/advanced_packet_analysis.sh"}
-	otherTask := Task{Name: "Multi-Phase Discovery", Description: "Discover hosts", Script: "/scripts/discovery.sh"}
+	vlanTask := Task{Name: "Extract VLANs", CanonicalName: "Extract VLANs", Description: "Extract VLANs from capture", Script: "/scripts/extract_vlans.sh"}
+	macTask := Task{Name: "MAC Address Analysis", CanonicalName: "MAC Address Analysis", Description: "Analyze MAC addresses", Script: "/scripts/mac_analysis.sh"}
+	captureTask := Task{Name: "Packet Capture Analysis", CanonicalName: "Packet Capture Analysis", Description: "Analyze pcap files", Script: "/scripts/advanced_packet_analysis.sh"}
+	otherTask := Task{Name: "Multi-Phase Discovery", CanonicalName: "Multi-Phase Discovery", Description: "Discover hosts", Script: "/scripts/discovery.sh"}
 
 	input := []Category{
 		{
@@ -159,7 +159,7 @@ func TestMergeCaptureAnalysisTasksPartialMatch(t *testing.T) {
 	input := []Category{
 		{
 			Name:  "Network Discovery",
-			Tasks: []Task{{Name: "Extract VLANs"}, {Name: "MAC Address Analysis"}},
+			Tasks: []Task{{Name: "Extract VLANs", CanonicalName: "Extract VLANs"}, {Name: "MAC Address Analysis", CanonicalName: "MAC Address Analysis"}},
 		},
 	}
 	result := mergeCaptureAnalysisTasks(input, stringsEN)

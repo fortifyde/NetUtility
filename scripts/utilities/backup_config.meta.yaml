@@ -1,6 +1,8 @@
 script:
   name: "Backup Configuration"
   description: "Create backup of network configuration files and settings"
+  name_de: "Konfiguration sichern"
+  description_de: "Sicherung von Netzwerkkonfigurationen und Einstellungen erstellen"
   category: "utilities"
   subcategory: "backup"
   

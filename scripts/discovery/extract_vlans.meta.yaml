@@ -1,6 +1,8 @@
 script:
   name: "Extract VLANs"
-  description: "Extract and analyze VLAN information from network traffic and devices"
+  description: "Extract and analyze VLAN information from network capture"
+  name_de: "VLANs extrahieren"
+  description_de: "VLAN-Informationen aus Netzwerkmitschnitt auslesen und Schnittstellen konfigurieren"
   category: "discovery"
   subcategory: "discovery"
   

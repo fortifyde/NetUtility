@@ -1,6 +1,8 @@
 script:
   name: "Restore Configuration"
   description: "Restore network configuration from backup archives"
+  name_de: "Konfiguration wiederherstellen"
+  description_de: "Netzwerkkonfiguration aus Sicherungsarchiven wiederherstellen"
   category: "utilities"
   subcategory: "backup"
   

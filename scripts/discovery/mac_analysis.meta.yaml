@@ -1,6 +1,8 @@
 script:
   name: "MAC Address Analysis"
-  description: "Analyze MAC addresses to identify device vendors, detect anomalies, and map network topology"
+  description: "Analyze MAC addresses from network capture to identify device vendors, detect anomalies, and map network topology"
+  name_de: "MAC-Adressanalyse"
+  description_de: "MAC-Adressen aus Netzwerkmitschnitt analysieren zur Gerätehersteller-Identifikation, Anomalie-Erkennung und Netzwerktopologie-Erkennung"
   category: "discovery"
   subcategory: "analysis"
   

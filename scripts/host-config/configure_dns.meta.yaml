@@ -1,6 +1,8 @@
 script:
   name: "Configure DNS"
   description: "Manage DNS configuration and nameserver settings"
+  name_de: "DNS konfigurieren"
+  description_de: "DNS-Konfiguration und Nameserver-Einstellungen verwalten"
   category: "host-config"
   subcategory: "networking"
   

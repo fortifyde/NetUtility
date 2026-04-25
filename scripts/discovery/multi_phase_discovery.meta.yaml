@@ -1,12 +1,14 @@
 script:
-  name: "Multi-Phase Discovery"
+  name: "Discovery-Scan"
   description: "Progressive network discovery with host categorization across multiple scan phases"
+  name_de: "Discovery-Scan"
+  description_de: "Netzwerk-Discovery mit Host-Kategorisierung über mehrere Scan-Phasen. Detaillierter als Auto-Discovery"
   category: "discovery"
   subcategory: "discovery"
   
   file: "multi_phase_discovery.sh"
   requires_root: true
-  estimated_duration: "10-30 minutes"
+  estimated_duration: "10-120 minutes"
   
   cli_shortcuts:
     - "multi-discovery"

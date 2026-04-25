@@ -1,6 +1,8 @@
 script:
   name: "Manage VLAN Interfaces"
   description: "Create, configure, and remove VLAN subinterfaces on network adapters"
+  name_de: "VLAN-Schnittstellen verwalten"
+  description_de: "VLAN-Schnittstellen auf Netzwerkadaptern erstellen, konfigurieren und entfernen"
   category: "host-config"
   subcategory: "networking"
 

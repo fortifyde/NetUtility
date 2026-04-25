@@ -1,6 +1,8 @@
 script:
   name: "Log Management"
-  description: "View and manage system and network logs"
+  description: "View and manage NetUtility logs"
+  name_de: "Protokollierung verwalten"
+  description_de: "NetUtility Protokollierung anzeigen und verwalten"
   category: "utilities"
   subcategory: "logging"
   

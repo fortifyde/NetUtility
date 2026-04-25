@@ -40,6 +40,7 @@ type TUI struct {
 	corrViewer             *CorrelationViewer
 	outputViewer           *OutputViewer
 	taskListIsContinuation []bool // true for wrapped-description continuation rows
+	lang                   string
 
 	str *Strings
 
@@ -52,10 +53,11 @@ type Category struct {
 }
 
 type Task struct {
-	Name        string
-	Description string
-	Script      string
-	SubTasks    []Task // len > 0: selecting this task shows a sub-menu modal
+	Name          string // display name (localized)
+	Description   string // display description (localized)
+	CanonicalName string // English name from YAML, used for merge matching
+	Script        string
+	SubTasks      []Task // len > 0: selecting this task shows a sub-menu modal
 }
 
 // SearchResult pairs a matched task with the category it belongs to.
@@ -111,9 +113,10 @@ func (t *TUI) getCategoriesFromMetadata() []Category {
 		var tasks []Task
 		for _, script := range scripts {
 			tasks = append(tasks, Task{
-				Name:        script.Script.Name,
-				Description: script.Script.Description,
-				Script:      t.registry.GetScriptPath(script),
+				CanonicalName: script.Script.Name,
+				Name:          script.Script.LocalizedName(t.lang),
+				Description:   script.Script.LocalizedDescription(t.lang),
+				Script:        t.registry.GetScriptPath(script),
 			})
 		}
 
@@ -245,7 +248,7 @@ func mergeInterfaceTasks(categories []Category, str *Strings) []Category {
 		var ifaceTask, vlanTask Task
 		ifaceIdx := -1
 		for ti, task := range cat.Tasks {
-			switch task.Name {
+			switch task.CanonicalName {
 			case "Manage Network Interfaces":
 				ifaceTask = task
 				if ifaceIdx == -1 {
@@ -255,22 +258,23 @@ func mergeInterfaceTasks(categories []Category, str *Strings) []Category {
 				vlanTask = task
 			}
 		}
-		if ifaceIdx == -1 || vlanTask.Name == "" {
+		if ifaceIdx == -1 || vlanTask.CanonicalName == "" {
 			continue // one or both source tasks missing — skip this category
 		}
 		// Build new task list without the two interface tasks
 		newTasks := make([]Task, 0, len(cat.Tasks)-1)
 		for _, t := range cat.Tasks {
-			if t.Name != "Manage Network Interfaces" && t.Name != "Manage VLAN Interfaces" {
+			if t.CanonicalName != "Manage Network Interfaces" && t.CanonicalName != "Manage VLAN Interfaces" {
 				newTasks = append(newTasks, t)
 			}
 		}
 		composite := Task{
-			Name:        str.TaskConfigInterfaces,
-			Description: str.TaskConfigInterfacesDesc,
+			Name:          str.TaskConfigInterfaces,
+			CanonicalName: "Configure Interfaces",
+			Description:   str.TaskConfigInterfacesDesc,
 			SubTasks: []Task{
-				{Name: str.TaskInterfaceStates, Description: ifaceTask.Description, Script: ifaceTask.Script},
-				{Name: str.TaskVLANInterfaces, Description: vlanTask.Description, Script: vlanTask.Script},
+				{Name: str.TaskInterfaceStates, CanonicalName: "Manage Network Interfaces", Description: ifaceTask.Description, Script: ifaceTask.Script},
+				{Name: str.TaskVLANInterfaces, CanonicalName: "Manage VLAN Interfaces", Description: vlanTask.Description, Script: vlanTask.Script},
 			},
 		}
 		// Insert composite at the original position of the first interface task
@@ -295,7 +299,7 @@ func mergeCaptureAnalysisTasks(categories []Category, str *Strings) []Category {
 		var vlanTask, macTask, captureTask Task
 		firstIdx := -1
 		for ti, task := range cat.Tasks {
-			switch task.Name {
+			switch task.CanonicalName {
 			case "Extract VLANs":
 				vlanTask = task
 				if firstIdx == -1 {
@@ -313,28 +317,29 @@ func mergeCaptureAnalysisTasks(categories []Category, str *Strings) []Category {
 				}
 			}
 		}
-		if firstIdx == -1 || vlanTask.Name == "" || macTask.Name == "" || captureTask.Name == "" {
+		if firstIdx == -1 || vlanTask.CanonicalName == "" || macTask.CanonicalName == "" || captureTask.CanonicalName == "" {
 			continue
 		}
 		newTasks := make([]Task, 0, len(cat.Tasks)-2)
 		for _, t := range cat.Tasks {
-			if t.Name != "Extract VLANs" && t.Name != "MAC Address Analysis" && t.Name != "Packet Capture Analysis" {
+			if t.CanonicalName != "Extract VLANs" && t.CanonicalName != "MAC Address Analysis" && t.CanonicalName != "Packet Capture Analysis" {
 				newTasks = append(newTasks, t)
 			}
 		}
 		composite := Task{
-			Name:        str.TaskNetworkCaptureAnalysis,
-			Description: str.TaskNetworkCaptureAnalysisDesc,
+			Name:          str.TaskNetworkCaptureAnalysis,
+			CanonicalName: "Network Capture Analysis",
+			Description:   str.TaskNetworkCaptureAnalysisDesc,
 			SubTasks: []Task{
-				{Name: str.TaskExtractVLANIDs, Description: vlanTask.Description, Script: vlanTask.Script},
-				{Name: "MAC Address Analysis", Description: macTask.Description, Script: macTask.Script},
-				{Name: "Packet Capture Analysis", Description: captureTask.Description, Script: captureTask.Script},
+				{Name: str.TaskExtractVLANIDs, CanonicalName: "Extract VLANs", Description: vlanTask.Description, Script: vlanTask.Script},
+				{Name: macTask.Name, CanonicalName: "MAC Address Analysis", Description: macTask.Description, Script: macTask.Script},
+				{Name: captureTask.Name, CanonicalName: "Packet Capture Analysis", Description: captureTask.Description, Script: captureTask.Script},
 			},
 		}
 		// Insert composite immediately after "Network Capture" if present, otherwise at firstIdx
 		insertIdx := -1
 		for ti, t := range newTasks {
-			if t.Name == "Network Capture" {
+			if t.CanonicalName == "Network Capture" {
 				insertIdx = ti + 1
 				break
 			}
@@ -396,6 +401,7 @@ func NewTUI(scriptsDir, workspaceDir, lang string) *TUI {
 		correlator:   correlation.NewCorrelator(workspaceDir),
 	}
 	tui.str = stringsForLang(lang)
+	tui.lang = lang
 
 	if workspaceDir != "" {
 		if err := tui.correlator.LoadResults(); err != nil {

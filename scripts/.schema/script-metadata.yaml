@@ -7,7 +7,9 @@
 script:
   # Basic Information
   name: string              # Display name for the script
+  name_de: string           # Optional German display name (falls back to name)
   description: string       # Brief description of what the script does
+  description_de: string    # Optional German description (falls back to description)
   category: string          # Primary category (system, network, vulnerability, config)
   subcategory: string       # Optional subcategory for better organization
   

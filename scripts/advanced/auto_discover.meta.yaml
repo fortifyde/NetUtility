@@ -1,6 +1,8 @@
 script:
   name: "Auto Discovery"
   description: "VLAN-aware automated discovery combining capture, host config, and network scan"
+  name_de: "Auto-Discovery"
+  description_de: "All-in-one Tool: Netzwerkmitschnitt, Host-Konfiguration und einfacher Discovery-Scan mit Host-Einteilung"
   category: "advanced"
   subcategory: "automation"
   
