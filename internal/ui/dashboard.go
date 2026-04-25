@@ -21,6 +21,7 @@ type Dashboard struct {
 	jobManager     *jobs.JobManager
 	correlator     *correlation.Correlator
 	workflowEngine *workflow.WorkflowEngine
+	str            *Strings
 
 	// UI components
 	statsPanel       *tview.TextView
@@ -54,7 +55,7 @@ type DashboardStats struct {
 
 // NewDashboard creates a new dashboard
 func NewDashboard(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager,
-	correlator *correlation.Correlator, workflowEngine *workflow.WorkflowEngine, returnToMainCallback func()) *Dashboard {
+	correlator *correlation.Correlator, workflowEngine *workflow.WorkflowEngine, returnToMainCallback func(), str *Strings) *Dashboard {
 
 	d := &Dashboard{
 		Flex:                 tview.NewFlex(),
@@ -65,6 +66,7 @@ func NewDashboard(app *tview.Application, pages *tview.Pages, jobManager *jobs.J
 		workflowEngine:       workflowEngine,
 		stopChan:             make(chan struct{}),
 		returnToMainCallback: returnToMainCallback,
+		str:                  str,
 	}
 
 	d.setupUI()
@@ -76,28 +78,28 @@ func NewDashboard(app *tview.Application, pages *tview.Pages, jobManager *jobs.J
 func (d *Dashboard) setupUI() {
 	// Top row panels
 	d.statsPanel = tview.NewTextView().SetDynamicColors(true)
-	d.statsPanel.SetBorder(true).SetTitle("Discovery Stats")
+	d.statsPanel.SetBorder(true).SetTitle(d.str.PaneTitleDiscoveryStats)
 
 	d.chartsPanel = tview.NewTextView().SetDynamicColors(true)
-	d.chartsPanel.SetBorder(true).SetTitle("Category Breakdown")
+	d.chartsPanel.SetBorder(true).SetTitle(d.str.PaneTitleCategoryBreakdown)
 
 	d.alertsPanel = tview.NewTextView().SetDynamicColors(true).SetScrollable(true)
-	d.alertsPanel.SetBorder(true).SetTitle("Job Activity")
+	d.alertsPanel.SetBorder(true).SetTitle(d.str.PaneTitleJobActivity)
 
 	// Middle row panels — security/risk row
 	d.riskPanel = tview.NewTextView().SetDynamicColors(true)
-	d.riskPanel.SetBorder(true).SetTitle("Risk Overview")
+	d.riskPanel.SetBorder(true).SetTitle(d.str.PaneTitleRiskOverview)
 
 	d.topFindingsTable = tview.NewTable().SetBorders(true).SetSelectable(true, false)
-	d.topFindingsTable.SetBorder(true).SetTitle("Host Risk")
+	d.topFindingsTable.SetBorder(true).SetTitle(d.str.PaneTitleHostRisk)
 
 	d.servicesPanel = tview.NewTextView().SetDynamicColors(true)
-	d.servicesPanel.SetBorder(true).SetTitle("Service Landscape")
+	d.servicesPanel.SetBorder(true).SetTitle(d.str.PaneTitleServiceLandscape)
 
 	// Controls panel
 	d.controlsText = tview.NewTextView().SetDynamicColors(true)
-	d.controlsText.SetBorder(true).SetTitle("Controls")
-	d.controlsText.SetText(`[yellow]Dashboard:[::-] [white]Enter[::-]=Risk Details  [white]q[::-]=Close  [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+N[::-]=Hosts  [white]Ctrl+Z[::-]=Main`)
+	d.controlsText.SetBorder(true).SetTitle(d.str.PaneTitleDashControls)
+	d.controlsText.SetText(d.str.DashControlsText)
 
 	// Layout: top row (Discovery Stats | Category Breakdown | Job Activity)
 	topRow := tview.NewFlex().SetDirection(tview.FlexColumn).
@@ -378,13 +380,13 @@ func (d *Dashboard) updateRiskPanel(correlations map[string]*correlation.Correla
 	content.WriteString("[yellow]Risk Distribution[::-]\n")
 	for _, tier := range riskTiers {
 		count := tierCounts[tier.label]
-		content.WriteString(fmt.Sprintf("  [%s]■ %-9s %d hosts[::-]\n", tier.tviewColor, tier.label, count))
+		content.WriteString(fmt.Sprintf("  [%s]■ %-9s %d hosts[::-]\n", tier.tviewColor, d.str.RiskLabel(tier.label), count))
 	}
 
 	content.WriteString("\n[yellow]Severity Summary[::-]\n")
 	for _, sev := range []string{"critical", "high", "medium", "low", "info"} {
 		if count := severityCounts[sev]; count > 0 {
-			content.WriteString(fmt.Sprintf("  [%s]%-10s %d[::-]\n", severityTviewColor(sev), titleCase(sev)+":", count))
+			content.WriteString(fmt.Sprintf("  [%s]%-10s %d[::-]\n", severityTviewColor(sev), d.str.SeverityLabel(sev)+":", count))
 		}
 	}
 
@@ -419,7 +421,7 @@ func (d *Dashboard) updateTopFindings(correlations map[string]*correlation.Corre
 
 	d.topFindingsTable.Clear()
 
-	headers := []string{"Score", "IP", "Hostname", "Category", "Top Finding (Total)"}
+	headers := []string{d.str.DashHeaderScore, d.str.DashHeaderIP, d.str.DashHeaderHostname, d.str.DashHeaderCategory, d.str.DashHeaderTopFinding}
 	for i, header := range headers {
 		cell := tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
@@ -452,7 +454,7 @@ func (d *Dashboard) updateTopFindings(correlations map[string]*correlation.Corre
 
 	if len(entries) == 0 {
 		d.topFindingsTable.SetCell(1, 0,
-			tview.NewTableCell("No hosts discovered yet — run Network Discovery to populate.").
+			tview.NewTableCell(d.str.DashNoHostsYet).
 				SetTextColor(tcell.ColorGray).
 				SetAlign(tview.AlignCenter).
 				SetSelectable(false).
@@ -481,7 +483,7 @@ func (d *Dashboard) updateTopFindings(correlations map[string]*correlation.Corre
 		}
 
 		// Top finding with count suffix
-		finding := topFindingText(e.result)
+		finding := d.topFindingText(e.result)
 		totalVulns := len(e.result.Vulnerabilities)
 		if totalVulns > 0 {
 			finding = fmt.Sprintf("%s (%d findings)", finding, totalVulns)
@@ -591,7 +593,7 @@ func (d *Dashboard) viewSelectedFinding() {
 }
 
 // topFindingText returns the most notable finding for a host.
-func topFindingText(corr *correlation.CorrelationResult) string {
+func (d *Dashboard) topFindingText(corr *correlation.CorrelationResult) string {
 	// Prefer the first critical/high vulnerability title
 	for _, sev := range []string{"critical", "high"} {
 		for _, vuln := range corr.Vulnerabilities {
@@ -613,15 +615,15 @@ func topFindingText(corr *correlation.CorrelationResult) string {
 		}
 	}
 	if medCount > 0 {
-		return fmt.Sprintf("%d medium-severity vulns", medCount)
+		return fmt.Sprintf(d.str.FmtTopFindingMedium, medCount)
 	}
 
 	// Fall back to port/service exposure summary
 	if len(corr.Services) > 0 {
-		return fmt.Sprintf("%d open ports", len(corr.Services))
+		return fmt.Sprintf(d.str.FmtTopFindingPorts, len(corr.Services))
 	}
 
-	return "-"
+	return d.str.TopFindingNone
 }
 
 // severityTviewColor returns a tview color tag for a vulnerability severity level.
@@ -671,9 +673,9 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 	}
 	var details strings.Builder
 	if hostname != "-" {
-		details.WriteString(fmt.Sprintf("[yellow]Host Risk Details: %s (%s)[::-]%s", hostIP, hostname, headerExtra))
+		details.WriteString(fmt.Sprintf(d.str.FmtHostRiskDetailWithHost, hostIP, hostname, headerExtra))
 	} else {
-		details.WriteString(fmt.Sprintf("[yellow]Host Risk Details: %s[::-]%s", hostIP, headerExtra))
+		details.WriteString(fmt.Sprintf(d.str.FmtHostRiskDetail, hostIP, headerExtra))
 	}
 	details.WriteString("\n\n")
 
@@ -686,14 +688,14 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 			break
 		}
 	}
-	details.WriteString(fmt.Sprintf("Risk Score: [%s]%d/1000[%s] %s[::-]\n", tierColor, corr.RiskScore, tierColor, tierLabel))
+	details.WriteString(fmt.Sprintf(d.str.FmtRiskScore, tierColor, corr.RiskScore, tierColor, d.str.RiskLabel(tierLabel)))
 
 	// Risk breakdown
 	bd := corr.RiskDetails
-	details.WriteString(fmt.Sprintf("  Vulnerabilities:  [white]%d pts[::-]\n", bd.VulnerabilityScore))
-	details.WriteString(fmt.Sprintf("  Service Exposure: [white]%d pts[::-]\n", bd.ServiceExposure))
-	details.WriteString(fmt.Sprintf("  SSL/TLS Issues:   [white]%d pts[::-]\n", bd.SSLIssues))
-	details.WriteString(fmt.Sprintf("  Open Ports:       [white]%d pts[::-]\n\n", bd.OpenPortScore))
+	details.WriteString(fmt.Sprintf(d.str.FmtRiskBreakdownVulns, bd.VulnerabilityScore))
+	details.WriteString(fmt.Sprintf(d.str.FmtRiskBreakdownService, bd.ServiceExposure))
+	details.WriteString(fmt.Sprintf(d.str.FmtRiskBreakdownSSL, bd.SSLIssues))
+	details.WriteString(fmt.Sprintf(d.str.FmtRiskBreakdownPorts, bd.OpenPortScore))
 
 	// Vulnerabilities by severity
 	severities := []struct {
@@ -712,9 +714,9 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 			continue
 		}
 		if s.sev == "medium" && len(sevVulns) > 3 {
-			details.WriteString(fmt.Sprintf("[%s]%s Findings (%d)[::-]\n", s.color, titleCase(s.sev), len(sevVulns)))
+			details.WriteString(fmt.Sprintf(d.str.FmtSevFindingsCount, s.color, d.str.SeverityLabel(s.sev), len(sevVulns)))
 		} else {
-			details.WriteString(fmt.Sprintf("[%s]%s Findings[::-]\n", s.color, titleCase(s.sev)))
+			details.WriteString(fmt.Sprintf(d.str.FmtSevFindings, s.color, d.str.SeverityLabel(s.sev)))
 		}
 		maxShow := len(sevVulns)
 		if maxShow > 5 {
@@ -733,7 +735,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 			details.WriteString(fmt.Sprintf("%s\n", line))
 		}
 		if len(sevVulns) > maxShow {
-			details.WriteString(fmt.Sprintf("  ... and %d more\n", len(sevVulns)-maxShow))
+			details.WriteString(fmt.Sprintf(d.str.FmtAndMore, len(sevVulns)-maxShow))
 		}
 		details.WriteString("\n")
 	}
@@ -757,17 +759,17 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 		SetScrollable(true).
 		SetWrap(true).
 		SetText(details.String())
-	textView.SetBorder(true).SetTitle(fmt.Sprintf("Risk Details: %s", hostIP))
+	textView.SetBorder(true).SetTitle(fmt.Sprintf(d.str.FmtRiskDetailTitle, hostIP))
 
 	// Button row
 	buttonRow := tview.NewFlex().SetDirection(tview.FlexColumn)
-	btnInventory := tview.NewButton("View Inventory").SetSelectedFunc(func() {
+	btnInventory := tview.NewButton(d.str.BtnViewInventory).SetSelectedFunc(func() {
 		d.pages.RemovePage("host-details")
 		ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
 			d.app.SetFocus(d.topFindingsTable)
 		}, "")
 	})
-	btnClose := tview.NewButton("Close").SetSelectedFunc(func() {
+	btnClose := tview.NewButton(d.str.BtnClose).SetSelectedFunc(func() {
 		d.pages.RemovePage("host-details")
 		d.app.SetFocus(d.topFindingsTable)
 	})
@@ -869,7 +871,7 @@ func formatJobDuration(d time.Duration) string {
 func ShowDashboard(app *tview.Application, pages *tview.Pages, jobManager *jobs.JobManager,
 	correlator *correlation.Correlator, workflowEngine *workflow.WorkflowEngine) {
 
-	dashboard := NewDashboard(app, pages, jobManager, correlator, workflowEngine, nil)
+	dashboard := NewDashboard(app, pages, jobManager, correlator, workflowEngine, nil, stringsEN)
 	pages.AddPage("dashboard", dashboard, true, true)
 	app.SetFocus(dashboard.topFindingsTable)
 }

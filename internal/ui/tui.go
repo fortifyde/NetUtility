@@ -888,7 +888,7 @@ func (t *TUI) showDashboard() {
 		t.dashboardViewer.Close()
 		t.dashboardViewer = nil
 	}
-	t.dashboardViewer = NewDashboard(t.app, t.pages, t.jobManager, t.correlator, nil, t.returnToMain)
+	t.dashboardViewer = NewDashboard(t.app, t.pages, t.jobManager, t.correlator, nil, t.returnToMain, t.str)
 	t.pages.AddPage("dashboard", t.dashboardViewer, true, true)
 	t.app.SetFocus(t.dashboardViewer.topFindingsTable)
 }
