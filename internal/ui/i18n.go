@@ -644,7 +644,7 @@ var stringsDE = &Strings{
 	PaneTitleProgramInfo:       "Programminfo",
 	PaneTitleCategories:        "Kategorien",
 	PaneTitleTaskDefault:       "Kategorie auswählen",
-	PaneTitleQuickRef:          "Kurzübersicht",
+	PaneTitleQuickRef:          "Steuerung",
 	PaneTitleSearch:            "Skripte suchen",
 	PaneTitleActiveJobs:        "Aktive Jobs",
 	PaneTitleStatistics:        "Statistiken",
@@ -656,7 +656,7 @@ var stringsDE = &Strings{
 	PaneTitleJobActivity:       "Job-Aktivität",
 	PaneTitleRiskOverview:      "Risikoübersicht",
 	PaneTitleHostRisk:          "Host-Risiko",
-	PaneTitleServiceLandscape:  "Dienstlandschaft",
+	PaneTitleServiceLandscape:  "Dienstelandschaft",
 	PaneTitleDashControls:      "Steuerung",
 	PaneTitleHostInventory:     "Host-Inventar",
 	PaneTitleHostDetails:       "Host-Details",
@@ -681,7 +681,7 @@ var stringsDE = &Strings{
 	SearchLabel: "Suche: ",
 
 	// Subtask modal
-	SubtaskSelectOp: "Vorgang auswählen:",
+	SubtaskSelectOp: "Skript auswählen:",
 
 	// Help
 	HelpText: `NetUtility TUI Hilfe
@@ -704,17 +704,13 @@ Global (von überall):
   Ctrl+J       Job-Verwaltung
   Ctrl+D       Dashboard
   Ctrl+N       Host-Inventar
-  Ctrl+Z       Zurück zum Hauptbildschirm
+  Ctrl+Z       Zurück zum Hauptmenü
 
 Erweiterte Funktionen:
   - Bis zu 3 Skripte können gleichzeitig laufen
   - Weitere Skripte werden automatisch eingereiht
   - Ctrl+J zum Anzeigen laufender, wartender und abgeschlossener Jobs
-  - Ctrl+N zum Anzeigen des korrelierten Host-Inventars
-
-Maus:
-  Klick        Elemente auswählen
-  Scrollen     Listen durchsuchen`,
+  - Ctrl+N zum Anzeigen des Host-Inventars`,
 
 	// Buttons
 	BtnOK:            "OK",
@@ -827,8 +823,8 @@ Maus:
 	StatusReady:         "[green]Bereit[::-] - Leertaste=Pause f=Folgen t=Zeit s=Quelle /=Suchen g/G=Scrollen | q=Zurück Esc=Abbrechen",
 	StatusInputMode:     "[yellow]Eingabemodus[::-] - Enter=Senden Tab=Ausgabe | q=Zurück Esc=Abbrechen",
 	StatusViewMode:      "[green]Ausgabemodus[::-] - Tab=Eingabe Leertaste=Pause f=Folgen t=Zeit s=Quelle /=Suchen g/G=Scrollen | q=Zurück Esc=Abbrechen",
-	StatusWaitingInput:  "[yellow]Wartet auf Eingabe[::-] - Enter=Senden Tab=Anzeigen | q=Zurück Esc=Abbrechen",
-	StatusPasswordInput: "[yellow]Passworteingabe[::-] - Enter=Senden Tab=Anzeigen | q=Zurück Esc=Abbrechen",
+	StatusWaitingInput:  "[yellow]Wartet auf Eingabe[::-] - Enter=Senden Tab=Ausgabe | q=Zurück Esc=Abbrechen",
+	StatusPasswordInput: "[yellow]Passworteingabe[::-] - Enter=Senden Tab=Ausgabe | q=Zurück Esc=Abbrechen",
 	StatusInputSent:     "[green]Eingabe gesendet[::-] - Warte auf Antwort... | q=Zurück Esc=Abbrechen",
 	FmtStatusProgress:   "[cyan]%s[white] | q=Zurück Esc=Abbrechen",
 	FmtStatusCompletion: "[%s]Enter=Weiter | q=Zurück Esc=Schließen[::-]",
@@ -842,21 +838,13 @@ Steuerung:
   q            Zurück (Skript läuft weiter)
   Ctrl+C       Skriptausführung stoppen
   Leertaste    Ausgabe pausieren/fortsetzen
-  f            Auto-Scrollen umschalten
-  t            Zeitstempel umschalten
-  s            Quelle (stdout/stderr) umschalten
+  f            Auto-Scrollen toggle
+  t            Zeitstempel toggle
+  s            Quelle (stdout/stderr) toggle
   /            Ausgabe durchsuchen
   c            Anzeige leeren
   G            Zum Ende springen
   g            Zum Anfang springen
-
-Anzeigefunktionen:
-  - Echtzeit-Ausgabe
-  - Farbcodierung: stderr (rot) und stdout (grün)
-  - Automatische Hervorhebung von Fehlern/Warnungen
-  - Suche und Filterung
-  - Pausieren ohne Skript zu stoppen
-  - Zeitstempel und Quellinformation
 
 Skriptsteuerung:
   - Skripte können mit Esc abgebrochen werden
@@ -876,7 +864,7 @@ Skriptsteuerung:
 	DashNoHostsYet:       "Noch keine Hosts erkannt — Discovery starten.",
 
 	// Panel body
-	DashStatsHeading:            "[yellow]Entdeckungsstatistiken[::-]\n\n",
+	DashStatsHeading:            "[yellow]Discovery-Statistiken[::-]\n\n",
 	FmtDashStatsHostsDiscovered: "Entdeckte Hosts:    [white]%d[::-]\n",
 	FmtDashStatsWindows:         "  Windows:          [green]%d[::-]\n",
 	FmtDashStatsLinux:           "  Linux:            [yellow]%d[::-]\n",
@@ -950,7 +938,7 @@ Skriptsteuerung:
 	HostColPorts:           "Ports",
 	HostDetailsSelectPrompt:    "[gray]Host auswählen für Details[::-]",
 	HostDetailsNoData:          "[gray]Keine Daten für gewählten Host[::-]",
-	HostDetailsIdentity:        "[yellow]Identität[::-]\n",
+	HostDetailsIdentity:        "[yellow]Eigenschaften[::-]\n",
 	HostDetailsClassification:  "[yellow]Klassifizierung[::-]\n",
 	FmtHostDetailsPorts:        "[yellow]Ports & Dienste (%d)[::-]\n",
 	HostDetailsNoOpenPorts:     "[gray]Keine offenen Ports gefunden[::-]\n",
