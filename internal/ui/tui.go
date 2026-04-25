@@ -2,10 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -24,10 +27,12 @@ type TUI struct {
 	pages *tview.Pages
 
 	// Base layout components
-	headerPane   *tview.TextView
-	categoryPane *tview.List
-	taskPane     *tview.List
-	infoPane     *tview.TextView
+	headerPane      *tview.TextView
+	categoryPane    *tview.List
+	taskPane        *tview.List
+	infoPane        *tview.TextView
+	assessmentPanel *tview.TextView
+	jobsPanel       *tview.TextView
 
 	// State management
 	currentCategory        string
@@ -44,7 +49,9 @@ type TUI struct {
 
 	str *Strings
 
-	jobCounter atomic.Int64
+	jobCounter         atomic.Int64
+	mainViewTickerStop chan struct{}
+	stopOnce           sync.Once
 }
 
 type Category struct {
@@ -389,16 +396,19 @@ func NewTUI(scriptsDir, workspaceDir, lang string) *TUI {
 	}
 
 	tui := &TUI{
-		app:          app,
-		pages:        tview.NewPages(),
-		headerPane:   tview.NewTextView().SetDynamicColors(true),
-		categoryPane: tview.NewList(),
-		taskPane:     tview.NewList(),
-		infoPane:     tview.NewTextView(),
-		registry:     registry,
-		workspaceDir: workspaceDir,
-		jobManager:   jobs.NewJobManager(3),
-		correlator:   correlation.NewCorrelator(workspaceDir),
+		app:                app,
+		pages:              tview.NewPages(),
+		headerPane:         tview.NewTextView().SetDynamicColors(true),
+		categoryPane:       tview.NewList(),
+		taskPane:           tview.NewList(),
+		infoPane:           tview.NewTextView(),
+		assessmentPanel:    tview.NewTextView().SetDynamicColors(true).SetScrollable(false),
+		jobsPanel:          tview.NewTextView().SetDynamicColors(true).SetScrollable(false),
+		registry:           registry,
+		workspaceDir:       workspaceDir,
+		jobManager:         jobs.NewJobManager(3),
+		correlator:         correlation.NewCorrelator(workspaceDir),
+		mainViewTickerStop: make(chan struct{}),
 	}
 	tui.str = stringsForLang(lang)
 	tui.lang = lang
@@ -412,6 +422,7 @@ func NewTUI(scriptsDir, workspaceDir, lang string) *TUI {
 
 	tui.setupUI()
 	tui.startCorrelationWorker()
+	tui.startMainViewTicker()
 	return tui
 }
 
@@ -451,6 +462,240 @@ func (t *TUI) startCorrelationWorker() {
 			t.loadWorkspaceResults()
 		}
 	}()
+}
+
+// startMainViewTicker starts a background goroutine that periodically
+// updates the assessment checklist and active jobs panel.
+func (t *TUI) startMainViewTicker() {
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				t.app.QueueUpdateDraw(func() {
+					t.updateJobsPanel()
+					t.updateAssessmentPanel()
+				})
+			case <-t.mainViewTickerStop:
+				return
+			}
+		}
+	}()
+}
+
+// updateJobsPanel renders the active jobs panel showing running and pending jobs.
+func (t *TUI) updateJobsPanel() {
+	allJobs := t.jobManager.GetAllJobs()
+
+	var active []*jobs.Job
+	for _, j := range allJobs {
+		status := j.GetStatus()
+		if status == jobs.JobStatusRunning || status == jobs.JobStatusPending {
+			active = append(active, j)
+		}
+	}
+
+	if len(active) == 0 {
+		t.jobsPanel.SetText(t.str.JobsPanelNoActive)
+		return
+	}
+
+	var sb strings.Builder
+	sb.WriteString("\n")
+
+	indicatorChars := []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧"}
+
+	for _, job := range active {
+		status := job.GetStatus()
+		needsInput := job.NeedsInput()
+
+		// Status icon and name
+		switch {
+		case needsInput:
+			sb.WriteString("[yellow]\u2691[white] ")
+		case status == jobs.JobStatusRunning:
+			sb.WriteString("[green]\u25CF[white] ")
+		default:
+			sb.WriteString("\u25CB ")
+		}
+
+		// Job name (truncate to ~28 chars)
+		name := job.Name
+		if len(name) > 28 {
+			name = name[:25] + "..."
+		}
+		sb.WriteString(name)
+
+		// Duration for running jobs
+		if status == jobs.JobStatusRunning {
+			dur := time.Since(job.StartTime).Round(time.Second)
+			sb.WriteString(fmt.Sprintf("  %v", dur))
+		}
+		sb.WriteString("\n")
+
+		// Progress line
+		if needsInput {
+			sb.WriteString("  ")
+			sb.WriteString(t.str.FmtJobsPanelNeedsInput)
+		} else if status == jobs.JobStatusRunning {
+			current, total, desc := job.GetPhaseProgress()
+			if total > 0 {
+				sb.WriteString("  ")
+				sb.WriteString(renderProgressBar(current, total, desc))
+			} else {
+				idx := int(time.Now().Unix()) % len(indicatorChars)
+				sb.WriteString(fmt.Sprintf("  %s %s", indicatorChars[idx], t.str.ProgressRunning))
+			}
+		}
+		sb.WriteString("\n")
+	}
+
+	t.jobsPanel.SetText(sb.String())
+}
+
+// updateAssessmentPanel renders the compact assessment workflow checklist.
+func (t *TUI) updateAssessmentPanel() {
+	var sb strings.Builder
+	sb.WriteString("\n")
+
+	phases := []struct {
+		name     string
+		check    func() bool
+		suffixFn func() string // optional suffix (e.g. uncategorized count)
+	}{
+		{t.str.AssessmentPhaseCapture, t.checkCaptureDone, nil},
+		{t.str.AssessmentPhaseSysConfig, t.checkSysConfigDone, nil},
+		{t.str.AssessmentPhaseDiscovery, t.checkDiscoveryDone, nil},
+		{t.str.AssessmentPhaseCategorize, t.checkCategorizeDone, t.categorizeSuffix},
+		{t.str.AssessmentPhasePortVuln, t.checkPortVulnDone, nil},
+		{t.str.AssessmentPhaseDevConfig, t.checkDevConfigDone, nil},
+	}
+
+	for _, phase := range phases {
+		if phase.check() {
+			sb.WriteString("[green]\u2713[white] ")
+		} else {
+			sb.WriteString("\u25CB ")
+		}
+		sb.WriteString(phase.name)
+		if phase.suffixFn != nil {
+			sb.WriteString(phase.suffixFn())
+		}
+		sb.WriteString("\n")
+	}
+
+	t.assessmentPanel.SetText(sb.String())
+}
+
+// Assessment completion checks.
+
+func (t *TUI) checkCaptureDone() bool {
+	if t.workspaceDir == "" {
+		return false
+	}
+	matches, _ := filepath.Glob(filepath.Join(t.workspaceDir, "captures", "capture_*.pcap"))
+	return len(matches) > 0
+}
+
+func (t *TUI) checkSysConfigDone() bool {
+	// Check for at least one UP non-loopback interface with an IPv4 address.
+	// Read sysfs directly instead of spawning "ip -j addr" every 2 seconds.
+	entries, err := os.ReadDir("/sys/class/net")
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == "lo" {
+			continue
+		}
+		state, err := os.ReadFile(filepath.Join("/sys/class/net", name, "operstate"))
+		if err != nil || strings.TrimSpace(string(state)) != "up" {
+			continue
+		}
+		// Check for a non-loopback IPv4 address.
+		iface, err := net.InterfaceByName(name)
+		if err != nil {
+			continue
+		}
+		ifaceAddrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range ifaceAddrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			if ipNet.IP.To4() != nil && !ipNet.IP.IsLoopback() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (t *TUI) checkDiscoveryDone() bool {
+	return len(t.correlator.GetAllCorrelations()) > 0
+}
+
+func (t *TUI) checkCategorizeDone() bool {
+	hosts := t.correlator.GetAllCorrelations()
+	for _, h := range hosts {
+		if h.HostInfo != nil && h.HostInfo.Attributes != nil && h.HostInfo.Attributes["category"] == "unknown" {
+			return false
+		}
+	}
+	return len(hosts) > 0
+}
+
+func (t *TUI) categorizeSuffix() string {
+	var unknown int
+	hosts := t.correlator.GetAllCorrelations()
+	for _, h := range hosts {
+		if h.HostInfo != nil && h.HostInfo.Attributes != nil && h.HostInfo.Attributes["category"] == "unknown" {
+			unknown++
+		}
+	}
+	if unknown > 0 {
+		return fmt.Sprintf(t.str.FmtAssessmentUncategorized, unknown)
+	}
+	return ""
+}
+
+func (t *TUI) checkPortVulnDone() bool {
+	if t.workspaceDir == "" {
+		return false
+	}
+	base := filepath.Join(t.workspaceDir, "port_and_security_scans")
+	found := false
+	_ = filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
+		if err != nil || found {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if strings.HasSuffix(path, ".nmap") || strings.HasSuffix(path, ".xml") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found
+}
+
+func (t *TUI) checkDevConfigDone() bool {
+	if t.workspaceDir == "" {
+		return false
+	}
+	matches, _ := filepath.Glob(filepath.Join(t.workspaceDir, "configs", "gather_*", "session_summary.txt"))
+	if len(matches) > 0 {
+		return true
+	}
+	matches, _ = filepath.Glob(filepath.Join(t.workspaceDir, "configs", "gather_*", "device_*", "running_config.txt"))
+	return len(matches) > 0
 }
 
 func (t *TUI) setupUI() {
@@ -558,14 +803,28 @@ func (t *TUI) setupUI() {
 	t.infoPane.SetDynamicColors(true)
 	t.updateInfoPanel() // Set initial content
 
-	// Create layout: 2 columns, left column stacked (header + categories), right column (tasks)
+	// Setup assessment panel (compact checklist at bottom of left column)
+	t.assessmentPanel.SetBorder(true).SetTitle(t.str.PaneTitleAssessment)
+
+	// Setup active jobs panel (bottom of right column)
+	t.jobsPanel.SetBorder(true).SetTitle(t.str.PaneTitleActiveJobsPanel)
+	t.jobsPanel.SetText(t.str.JobsPanelNoActive)
+
+	// Layout: Left column = header + categories + assessment checklist
+	//         Right column = tasks (top) + active jobs (bottom)
+	//         Bottom = info/keybindings
 	leftColumn := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(t.headerPane, 5, 0, false). // Fixed height for header
-		AddItem(t.categoryPane, 0, 1, true) // Flexible height for categories
+		AddItem(t.headerPane, 5, 0, false).     // Fixed height for header
+		AddItem(t.categoryPane, 0, 1, true).    // Flexible height for categories
+		AddItem(t.assessmentPanel, 9, 0, false) // Fixed height for assessment checklist
+
+	rightColumn := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(t.taskPane, 0, 1, false). // Flexible: tasks
+		AddItem(t.jobsPanel, 0, 1, false) // Flexible: active jobs
 
 	topLayout := tview.NewFlex().SetDirection(tview.FlexColumn).
-		AddItem(leftColumn, 0, 1, true). // 25% width for left column
-		AddItem(t.taskPane, 0, 3, false) // 75% width for task pane
+		AddItem(leftColumn, 0, 1, true).  // 25% width for left column
+		AddItem(rightColumn, 0, 3, false) // 75% width for right column
 
 	mainLayout := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(topLayout, 0, 1, false). // Main content area
@@ -952,6 +1211,7 @@ func (t *TUI) Run() error {
 }
 
 func (t *TUI) Stop() {
+	t.stopOnce.Do(func() { close(t.mainViewTickerStop) })
 	t.app.Stop()
 }
 

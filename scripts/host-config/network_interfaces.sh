@@ -149,5 +149,3 @@ case $action in
         ;;
 esac
 
-# Clean up temp files
-rm -f /tmp/netutil_interfaces.$$

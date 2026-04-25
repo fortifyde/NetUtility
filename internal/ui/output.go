@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -42,6 +41,7 @@ type OutputViewer struct {
 	completed      bool
 	passwordMode   bool
 	connectedJobID string
+	connectedJob   *jobs.Job
 	mu             sync.RWMutex
 
 	outputChan <-chan executor.OutputLine
@@ -229,6 +229,13 @@ func (ov *OutputViewer) sendInputToScript(input string) {
 		return
 	}
 
+	ov.mu.Lock()
+	ov.waitingInput = false
+	ov.mu.Unlock()
+	if ov.connectedJob != nil {
+		ov.connectedJob.SetNeedsInput(false)
+	}
+
 	if !isPassword {
 		display := input
 		if display == "" {
@@ -290,6 +297,7 @@ func (ov *OutputViewer) ConnectToJob(job *jobs.Job) error {
 	ov.result = job.Result
 	ov.scriptPath = job.ScriptPath
 	ov.connectedJobID = job.ID
+	ov.connectedJob = job
 	ov.running = true
 
 	historicalLines := job.GetOutputLines()
@@ -500,15 +508,18 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 }
 
 func (ov *OutputViewer) handlePromptDetection(line executor.OutputLine) {
-	stripped := stripANSI(line.Content)
+	stripped := jobs.StripANSI(line.Content)
 	if line.Source == "input" {
 		return
 	}
 
-	if ov.detectInputPrompt(stripped) {
+	if jobs.DetectScriptPrompt(stripped) {
 		ov.mu.Lock()
 		ov.waitingInput = true
 		ov.mu.Unlock()
+		if ov.connectedJob != nil {
+			ov.connectedJob.SetNeedsInput(true)
+		}
 		ov.app.QueueUpdateDraw(func() {
 			if ov.HasFocus() {
 				ov.app.SetFocus(ov.inputField)
@@ -517,10 +528,13 @@ func (ov *OutputViewer) handlePromptDetection(line executor.OutputLine) {
 		})
 	}
 
-	if ov.detectPasswordPrompt(stripped) {
+	if jobs.DetectPasswordPrompt(stripped) {
 		ov.mu.Lock()
 		ov.passwordMode = true
 		ov.mu.Unlock()
+		if ov.connectedJob != nil {
+			ov.connectedJob.SetNeedsInput(true)
+		}
 		ov.app.QueueUpdateDraw(func() {
 			if ov.HasFocus() {
 				ov.inputField.SetMaskCharacter('*')
@@ -529,76 +543,6 @@ func (ov *OutputViewer) handlePromptDetection(line executor.OutputLine) {
 			}
 		})
 	}
-}
-
-var ansiEscape = regexp.MustCompile(`\x1b\[[0-9;]*m`)
-
-func stripANSI(s string) string {
-	return ansiEscape.ReplaceAllString(s, "")
-}
-
-var ipPattern = regexp.MustCompile(`\d+\.\d+`)
-
-func (ov *OutputViewer) detectInputPrompt(content string) bool {
-	lower := strings.ToLower(content)
-
-	phrases := []string{
-		"enter selection",
-		"choose option",
-		"select option",
-		"enter choice",
-		"enter number",
-		"enter option",
-		"please select",
-		"your choice",
-		"enter your",
-		"type your",
-		"(default:",
-		", default:",
-	}
-	for _, p := range phrases {
-		if strings.Contains(lower, p) {
-			return true
-		}
-	}
-
-	confirmPatterns := []string{
-		"[y/n]", "[y/N]", "[Y/n]", "[n/y]", "[n/Y]", "[N/y]",
-		"(y/n)", "(y/N)", "(Y/n)", "(n/y)",
-	}
-	for _, p := range confirmPatterns {
-		if strings.Contains(content, p) {
-			return true
-		}
-	}
-
-	trimmed := strings.TrimSpace(content)
-	if len(trimmed) <= 40 &&
-		(strings.HasSuffix(trimmed, ":") || strings.HasSuffix(trimmed, ": ")) &&
-		!strings.Contains(trimmed, "===") &&
-		!strings.Contains(trimmed, "---") &&
-		!ipPattern.MatchString(trimmed) {
-		return true
-	}
-
-	return false
-}
-
-func (ov *OutputViewer) detectPasswordPrompt(content string) bool {
-	lower := strings.ToLower(content)
-	patterns := []string{
-		"password:",
-		"password ",
-		"confirm password",
-		"enter password",
-		"passphrase:",
-	}
-	for _, p := range patterns {
-		if strings.Contains(lower, p) {
-			return true
-		}
-	}
-	return false
 }
 
 func (ov *OutputViewer) updateDisplay() {
@@ -715,6 +659,7 @@ func (ov *OutputViewer) Stop() {
 	}
 	ov.running = false
 	ov.connectedJobID = ""
+	ov.connectedJob = nil
 	ov.mu.Unlock()
 
 	ov.stopOnce.Do(func() { close(ov.stopChan) })

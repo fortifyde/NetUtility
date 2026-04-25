@@ -47,6 +47,10 @@ type Job struct {
 	// so monitorJob sees it after job.Executor.Wait() returns.
 	cancelled atomic.Bool
 
+	// needsInput is set atomically when the output scanner detects
+	// a prompt indicating the script is waiting for user input.
+	needsInput atomic.Bool
+
 	mu sync.RWMutex
 }
 
@@ -155,12 +159,20 @@ func (jm *JobManager) monitorJob(job *Job) {
 			case <-ticker.C:
 				lines := job.GetOutputLines()
 				for i := lastIdx; i < len(lines); i++ {
+					text := lines[i].Content
 					const pfx = "##NETUTIL:PROGRESS## "
-					if !strings.HasPrefix(lines[i].Content, pfx) {
+					if strings.HasPrefix(text, pfx) {
+						if c, t, d, ok := parsePhaseProgress(text[len(pfx):]); ok {
+							job.SetPhaseProgress(c, t, d)
+						}
 						continue
 					}
-					if c, t, d, ok := parsePhaseProgress(lines[i].Content[len(pfx):]); ok {
-						job.SetPhaseProgress(c, t, d)
+					// Check for interactive prompts.
+					if !job.NeedsInput() {
+						stripped := StripANSI(text)
+						if DetectScriptPrompt(stripped) || DetectPasswordPrompt(stripped) {
+							job.SetNeedsInput(true)
+						}
 					}
 				}
 				lastIdx = len(lines)
@@ -175,6 +187,9 @@ func (jm *JobManager) monitorJob(job *Job) {
 	// Stop and join the progress goroutine before touching any shared state.
 	close(progressStop)
 	progressWg.Wait()
+
+	// Clear input-waiting state now that the job has finished.
+	job.SetNeedsInput(false)
 
 	// Use the atomic cancelled flag (set by CancelJob before Stop()) to
 	// determine whether CancelJob already handled status and runningCount.
@@ -557,6 +572,16 @@ func (j *Job) IsRunning() bool {
 func (j *Job) IsCompleted() bool {
 	status := j.GetStatus()
 	return status == JobStatusCompleted || status == JobStatusFailed || status == JobStatusCancelled
+}
+
+// SetNeedsInput marks the job as waiting for user input.
+func (j *Job) SetNeedsInput(needs bool) {
+	j.needsInput.Store(needs)
+}
+
+// NeedsInput returns whether the job is waiting for user input.
+func (j *Job) NeedsInput() bool {
+	return j.needsInput.Load()
 }
 
 // SetPhaseProgress stores phase progress thread-safely.

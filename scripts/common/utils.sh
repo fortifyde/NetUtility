@@ -4,6 +4,12 @@
 # This library provides common functions for interface selection, file selection, and network helpers
 # POSIX shell compatible - works with bash, zsh, dash, fish
 
+# Private temp directory for interface selection helpers.
+# Created once at library load and cleaned up via trap on script exit.
+_netutil_tmpdir="${TMPDIR:-/tmp}/netutil.$$"
+mkdir -p "$_netutil_tmpdir"
+trap 'rm -rf "$_netutil_tmpdir"' EXIT
+
 # =============================================================================
 # INTERFACE SELECTION LIBRARY
 # =============================================================================
@@ -13,12 +19,11 @@ get_interfaces() {
     exclude_vlans="${1:-false}"  # Optional parameter to exclude VLAN interfaces
 
     # Clear previous interface data
-    rm -f "./netutil_interfaces.$$"
+    rm -f "$_netutil_tmpdir/interfaces"
     interface_count=0
-    
+
     # Create temporary file with interface information
-    # Use current directory instead of /tmp to avoid system restrictions
-    ip link show > "./netutil_ip_output.$$"
+    ip link show > "$_netutil_tmpdir/ip_output"
     
     # Parse interface information using POSIX-compliant pattern matching
     while read -r line; do
@@ -81,21 +86,21 @@ get_interfaces() {
             fi
 
             interface_count=$((interface_count + 1))
-            echo "$interface_count:$interface_name:$state:$ip_info:$interface_type:$smart_alias" >> "./netutil_interfaces.$$"
+            echo "$interface_count:$interface_name:$state:$ip_info:$interface_type:$smart_alias" >> "$_netutil_tmpdir/interfaces"
         fi
-    done < "./netutil_ip_output.$$"
+    done < "$_netutil_tmpdir/ip_output"
     
     # Clean up temporary file
-    rm -f "./netutil_ip_output.$$"
+    rm -f "$_netutil_tmpdir/ip_output"
 }
 
 # Function to display interfaces in numbered format with smart aliases
 display_interfaces() {
     echo "Available network interfaces:" >&2
-    if [ -f ./netutil_interfaces.$$ ]; then
+    if [ -f "$_netutil_tmpdir/interfaces" ]; then
         while IFS=':' read -r num name state ip_info interface_type smart_alias; do
             printf "%d. %s\n" "$num" "$smart_alias" >&2
-        done < ./netutil_interfaces.$$
+        done < "$_netutil_tmpdir/interfaces"
     fi
     echo >&2
 }
@@ -104,13 +109,13 @@ display_interfaces() {
 get_interface_name() {
     requested_num=$1
     
-    if [ -f ./netutil_interfaces.$$ ]; then
+    if [ -f "$_netutil_tmpdir/interfaces" ]; then
         while IFS=':' read -r num name state ip_info interface_type smart_alias; do
             if [ "$num" = "$requested_num" ]; then
                 echo "$name"
                 return 0
             fi
-        done < ./netutil_interfaces.$$
+        done < "$_netutil_tmpdir/interfaces"
     fi
     return 1
 }
@@ -129,12 +134,12 @@ validate_interface_number() {
     
     # Count available interfaces
     max_num=0
-    if [ -f ./netutil_interfaces.$$ ]; then
+    if [ -f "$_netutil_tmpdir/interfaces" ]; then
         while IFS=':' read -r num name state ip_info interface_type smart_alias; do
             if [ "$num" -gt "$max_num" ]; then
                 max_num=$num
             fi
-        done < ./netutil_interfaces.$$
+        done < "$_netutil_tmpdir/interfaces"
     fi
     
     if [ "$input_num" -lt 1 ] || [ "$input_num" -gt "$max_num" ]; then
@@ -154,7 +159,7 @@ select_interface() {
     get_interfaces "$exclude_vlans"
     
     # Check if any interfaces were found
-    if [ ! -f ./netutil_interfaces.$$ ] || [ ! -s ./netutil_interfaces.$$ ]; then
+    if [ ! -f "$_netutil_tmpdir/interfaces" ] || [ ! -s "$_netutil_tmpdir/interfaces" ]; then
         echo "Error: No network interfaces found" >&2
         return 1
     fi
@@ -170,7 +175,7 @@ select_interface() {
                 default_option="$num"
                 break
             fi
-        done < ./netutil_interfaces.$$
+        done < "$_netutil_tmpdir/interfaces"
     fi
     
     # If no last used interface, try to find best default
@@ -181,7 +186,7 @@ select_interface() {
                 default_option="$num"
                 break
             fi
-        done < ./netutil_interfaces.$$
+        done < "$_netutil_tmpdir/interfaces"
     fi
     
     display_interfaces
@@ -192,7 +197,7 @@ select_interface() {
         if [ "$num" -gt "$max_num" ]; then
             max_num=$num
         fi
-    done < ./netutil_interfaces.$$
+    done < "$_netutil_tmpdir/interfaces"
     
     # Show smart default prompt with immediate visibility
     if [ -n "$default_option" ]; then
@@ -226,7 +231,7 @@ select_interface() {
                 save_last_used_interface "$category" "$selected_interface"
                 echo "$selected_interface"
                 # Clean up temp file
-                rm -f ./netutil_interfaces.$$
+                rm -f "$_netutil_tmpdir/interfaces"
                 return 0
             else
                 echo "Error: Invalid interface selection" >&2

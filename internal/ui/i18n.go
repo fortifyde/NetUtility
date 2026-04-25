@@ -137,12 +137,12 @@ type Strings struct {
 	FmtSetMaxConcurrent string // Sprintf(fmt, max)
 	FmtMaxConcurrentSet string // Sprintf(fmt, max)
 	FmtRemovedCompleted string // Sprintf(fmt, count)
-	ErrJobNotFound       string
-	FmtErrConnectJob     string // Sprintf(fmt, err)
-	ErrNoOutputCaptured  string
-	ErrNoJobSelected     string
-	FmtErrCancelJob      string // Sprintf(fmt, err)
-	FmtShowErrorPrefix   string // Sprintf(fmt, message)
+	ErrJobNotFound      string
+	FmtErrConnectJob    string // Sprintf(fmt, err)
+	ErrNoOutputCaptured string
+	ErrNoJobSelected    string
+	FmtErrCancelJob     string // Sprintf(fmt, err)
+	FmtShowErrorPrefix  string // Sprintf(fmt, message)
 
 	// ── Output viewer ─────────────────────────────────────────────────────────
 	StatusReady         string
@@ -205,37 +205,37 @@ type Strings struct {
 	FmtHostOpenPorts            string // Sprintf(fmt, portsList)
 	FmtFindingsCount            string // Sprintf(fmt, finding, totalCount)
 
-	RiskTierCritical     string
-	RiskTierHigh         string
-	RiskTierMedium       string
-	RiskTierLow          string
-	SevCritical          string
-	SevHigh              string
-	SevMedium            string
-	SevLow               string
-	SevInfo              string
-	FmtSevFindings       string // Sprintf(fmt, sevLabel)
-	FmtSevFindingsCount  string // Sprintf(fmt, sevLabel, count)
-	FmtAndMore           string // Sprintf(fmt, count)
-	FmtRiskScore         string // Sprintf(fmt, color, score, color, tierLabel)
-	FmtRiskBreakdownVulns   string
-	FmtRiskBreakdownService string
-	FmtRiskBreakdownSSL     string
-	FmtRiskBreakdownPorts   string
+	RiskTierCritical          string
+	RiskTierHigh              string
+	RiskTierMedium            string
+	RiskTierLow               string
+	SevCritical               string
+	SevHigh                   string
+	SevMedium                 string
+	SevLow                    string
+	SevInfo                   string
+	FmtSevFindings            string // Sprintf(fmt, sevLabel)
+	FmtSevFindingsCount       string // Sprintf(fmt, sevLabel, count)
+	FmtAndMore                string // Sprintf(fmt, count)
+	FmtRiskScore              string // Sprintf(fmt, color, score, color, tierLabel)
+	FmtRiskBreakdownVulns     string
+	FmtRiskBreakdownService   string
+	FmtRiskBreakdownSSL       string
+	FmtRiskBreakdownPorts     string
 	FmtHostRiskDetailWithHost string // Sprintf(fmt, ip, hostname, extra)
 	FmtHostRiskDetail         string // Sprintf(fmt, ip, extra)
 	FmtRiskDetailTitle        string // Sprintf(fmt, ip)
 
 	// ── Correlation viewer ────────────────────────────────────────────────────
-	FmtCorrControlsText    string // Sprintf(fmt, filterLine)
-	CorrResetSearch        string
-	FmtCorrFilterActiveCat string // Sprintf(fmt, catLabel)
-	CorrCycleFilter        string
-	HostColIP              string
-	HostColCategory        string
-	HostColHostname        string
-	HostColVendor          string
-	HostColPorts           string
+	FmtCorrControlsText        string // Sprintf(fmt, filterLine)
+	CorrResetSearch            string
+	FmtCorrFilterActiveCat     string // Sprintf(fmt, catLabel)
+	CorrCycleFilter            string
+	HostColIP                  string
+	HostColCategory            string
+	HostColHostname            string
+	HostColVendor              string
+	HostColPorts               string
 	HostDetailsSelectPrompt    string
 	HostDetailsNoData          string
 	HostDetailsIdentity        string
@@ -255,6 +255,21 @@ type Strings struct {
 	CatModalLinux              string
 	CatModalNetDevice          string
 	FmtCatModalTitle           string // Sprintf(fmt, ip)
+
+	// ── Main view panels ────────────────────────────────────────────────────
+	PaneTitleAssessment        string
+	AssessmentPhaseCapture     string
+	AssessmentPhaseSysConfig   string
+	AssessmentPhaseDiscovery   string
+	AssessmentPhaseCategorize  string
+	AssessmentPhasePortVuln    string
+	AssessmentPhaseDevConfig   string
+	FmtAssessmentUncategorized string // Sprintf(fmt, count)
+
+	PaneTitleActiveJobsPanel string
+	JobsPanelNoActive        string
+	FmtJobsPanelNeedsInput   string
+	ProgressWaitingInput     string
 
 	// ── Filter ────────────────────────────────────────────────────────────────
 	FilterLabel string
@@ -580,23 +595,23 @@ Script Control:
 	FmtHostOpenPorts:            "Open Ports: [white]%s[::-]\n",
 	FmtFindingsCount:            "%s (%d findings)",
 
-	RiskTierCritical:     "Critical",
-	RiskTierHigh:         "High",
-	RiskTierMedium:       "Medium",
-	RiskTierLow:          "Low",
-	SevCritical:          "Critical",
-	SevHigh:              "High",
-	SevMedium:            "Medium",
-	SevLow:               "Low",
-	SevInfo:              "Info",
-	FmtSevFindings:       "[%s]%s Findings[::-]\n",
-	FmtSevFindingsCount:  "[%s]%s Findings (%d)[::-]\n",
-	FmtAndMore:           "  ... and %d more\n",
-	FmtRiskScore:         "Risk Score: [%s]%d/1000[%s] %s[::-]\n",
-	FmtRiskBreakdownVulns:   "  Vulnerabilities:  [white]%d pts[::-]\n",
-	FmtRiskBreakdownService: "  Service Exposure: [white]%d pts[::-]\n",
-	FmtRiskBreakdownSSL:     "  SSL/TLS Issues:   [white]%d pts[::-]\n",
-	FmtRiskBreakdownPorts:   "  Open Ports:       [white]%d pts[::-]\n\n",
+	RiskTierCritical:          "Critical",
+	RiskTierHigh:              "High",
+	RiskTierMedium:            "Medium",
+	RiskTierLow:               "Low",
+	SevCritical:               "Critical",
+	SevHigh:                   "High",
+	SevMedium:                 "Medium",
+	SevLow:                    "Low",
+	SevInfo:                   "Info",
+	FmtSevFindings:            "[%s]%s Findings[::-]\n",
+	FmtSevFindingsCount:       "[%s]%s Findings (%d)[::-]\n",
+	FmtAndMore:                "  ... and %d more\n",
+	FmtRiskScore:              "Risk Score: [%s]%d/1000[%s] %s[::-]\n",
+	FmtRiskBreakdownVulns:     "  Vulnerabilities:  [white]%d pts[::-]\n",
+	FmtRiskBreakdownService:   "  Service Exposure: [white]%d pts[::-]\n",
+	FmtRiskBreakdownSSL:       "  SSL/TLS Issues:   [white]%d pts[::-]\n",
+	FmtRiskBreakdownPorts:     "  Open Ports:       [white]%d pts[::-]\n\n",
 	FmtHostRiskDetailWithHost: "[yellow]Host Risk Details: %s (%s)[::-]%s",
 	FmtHostRiskDetail:         "[yellow]Host Risk Details: %s[::-]%s",
 	FmtRiskDetailTitle:        "Risk Details: %s",
@@ -609,14 +624,14 @@ Script Control:
 [white]Space[::-]  Categorize host         [white]q[::-]  Close
 
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`,
-	CorrResetSearch:        "[yellow]f[::-]      Reset search",
-	FmtCorrFilterActiveCat: "[yellow]f[::-]      Cycle filter: %s",
-	CorrCycleFilter:        "[white]f[::-]      Cycle category filter",
-	HostColIP:              "IP",
-	HostColCategory:        "Category",
-	HostColHostname:        "Hostname",
-	HostColVendor:          "Vendor",
-	HostColPorts:           "Ports",
+	CorrResetSearch:            "[yellow]f[::-]      Reset search",
+	FmtCorrFilterActiveCat:     "[yellow]f[::-]      Cycle filter: %s",
+	CorrCycleFilter:            "[white]f[::-]      Cycle category filter",
+	HostColIP:                  "IP",
+	HostColCategory:            "Category",
+	HostColHostname:            "Hostname",
+	HostColVendor:              "Vendor",
+	HostColPorts:               "Ports",
 	HostDetailsSelectPrompt:    "[gray]Select a host to view details[::-]",
 	HostDetailsNoData:          "[gray]No data found for selected host[::-]",
 	HostDetailsIdentity:        "[yellow]Identity[::-]\n",
@@ -636,7 +651,23 @@ Script Control:
 	CatModalLinux:              "Linux",
 	CatModalNetDevice:          "Network Device",
 	FmtCatModalTitle:           "Categorize %s",
-	FilterLabel:                "Filter: ",
+
+	// Main view panels
+	PaneTitleAssessment:        "Assessment",
+	AssessmentPhaseCapture:     "Capture",
+	AssessmentPhaseSysConfig:   "System Configuration",
+	AssessmentPhaseDiscovery:   "Discovery Scans",
+	AssessmentPhaseCategorize:  "Host Categorization",
+	AssessmentPhasePortVuln:    "Port/Vuln Scans",
+	AssessmentPhaseDevConfig:   "Device Config Gathering",
+	FmtAssessmentUncategorized: "(%d uncategorized)",
+
+	PaneTitleActiveJobsPanel: "Active Jobs",
+	JobsPanelNoActive:        "No active jobs. Select a task and press Enter.",
+	FmtJobsPanelNeedsInput:   "[yellow]\u2691 Waiting for input[white]",
+	ProgressWaitingInput:     "\u2691 Waiting for input",
+
+	FilterLabel: "Filter: ",
 }
 
 var stringsDE = &Strings{
@@ -896,26 +927,26 @@ Skriptsteuerung:
 	FmtHostOpenPorts:            "Offene Ports: [white]%s[::-]\n",
 	FmtFindingsCount:            "%s (%d Befunde)",
 
-	FmtTopFindingMedium:  "%d mittlere Schwachstellen",
-	FmtTopFindingPorts:   "%d offene Ports",
-	TopFindingNone:       "-",
-	RiskTierCritical:     "Kritisch",
-	RiskTierHigh:         "Hoch",
-	RiskTierMedium:       "Mittel",
-	RiskTierLow:          "Niedrig",
-	SevCritical:          "Kritisch",
-	SevHigh:              "Hoch",
-	SevMedium:            "Mittel",
-	SevLow:               "Niedrig",
-	SevInfo:              "Info",
-	FmtSevFindings:       "[%s]%s Befunde[::-]\n",
-	FmtSevFindingsCount:  "[%s]%s Befunde (%d)[::-]\n",
-	FmtAndMore:           "  ... und %d weitere\n",
-	FmtRiskScore:         "Risiko-Score: [%s]%d/1000[%s] %s[::-]\n",
-	FmtRiskBreakdownVulns:   "  Schwachstellen:    [white]%d Pkt[::-]\n",
-	FmtRiskBreakdownService: "  Dienst-Exponierung: [white]%d Pkt[::-]\n",
-	FmtRiskBreakdownSSL:     "  SSL/TLS-Probleme:  [white]%d Pkt[::-]\n",
-	FmtRiskBreakdownPorts:   "  Offene Ports:      [white]%d Pkt[::-]\n\n",
+	FmtTopFindingMedium:       "%d mittlere Schwachstellen",
+	FmtTopFindingPorts:        "%d offene Ports",
+	TopFindingNone:            "-",
+	RiskTierCritical:          "Kritisch",
+	RiskTierHigh:              "Hoch",
+	RiskTierMedium:            "Mittel",
+	RiskTierLow:               "Niedrig",
+	SevCritical:               "Kritisch",
+	SevHigh:                   "Hoch",
+	SevMedium:                 "Mittel",
+	SevLow:                    "Niedrig",
+	SevInfo:                   "Info",
+	FmtSevFindings:            "[%s]%s Befunde[::-]\n",
+	FmtSevFindingsCount:       "[%s]%s Befunde (%d)[::-]\n",
+	FmtAndMore:                "  ... und %d weitere\n",
+	FmtRiskScore:              "Risiko-Score: [%s]%d/1000[%s] %s[::-]\n",
+	FmtRiskBreakdownVulns:     "  Schwachstellen:    [white]%d Pkt[::-]\n",
+	FmtRiskBreakdownService:   "  Dienst-Exponierung: [white]%d Pkt[::-]\n",
+	FmtRiskBreakdownSSL:       "  SSL/TLS-Probleme:  [white]%d Pkt[::-]\n",
+	FmtRiskBreakdownPorts:     "  Offene Ports:      [white]%d Pkt[::-]\n\n",
 	FmtHostRiskDetailWithHost: "[yellow]Host-Risikodetails: %s (%s)[::-]%s",
 	FmtHostRiskDetail:         "[yellow]Host-Risikodetails: %s[::-]%s",
 	FmtRiskDetailTitle:        "Risikodetails: %s",
@@ -928,14 +959,14 @@ Skriptsteuerung:
 [white]Space[::-]  Host kategorisieren     [white]q[::-]  Schließen
 
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Hauptmenü`,
-	CorrResetSearch:        "[yellow]f[::-]      Suche zurücksetzen",
-	FmtCorrFilterActiveCat: "[yellow]f[::-]      Filter wechseln: %s",
-	CorrCycleFilter:        "[white]f[::-]      Kategoriefilter wechseln",
-	HostColIP:              "IP",
-	HostColCategory:        "Kategorie",
-	HostColHostname:        "Hostname",
-	HostColVendor:          "Hersteller",
-	HostColPorts:           "Ports",
+	CorrResetSearch:            "[yellow]f[::-]      Suche zurücksetzen",
+	FmtCorrFilterActiveCat:     "[yellow]f[::-]      Filter wechseln: %s",
+	CorrCycleFilter:            "[white]f[::-]      Kategoriefilter wechseln",
+	HostColIP:                  "IP",
+	HostColCategory:            "Kategorie",
+	HostColHostname:            "Hostname",
+	HostColVendor:              "Hersteller",
+	HostColPorts:               "Ports",
 	HostDetailsSelectPrompt:    "[gray]Host auswählen für Details[::-]",
 	HostDetailsNoData:          "[gray]Keine Daten für gewählten Host[::-]",
 	HostDetailsIdentity:        "[yellow]Eigenschaften[::-]\n",
@@ -955,7 +986,23 @@ Skriptsteuerung:
 	CatModalLinux:              "Linux",
 	CatModalNetDevice:          "Netzwerkgerät",
 	FmtCatModalTitle:           "Host kategorisieren: %s",
-	FilterLabel:                "Filter: ",
+
+	// Main view panels
+	PaneTitleAssessment:        "Assessment",
+	AssessmentPhaseCapture:     "Mitschnitt",
+	AssessmentPhaseSysConfig:   "Systemkonfiguration",
+	AssessmentPhaseDiscovery:   "Discovery-Scans",
+	AssessmentPhaseCategorize:  "Host-Kategorisierung",
+	AssessmentPhasePortVuln:    "Port/Vuln-Scans",
+	AssessmentPhaseDevConfig:   "Gerätekonfiguration",
+	FmtAssessmentUncategorized: "(%d unkategorisiert)",
+
+	PaneTitleActiveJobsPanel: "Aktive Jobs",
+	JobsPanelNoActive:        "Keine aktiven Jobs. Skript auswählen und Enter drücken.",
+	FmtJobsPanelNeedsInput:   "[yellow]\u2691 Wartet auf Eingabe[white]",
+	ProgressWaitingInput:     "\u2691 Wartet auf Eingabe",
+
+	FilterLabel: "Filter: ",
 }
 
 func stringsForLang(lang string) *Strings {

@@ -272,6 +272,9 @@ func (jv *JobsViewer) getJobProgress(job *jobs.Job) string {
 	case jobs.JobStatusPending:
 		return jv.str.ProgressWaiting
 	case jobs.JobStatusRunning:
+		if job.NeedsInput() {
+			return jv.str.ProgressWaitingInput
+		}
 		current, total, desc := job.GetPhaseProgress()
 		if total > 0 {
 			return renderProgressBar(current, total, desc)
