@@ -34,14 +34,14 @@ type OutputViewer struct {
 	maxLines      int
 	searchQuery   string
 
-	running      bool
-	paused       bool
-	following    bool
-	waitingInput bool
-	completed    bool
-	passwordMode bool
+	running        bool
+	paused         bool
+	following      bool
+	waitingInput   bool
+	completed      bool
+	passwordMode   bool
 	connectedJobID string
-	mu           sync.RWMutex
+	mu             sync.RWMutex
 
 	outputChan <-chan executor.OutputLine
 	errorChan  <-chan error
@@ -682,7 +682,6 @@ func (ov *OutputViewer) ShowHistoricalOutput(jobName string, status jobs.JobStat
 	ov.statusLine.SetText(fmt.Sprintf("[%s]%s - read-only[::-] | Esc=Close | Enter=Close", statusColor, string(status)))
 }
 
-
 // cancelJob attempts to cancel the running job if connected via ConnectToJob.
 // If no job is connected (e.g. StartScript path), this is a no-op.
 func (ov *OutputViewer) cancelJob() {
@@ -877,7 +876,6 @@ Script Control:
 
 	ov.pages.AddPage("output-help", helpModal, true, true)
 }
-
 
 func (ov *OutputViewer) FocusView() {
 	ov.app.SetFocus(ov.outputView)

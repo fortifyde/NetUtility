@@ -194,8 +194,7 @@ func TestCalculateRiskScore(t *testing.T) {
 	tests := []struct {
 		name        string
 		correlation *CorrelationResult
-		wantMin     int
-		wantMax     int
+		wantScore   int
 	}{
 		{
 			name: "no findings",
@@ -203,54 +202,149 @@ func TestCalculateRiskScore(t *testing.T) {
 				Services:        []Service{},
 				Vulnerabilities: []Vulnerability{},
 			},
-			wantMin: 0,
-			wantMax: 0,
+			wantScore: 0,
 		},
 		{
-			name: "with services only",
-			correlation: &CorrelationResult{
-				Services: []Service{
-					{Name: "http", Port: 80},
-					{Name: "ssh", Port: 22},
-				},
-				Vulnerabilities: []Vulnerability{},
-			},
-			wantMin: 10,
-			wantMax: 50,
-		},
-		{
-			name: "with critical vulnerability",
+			name: "single critical vulnerability",
 			correlation: &CorrelationResult{
 				Services: []Service{},
 				Vulnerabilities: []Vulnerability{
 					{Severity: "critical", Title: "Critical vuln"},
 				},
 			},
-			wantMin: 100,
-			wantMax: 150,
+			wantScore: 150, // 150 for first critical
 		},
 		{
-			name: "with high-risk services",
+			name: "single high vulnerability",
 			correlation: &CorrelationResult{
-				Services:        []Service{},
+				Services: []Service{},
+				Vulnerabilities: []Vulnerability{
+					{Severity: "high", Title: "High vuln"},
+				},
+			},
+			wantScore: 80, // 80 for first high
+		},
+		{
+			name: "single medium vulnerability",
+			correlation: &CorrelationResult{
+				Services: []Service{},
+				Vulnerabilities: []Vulnerability{
+					{Severity: "medium", Title: "Medium vuln"},
+				},
+			},
+			wantScore: 40,
+		},
+		{
+			name: "single low vulnerability",
+			correlation: &CorrelationResult{
+				Services: []Service{},
+				Vulnerabilities: []Vulnerability{
+					{Severity: "low", Title: "Low vuln"},
+				},
+			},
+			wantScore: 15,
+		},
+		{
+			name: "single info vulnerability",
+			correlation: &CorrelationResult{
+				Services: []Service{},
+				Vulnerabilities: []Vulnerability{
+					{Severity: "info", Title: "Info vuln"},
+				},
+			},
+			wantScore: 5,
+		},
+		{
+			name: "two critical vulnerabilities capped at 2",
+			correlation: &CorrelationResult{
+				Services: []Service{},
+				Vulnerabilities: []Vulnerability{
+					{Severity: "critical", Title: "Critical 1"},
+					{Severity: "critical", Title: "Critical 2"},
+					{Severity: "critical", Title: "Critical 3"}, // no points for 3rd+
+				},
+			},
+			wantScore: 300, // 2x150
+		},
+		{
+			name: "ssl critical",
+			correlation: &CorrelationResult{
+				Services: []Service{},
+				Vulnerabilities: []Vulnerability{
+					{Severity: "critical", Title: "SSLv3 enabled", Source: "sslscan"},
+				},
+			},
+			wantScore: 250, // 150 vuln + 100 ssl
+		},
+		{
+			name: "telnet service exposure",
+			correlation: &CorrelationResult{
+				Services: []Service{
+					{Name: "telnet", Port: 23},
+				},
+				Vulnerabilities: []Vulnerability{},
+			},
+			wantScore: 90, // 80 svc + 10 port
+		},
+		{
+			name: "ftp service exposure",
+			correlation: &CorrelationResult{
+				Services: []Service{
+					{Name: "ftp", Port: 21},
+				},
+				Vulnerabilities: []Vulnerability{},
+			},
+			wantScore: 70, // 60 svc + 10 port
+		},
+		{
+			name: "http without https",
+			correlation: &CorrelationResult{
+				Services: []Service{
+					{Name: "http", Port: 80},
+				},
+				Vulnerabilities: []Vulnerability{},
+			},
+			wantScore: 40, // 30 http-only + 10 port
+		},
+		{
+			name: "http with https",
+			correlation: &CorrelationResult{
+				Services: []Service{
+					{Name: "http", Port: 80},
+					{Name: "https", Port: 443},
+				},
+				Vulnerabilities: []Vulnerability{},
+			},
+			wantScore: 10, // just port factor
+		},
+		{
+			name: "open ports factor",
+			correlation: &CorrelationResult{
+				Services:        []Service{{Name: "unknown", Port: 1}},
 				Vulnerabilities: []Vulnerability{},
 				HostInfo: &Host{
 					Ports: []Port{
-						{Number: 22, Service: "ssh", State: "open"},
-						{Number: 445, Service: "smb", State: "open"},
+						{Number: 1, State: "open"},
+						{Number: 2, State: "open"},
+						{Number: 3, State: "open"},
+						{Number: 4, State: "open"},
+						{Number: 5, State: "open"},
+						{Number: 6, State: "open"},
 					},
 				},
 			},
-			wantMin: 60,
-			wantMax: 100,
+			wantScore: 30, // 6 open = 30 pts
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			score := correlator.calculateRiskScore(tt.correlation)
-			if score < tt.wantMin || score > tt.wantMax {
-				t.Errorf("calculateRiskScore() = %d, want between %d and %d", score, tt.wantMin, tt.wantMax)
+			breakdown := correlator.calculateRiskScore(tt.correlation)
+			if breakdown.Total != tt.wantScore {
+				t.Errorf("calculateRiskScore() Total = %d, want %d (breakdown: vuln=%d ssl=%d svc=%d port=%d)",
+					breakdown.Total, tt.wantScore,
+					breakdown.VulnerabilityScore, breakdown.SSLIssues,
+					breakdown.ServiceExposure, breakdown.OpenPortScore)
 			}
 		})
 	}
@@ -269,9 +363,57 @@ func TestCalculateRiskScoreCapped(t *testing.T) {
 		Vulnerabilities: vulns,
 	}
 
-	score := correlator.calculateRiskScore(correlation)
-	if score > 1000 {
-		t.Errorf("Risk score should be capped at 1000, got %d", score)
+	breakdown := correlator.calculateRiskScore(correlation)
+	if breakdown.Total > 1000 {
+		t.Errorf("Risk score should be capped at 1000, got %d", breakdown.Total)
+	}
+}
+
+func TestCalculateRiskScoreBreakdownFactors(t *testing.T) {
+	correlator := NewCorrelator("")
+
+	correlation := &CorrelationResult{
+		Services: []Service{
+			{Name: "telnet", Port: 23},
+		},
+		Vulnerabilities: []Vulnerability{
+			{Severity: "critical", Title: "RCE", Source: "nmap-nse"},
+			{Severity: "high", Title: "SSLv3 enabled", Source: "sslscan"},
+		},
+		HostInfo: &Host{
+			Ports: []Port{{Number: 23, State: "open"}},
+		},
+	}
+
+	breakdown := correlator.calculateRiskScore(correlation)
+
+	// Verify breakdown has factors
+	if len(breakdown.Factors) == 0 {
+		t.Fatal("Expected non-empty risk factors")
+	}
+
+	// Verify categories are present
+	categories := make(map[string]bool)
+	for _, f := range breakdown.Factors {
+		categories[f.Category] = true
+	}
+	if !categories["vulnerability"] {
+		t.Error("Expected 'vulnerability' category in factors")
+	}
+	if !categories["ssl"] {
+		t.Error("Expected 'ssl' category in factors")
+	}
+	if !categories["service"] {
+		t.Error("Expected 'service' category in factors")
+	}
+
+	// Verify total matches sum of parts
+	expectedTotal := breakdown.VulnerabilityScore + breakdown.SSLIssues + breakdown.ServiceExposure + breakdown.OpenPortScore
+	if expectedTotal > 1000 {
+		expectedTotal = 1000
+	}
+	if breakdown.Total != expectedTotal {
+		t.Errorf("Total = %d, expected sum %d", breakdown.Total, expectedTotal)
 	}
 }
 

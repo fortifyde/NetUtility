@@ -1,6 +1,7 @@
 package correlation
 
 import (
+	"encoding/xml"
 	"fmt"
 	"io/fs"
 	"os"
@@ -56,6 +57,10 @@ func (rp *ResultParser) ParseJobResult(scriptPath, outputContent string, timesta
 		return rp.parseServiceScan(result, outputContent)
 	case ScanTypeHostCategorization:
 		return rp.parseCategorizationDetails(result, outputContent)
+	case ScanTypeNikto:
+		return rp.parseNiktoXMLResult(result, outputContent)
+	case ScanTypeSSLScan:
+		return rp.parseSSLScanResult(result, outputContent)
 	default:
 		return rp.parseGenericOutput(result, outputContent)
 	}
@@ -69,6 +74,16 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 	// ph7 categorization details file — must be checked before generic name patterns
 	if strings.Contains(scriptName, "categorization_details") {
 		return ScanTypeHostCategorization
+	}
+
+	// Nikto XML detection — check content before generic name patterns
+	if strings.Contains(contentLower, "<niktoscan>") {
+		return ScanTypeNikto
+	}
+
+	// sslscan detection — check filename and content
+	if strings.Contains(scriptName, "sslscan") {
+		return ScanTypeSSLScan
 	}
 
 	// Check script name patterns
@@ -486,7 +501,8 @@ func (rp *ResultParser) ParseResultFile(filePath string) (*ScanResult, error) {
 }
 
 // ScanWorkspaceForResults scans the workspace directory recursively for result files.
-// It processes nmap output files (.nmap, .xml) and the ph7 categorization_details.txt.
+// It processes nmap output files (.nmap, .xml), the ph7 categorization_details.txt,
+// and supplementary tool outputs (sslscan.txt, nikto.xml).
 // Generic .txt and .log files are intentionally excluded: they contain human-readable
 // reports that mention every IP in the scan range, which would flood the host inventory
 // with hundreds of spurious "unknown" entries.
@@ -508,8 +524,8 @@ func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 		base := filepath.Base(path)
 		ext := filepath.Ext(path)
 
-		// Only process nmap output files and the ph7 categorization details file.
-		if ext != ".nmap" && ext != ".xml" && base != "categorization_details.txt" {
+		// Process nmap output files, categorization details, and specific supplementary outputs.
+		if ext != ".nmap" && ext != ".xml" && base != "categorization_details.txt" && base != "sslscan.txt" {
 			return nil
 		}
 
@@ -533,4 +549,232 @@ func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 	}
 
 	return results, nil
+}
+
+// --- Nikto XML types for parsing ---
+
+// niktoScan is the top-level XML structure.
+type niktoScan struct {
+	XMLName     xml.Name           `xml:"niktoscan"`
+	ScanDetails []niktoScanDetails `xml:"scandetails"`
+}
+
+// niktoScanDetails holds per-target scan details.
+type niktoScanDetails struct {
+	TargetIP   string      `xml:"targetip,attr"`
+	TargetPort string      `xml:"targetport,attr"`
+	TargetHost string      `xml:"targethostname,attr"`
+	Items      []niktoItem `xml:"item"`
+}
+
+// niktoItem represents a single finding.
+type niktoItem struct {
+	Method      string `xml:"method,attr"`
+	URL         string `xml:"url,attr"`
+	Description string `xml:"description,attr"`
+	ID          string `xml:"id,attr"`
+	Text        string `xml:",chardata"`
+}
+
+// parseNiktoXMLResult parses nikto XML output into vulnerabilities.
+func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) (*ScanResult, error) {
+	var scan niktoScan
+	if err := xml.Unmarshal([]byte(content), &scan); err != nil {
+		return rp.parseGenericOutput(result, content)
+	}
+
+	for _, details := range scan.ScanDetails {
+		ip := details.TargetIP
+		if ip == "" {
+			continue
+		}
+
+		// Add host
+		host := Host{
+			IP:       ip,
+			Hostname: details.TargetHost,
+			Status:   "up",
+			LastSeen: result.Timestamp,
+			Ports:    make([]Port, 0),
+		}
+		result.Hosts = append(result.Hosts, host)
+		result.Targets = append(result.Targets, ip)
+
+		// Parse port if available
+		port := 0
+		if details.TargetPort != "" {
+			port, _ = strconv.Atoi(details.TargetPort)
+		}
+
+		for _, item := range details.Items {
+			severity := niktoSeverity(item)
+
+			title := item.Description
+			if title == "" {
+				title = item.Text
+			}
+			if title == "" && item.URL != "" {
+				title = fmt.Sprintf("%s %s", item.Method, item.URL)
+			}
+			if title == "" {
+				title = "Nikto finding"
+			}
+
+			vuln := Vulnerability{
+				Host:        ip,
+				Port:        port,
+				Title:       strings.TrimSpace(title),
+				Description: strings.TrimSpace(item.Text),
+				Severity:    severity,
+				Source:      "nikto",
+				Discovery:   result.Timestamp,
+			}
+
+			result.Vulnerabilities = append(result.Vulnerabilities, vuln)
+		}
+	}
+
+	return result, nil
+}
+
+// niktoSeverity assigns a heuristic severity to a nikto finding based on keywords.
+func niktoSeverity(item niktoItem) string {
+	text := strings.ToLower(item.Description + " " + item.Text)
+
+	highKW := []string{"vulnerable", "unrestricted", "credentials", "default password",
+		"default credential", "admin panel", "backdoor", "shell",
+		"remote code", "rce", "injection"}
+	for _, kw := range highKW {
+		if strings.Contains(text, kw) {
+			return "high"
+		}
+	}
+
+	mediumKW := []string{"found", "enumerated", "version", "header", "missing",
+		"disabled", "enabled", "x-powered", "server:", "cookie"}
+	for _, kw := range mediumKW {
+		if strings.Contains(text, kw) {
+			return "medium"
+		}
+	}
+
+	return "low"
+}
+
+// parseSSLScanResult parses sslscan text output into vulnerabilities.
+func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (*ScanResult, error) {
+	lines := strings.Split(content, "\n")
+
+	// sslscan can contain results for multiple hosts separated by "--- Host: <ip> ---"
+	var currentIP string
+	var currentPort int
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// Detect host separator
+		if strings.HasPrefix(line, "--- Host:") {
+			hostLine := strings.TrimPrefix(line, "--- Host:")
+			hostLine = strings.TrimSuffix(strings.TrimSpace(hostLine), "---")
+			ip := strings.TrimSpace(hostLine)
+			if ip != "" {
+				currentIP = ip
+				if currentIP != "" {
+					// Add host
+					host := Host{
+						IP:       currentIP,
+						Status:   "up",
+						LastSeen: result.Timestamp,
+						Ports:    make([]Port, 0),
+					}
+					result.Hosts = append(result.Hosts, host)
+					result.Targets = append(result.Targets, currentIP)
+				}
+			}
+			continue
+		}
+
+		if currentIP == "" {
+			continue
+		}
+
+		lineLower := strings.ToLower(line)
+
+		// Detect SSLv2/SSLv3 — critical
+		if strings.Contains(lineLower, "sslv2") || strings.Contains(lineLower, "sslv3") {
+			if strings.Contains(lineLower, "enabled") {
+				proto := "SSLv3"
+				if strings.Contains(lineLower, "sslv2") {
+					proto = "SSLv2"
+				}
+				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+					Host:        currentIP,
+					Port:        currentPort,
+					Title:       fmt.Sprintf("%s enabled", proto),
+					Description: line,
+					Severity:    "critical",
+					Source:      "sslscan",
+					Discovery:   result.Timestamp,
+				})
+			}
+		}
+
+		// Detect TLS 1.0/1.1 — medium
+		if (strings.Contains(lineLower, "tls 1.0") || strings.Contains(lineLower, "tls 1.1")) &&
+			strings.Contains(lineLower, "enabled") {
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:        currentIP,
+				Port:        currentPort,
+				Title:       "Deprecated TLS version enabled",
+				Description: line,
+				Severity:    "medium",
+				Source:      "sslscan",
+				Discovery:   result.Timestamp,
+			})
+		}
+
+		// Detect weak ciphers — high
+		weakCiphers := []string{"des", "rc4", "export", "null"}
+		for _, weak := range weakCiphers {
+			if strings.Contains(lineLower, weak) && !strings.Contains(lineLower, "not ") && !strings.Contains(lineLower, "disabled") {
+				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+					Host:        currentIP,
+					Port:        currentPort,
+					Title:       fmt.Sprintf("Weak cipher: %s", strings.ToUpper(weak)),
+					Description: line,
+					Severity:    "high",
+					Source:      "sslscan",
+					Discovery:   result.Timestamp,
+				})
+				break
+			}
+		}
+
+		// Detect certificate issues — medium
+		certIssues := []string{"self-signed", "expired", "weak key"}
+		for _, issue := range certIssues {
+			if strings.Contains(lineLower, issue) {
+				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+					Host:        currentIP,
+					Port:        currentPort,
+					Title:       fmt.Sprintf("Certificate issue: %s", issue),
+					Description: line,
+					Severity:    "medium",
+					Source:      "sslscan",
+					Discovery:   result.Timestamp,
+				})
+				break
+			}
+		}
+
+		// Detect port from sslscan output
+		if strings.Contains(line, "SSL/TLS") && strings.Contains(line, ":") {
+			portRegex := regexp.MustCompile(`(\d+)`)
+			if matches := portRegex.FindStringSubmatch(line); len(matches) > 1 {
+				currentPort, _ = strconv.Atoi(matches[1])
+			}
+		}
+	}
+
+	return result, nil
 }

@@ -32,6 +32,7 @@ type Dashboard struct {
 	controlsText     *tview.TextView
 
 	// State
+	selectedHostIP       string
 	refreshTicker        *time.Ticker
 	stopChan             chan struct{}
 	returnToMainCallback func()
@@ -88,7 +89,7 @@ func (d *Dashboard) setupUI() {
 	d.riskPanel.SetBorder(true).SetTitle("Risk Overview")
 
 	d.topFindingsTable = tview.NewTable().SetBorders(true).SetSelectable(true, false)
-	d.topFindingsTable.SetBorder(true).SetTitle("Top Findings")
+	d.topFindingsTable.SetBorder(true).SetTitle("Host Risk")
 
 	d.servicesPanel = tview.NewTextView().SetDynamicColors(true)
 	d.servicesPanel.SetBorder(true).SetTitle("Service Landscape")
@@ -349,6 +350,7 @@ func (d *Dashboard) updateRiskPanel(correlations map[string]*correlation.Correla
 	var highestIP string
 	var highestScore int
 	severityCounts := make(map[string]int)
+	var niktoCount, sslCount int
 
 	for ip, corr := range correlations {
 		totalScore += corr.RiskScore
@@ -364,6 +366,12 @@ func (d *Dashboard) updateRiskPanel(correlations map[string]*correlation.Correla
 		}
 		for _, vuln := range corr.Vulnerabilities {
 			severityCounts[strings.ToLower(vuln.Severity)]++
+			switch vuln.Source {
+			case "nikto":
+				niktoCount++
+			case "sslscan":
+				sslCount++
+			}
 		}
 	}
 
@@ -380,6 +388,17 @@ func (d *Dashboard) updateRiskPanel(correlations map[string]*correlation.Correla
 		}
 	}
 
+	// Source breakdown
+	if niktoCount > 0 || sslCount > 0 {
+		content.WriteString("\n[yellow]By Source[::-]\n")
+		if niktoCount > 0 {
+			content.WriteString(fmt.Sprintf("  Nikto:     [white]%d findings[::-]\n", niktoCount))
+		}
+		if sslCount > 0 {
+			content.WriteString(fmt.Sprintf("  SSL/TLS:   [white]%d issues[::-]\n", sslCount))
+		}
+	}
+
 	avgScore := totalScore / len(correlations)
 	content.WriteString(fmt.Sprintf("\nAverage Score: [white]%d[::-]\n", avgScore))
 	if highestIP != "" {
@@ -389,17 +408,29 @@ func (d *Dashboard) updateRiskPanel(correlations map[string]*correlation.Correla
 	d.riskPanel.SetText(content.String())
 }
 
-// updateTopFindings renders the top-risk hosts as a selectable table.
+// updateTopFindings renders all hosts in a scrollable risk table with stable selection.
 func (d *Dashboard) updateTopFindings(correlations map[string]*correlation.CorrelationResult) {
+	// Save current selection
+	if row, _ := d.topFindingsTable.GetSelection(); row > 0 {
+		if cell := d.topFindingsTable.GetCell(row, 1); cell != nil {
+			d.selectedHostIP = cell.Text
+		}
+	}
+
 	d.topFindingsTable.Clear()
 
-	headers := []string{"", "IP", "Score", "Critical Finding"}
+	headers := []string{"Score", "IP", "Hostname", "Category", "Top Finding (Total)"}
 	for i, header := range headers {
-		d.topFindingsTable.SetCell(0, i, tview.NewTableCell(header).
+		cell := tview.NewTableCell(header).
 			SetTextColor(tcell.ColorYellow).
 			SetAlign(tview.AlignCenter).
-			SetSelectable(false))
+			SetSelectable(false)
+		if i == 4 {
+			cell.SetExpansion(1)
+		}
+		d.topFindingsTable.SetCell(0, i, cell)
 	}
+	d.topFindingsTable.SetFixed(1, 0)
 
 	type hostEntry struct {
 		ip     string
@@ -411,8 +442,12 @@ func (d *Dashboard) updateTopFindings(correlations map[string]*correlation.Corre
 		entries = append(entries, hostEntry{ip, result})
 	}
 
+	// Stable sort: score desc, IP asc tiebreaker
 	sort.Slice(entries, func(i, j int) bool {
-		return entries[i].result.RiskScore > entries[j].result.RiskScore
+		if entries[i].result.RiskScore != entries[j].result.RiskScore {
+			return entries[i].result.RiskScore > entries[j].result.RiskScore
+		}
+		return compareIPs(entries[i].ip, entries[j].ip)
 	})
 
 	if len(entries) == 0 {
@@ -425,14 +460,9 @@ func (d *Dashboard) updateTopFindings(correlations map[string]*correlation.Corre
 		return
 	}
 
-	maxRows := 10
-	if len(entries) < maxRows {
-		maxRows = len(entries)
-	}
-
-	for i := 0; i < maxRows; i++ {
+	selectedRow := 1
+	for i, e := range entries {
 		row := i + 1
-		e := entries[i]
 		score := e.result.RiskScore
 
 		// Determine risk tier color
@@ -444,17 +474,34 @@ func (d *Dashboard) updateTopFindings(correlations map[string]*correlation.Corre
 			}
 		}
 
-		// Top finding: first critical/high vulnerability title, or service summary
-		finding := topFindingText(e.result)
+		cat := hostCategory(e.result)
+		hostname := hostHostname(e.result)
+		if len([]rune(hostname)) > 20 {
+			hostname = string([]rune(hostname)[:19]) + "…"
+		}
 
-		d.topFindingsTable.SetCell(row, 0, tview.NewTableCell("■").SetTextColor(tierColor).SetAlign(tview.AlignCenter))
-		d.topFindingsTable.SetCell(row, 1, tview.NewTableCell(e.ip))
-		d.topFindingsTable.SetCell(row, 2, tview.NewTableCell(fmt.Sprintf("%d", score)).SetTextColor(tierColor).SetAlign(tview.AlignCenter))
-		d.topFindingsTable.SetCell(row, 3, tview.NewTableCell(finding))
+		// Top finding with count suffix
+		finding := topFindingText(e.result)
+		totalVulns := len(e.result.Vulnerabilities)
+		if totalVulns > 0 {
+			finding = fmt.Sprintf("%s (%d findings)", finding, totalVulns)
+		}
+
+		d.topFindingsTable.SetCell(row, 0, tview.NewTableCell(fmt.Sprintf("%d", score)).
+			SetTextColor(tierColor).SetAlign(tview.AlignRight).SetMaxWidth(6))
+		d.topFindingsTable.SetCell(row, 1, tview.NewTableCell(e.ip).SetMaxWidth(15))
+		d.topFindingsTable.SetCell(row, 2, tview.NewTableCell(hostname).SetMaxWidth(20))
+		d.topFindingsTable.SetCell(row, 3, tview.NewTableCell(cat).
+			SetTextColor(tcell.Color(tcell.GetColor(categoryTviewColor(cat)))).SetMaxWidth(8))
+		d.topFindingsTable.SetCell(row, 4, tview.NewTableCell(finding).SetExpansion(1))
+
+		if e.ip == d.selectedHostIP {
+			selectedRow = row
+		}
 	}
 
 	if d.topFindingsTable.GetRowCount() > 1 {
-		d.topFindingsTable.Select(1, 0)
+		d.topFindingsTable.Select(selectedRow, 0)
 	}
 }
 
@@ -601,84 +648,169 @@ func titleCase(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// showHostDetailsModal displays a summary modal for the selected host.
+// showHostDetailsModal displays a scrollable vulnerability-focused detail view for the selected host.
 func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.CorrelationResult) {
-	var details strings.Builder
-
-	details.WriteString(fmt.Sprintf("[yellow]Host: %s[::-]\n\n", hostIP))
-
 	cat := hostCategory(corr)
-	vendor := hostVendor(corr)
 	hostname := hostHostname(corr)
-
-	details.WriteString(fmt.Sprintf("Category: [%s]%s[::-]\n", categoryTviewColor(cat), cat))
-	details.WriteString(fmt.Sprintf("Vendor:   [white]%s[::-]\n", vendor))
-	details.WriteString(fmt.Sprintf("Hostname: [white]%s[::-]\n", hostname))
-	details.WriteString(fmt.Sprintf("Services: [white]%d[::-]\n", len(corr.Services)))
-
-	// Screenshot count
-	screenshots := correlation.GetScreenshotsForHost(corr)
-	if len(screenshots) > 0 {
-		details.WriteString(fmt.Sprintf("Screenshots: [white]%d[::-]\n", len(screenshots)))
-	}
-
-	// Risk score
-	details.WriteString(fmt.Sprintf("Risk Score: [white]%d[::-]\n", corr.RiskScore))
-
-	// Vulnerability summary
-	if len(corr.Vulnerabilities) > 0 {
-		severityCounts := make(map[string]int)
-		for _, vuln := range corr.Vulnerabilities {
-			severityCounts[strings.ToLower(vuln.Severity)]++
-		}
-		details.WriteString("[yellow]Vulnerabilities:[::-]\n")
-		for _, sev := range []string{"critical", "high", "medium", "low", "info"} {
-			if count := severityCounts[sev]; count > 0 {
-				details.WriteString(fmt.Sprintf("  [%s]%s: %d[::-]\n", severityTviewColor(sev), titleCase(sev), count))
-			}
-		}
-	}
-
+	osLabel := "-"
 	if corr.HostInfo != nil {
-		mac := corr.HostInfo.MACAddress
-		if mac == "" {
-			mac = "-"
+		if corr.HostInfo.OSDetails != "" {
+			osLabel = corr.HostInfo.OSDetails
+		} else if corr.HostInfo.OS != "" {
+			osLabel = corr.HostInfo.OS
 		}
-		details.WriteString(fmt.Sprintf("MAC:      [white]%s[::-]\n", mac))
-		osStr := corr.HostInfo.OSDetails
-		if osStr == "" {
-			osStr = corr.HostInfo.OS
-		}
-		if osStr == "" {
-			osStr = "-"
-		}
-		details.WriteString(fmt.Sprintf("OS:       [white]%s[::-]\n", osStr))
 	}
 
-	details.WriteString("\n[yellow]Recent Scans:[::-]\n")
-	for _, event := range corr.Timeline {
-		details.WriteString(fmt.Sprintf("• %s - %s\n",
-			event.Timestamp.Format("15:04"), event.Description))
+	// Header with OS context
+	var headerExtra string
+	if cat != "unknown" {
+		headerExtra = fmt.Sprintf(" — [%s]%s[::-]", categoryTviewColor(cat), cat)
 	}
+	if osLabel != "-" {
+		headerExtra += fmt.Sprintf(" [gray](%s)[::-]", osLabel)
+	}
+	var details strings.Builder
+	if hostname != "-" {
+		details.WriteString(fmt.Sprintf("[yellow]Host Risk Details: %s (%s)[::-]%s", hostIP, hostname, headerExtra))
+	} else {
+		details.WriteString(fmt.Sprintf("[yellow]Host Risk Details: %s[::-]%s", hostIP, headerExtra))
+	}
+	details.WriteString("\n\n")
 
-	modal := tview.NewModal().
-		SetText(details.String()).
-		AddButtons([]string{"View Inventory", "View Screenshot", "Close"}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			d.pages.RemovePage("host-details")
-			switch buttonLabel {
-			case "View Inventory":
-				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
-					d.app.SetFocus(d.topFindingsTable)
-				}, "")
-			case "View Screenshot":
-				ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
-					d.app.SetFocus(d.topFindingsTable)
-				}, hostIP)
+	// Risk score with tier
+	var tierLabel, tierColor string
+	for _, tier := range riskTiers {
+		if corr.RiskScore >= tier.minScore {
+			tierLabel = tier.label
+			tierColor = tier.tviewColor
+			break
+		}
+	}
+	details.WriteString(fmt.Sprintf("Risk Score: [%s]%d/1000[%s] %s[::-]\n", tierColor, corr.RiskScore, tierColor, tierLabel))
+
+	// Risk breakdown
+	bd := corr.RiskDetails
+	details.WriteString(fmt.Sprintf("  Vulnerabilities:  [white]%d pts[::-]\n", bd.VulnerabilityScore))
+	details.WriteString(fmt.Sprintf("  Service Exposure: [white]%d pts[::-]\n", bd.ServiceExposure))
+	details.WriteString(fmt.Sprintf("  SSL/TLS Issues:   [white]%d pts[::-]\n", bd.SSLIssues))
+	details.WriteString(fmt.Sprintf("  Open Ports:       [white]%d pts[::-]\n\n", bd.OpenPortScore))
+
+	// Vulnerabilities by severity
+	severities := []struct {
+		sev   string
+		color string
+	}{{"critical", "red"}, {"high", "orange"}, {"medium", "yellow"}, {"low", "green"}, {"info", "gray"}}
+
+	for _, s := range severities {
+		var sevVulns []correlation.Vulnerability
+		for _, v := range corr.Vulnerabilities {
+			if strings.ToLower(v.Severity) == s.sev {
+				sevVulns = append(sevVulns, v)
 			}
-		})
+		}
+		if len(sevVulns) == 0 {
+			continue
+		}
+		if s.sev == "medium" && len(sevVulns) > 3 {
+			details.WriteString(fmt.Sprintf("[%s]%s Findings (%d)[::-]\n", s.color, titleCase(s.sev), len(sevVulns)))
+		} else {
+			details.WriteString(fmt.Sprintf("[%s]%s Findings[::-]\n", s.color, titleCase(s.sev)))
+		}
+		maxShow := len(sevVulns)
+		if maxShow > 5 {
+			maxShow = 5
+		}
+		for i := 0; i < maxShow; i++ {
+			v := sevVulns[i]
+			line := fmt.Sprintf("  ● %s", v.Title)
+			if v.Source != "" {
+				line += fmt.Sprintf(" (%s", v.Source)
+				if v.Port > 0 {
+					line += fmt.Sprintf(", port %d", v.Port)
+				}
+				line += ")"
+			}
+			details.WriteString(fmt.Sprintf("%s\n", line))
+		}
+		if len(sevVulns) > maxShow {
+			details.WriteString(fmt.Sprintf("  ... and %d more\n", len(sevVulns)-maxShow))
+		}
+		details.WriteString("\n")
+	}
 
-	d.pages.AddPage("host-details", modal, true, true)
+	// Open ports summary
+	var openPorts []string
+	if corr.HostInfo != nil {
+		for _, p := range corr.HostInfo.Ports {
+			if p.State == "open" {
+				openPorts = append(openPorts, fmt.Sprintf("%d", p.Number))
+			}
+		}
+	}
+	if len(openPorts) > 0 {
+		details.WriteString(fmt.Sprintf("Open Ports: [white]%s[::-]\n", strings.Join(openPorts, ", ")))
+	}
+
+	// Build scrollable view
+	textView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true).
+		SetWrap(true).
+		SetText(details.String())
+	textView.SetBorder(true).SetTitle(fmt.Sprintf("Risk Details: %s", hostIP))
+
+	// Button row
+	buttonRow := tview.NewFlex().SetDirection(tview.FlexColumn)
+	btnInventory := tview.NewButton("View Inventory").SetSelectedFunc(func() {
+		d.pages.RemovePage("host-details")
+		ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
+			d.app.SetFocus(d.topFindingsTable)
+		}, "")
+	})
+	btnClose := tview.NewButton("Close").SetSelectedFunc(func() {
+		d.pages.RemovePage("host-details")
+		d.app.SetFocus(d.topFindingsTable)
+	})
+	buttonRow.AddItem(btnInventory, 0, 1, true)
+	buttonRow.AddItem(btnClose, 0, 1, true)
+
+	// Layout
+	modal := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(textView, 0, 1, true).
+		AddItem(buttonRow, 1, 0, true)
+
+	// Center the modal with padding
+	centerFlex := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(nil, 0, 1, false).
+		AddItem(tview.NewFlex().SetDirection(tview.FlexRow).
+			AddItem(nil, 0, 1, false).
+			AddItem(modal, 0, 5, true).
+			AddItem(nil, 0, 1, false), 0, 3, true).
+		AddItem(nil, 0, 1, false)
+
+	centerFlex.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyEscape:
+			d.pages.RemovePage("host-details")
+			d.app.SetFocus(d.topFindingsTable)
+			return nil
+		case tcell.KeyTab:
+			// Cycle focus between text view and buttons
+			switch d.app.GetFocus() {
+			case textView:
+				d.app.SetFocus(btnInventory)
+			case btnInventory:
+				d.app.SetFocus(btnClose)
+			default:
+				d.app.SetFocus(textView)
+			}
+			return nil
+		}
+		return event
+	})
+
+	d.pages.AddPage("host-details", centerFlex, true, true)
+	d.app.SetFocus(textView)
 }
 
 // refresh updates all dashboard data
@@ -719,18 +851,6 @@ func (d *Dashboard) Close() {
 	if d.returnToMainCallback != nil {
 		d.returnToMainCallback()
 	}
-}
-
-// showInfo displays an info message
-func (d *Dashboard) showInfo(message string) {
-	modal := tview.NewModal().
-		SetText(message).
-		AddButtons([]string{"OK"}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			d.pages.RemovePage("info")
-		})
-
-	d.pages.AddPage("info", modal, true, true)
 }
 
 // formatJobDuration formats a duration for the activity panel display.

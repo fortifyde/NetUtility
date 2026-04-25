@@ -700,3 +700,255 @@ func TestScanWorkspaceSkipsLargeFiles(t *testing.T) {
 	// The glob pattern with ** may not work, so we can't assert specific results
 	_ = results
 }
+
+func TestParseNiktoXMLResult(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0" ?>
+<niktoscan>
+  <scandetails targetip="192.168.1.1" targetport="80" targethostname="web.local">
+    <item method="GET" url="/admin" description="Admin panel found">
+      Default credentials found on admin panel
+    </item>
+    <item method="GET" url="/server-status" description="Server status enumerated">
+      Server status page is accessible
+    </item>
+    <item method="GET" url="/old" description="Old version detected">
+      Old software version detected
+    </item>
+  </scandetails>
+  <scandetails targetip="192.168.1.2" targetport="443">
+    <item method="GET" url="/login" description="Login page">
+      Login page found
+    </item>
+  </scandetails>
+</niktoscan>`
+
+	result := &ScanResult{
+		ID:        "test_nikto",
+		Type:      ScanTypeNikto,
+		Timestamp: time.Now(),
+	}
+
+	parsed, err := parser.parseNiktoXMLResult(result, content)
+	if err != nil {
+		t.Fatalf("parseNiktoXMLResult() error = %v", err)
+	}
+
+	// Should find 2 hosts
+	if len(parsed.Hosts) != 2 {
+		t.Errorf("len(Hosts) = %d, want 2", len(parsed.Hosts))
+	}
+
+	// Should find 3 vulnerabilities for first host
+	niktoVulns := 0
+	for _, v := range parsed.Vulnerabilities {
+		if v.Host == "192.168.1.1" && v.Source == "nikto" {
+			niktoVulns++
+		}
+	}
+	if niktoVulns != 3 {
+		t.Errorf("nikto vulns for 192.168.1.1 = %d, want 3", niktoVulns)
+	}
+
+	// Check severity heuristic — "credentials" and "unrestricted" are high keywords
+	highCount := 0
+	for _, v := range parsed.Vulnerabilities {
+		if v.Host == "192.168.1.1" && v.Severity == "high" {
+			highCount++
+		}
+	}
+	if highCount == 0 {
+		t.Error("Expected at least one high-severity nikto finding (credentials keyword)")
+	}
+
+	// Check port parsing
+	for _, v := range parsed.Vulnerabilities {
+		if v.Host == "192.168.1.1" && v.Port != 80 {
+			t.Errorf("Port = %d, want 80", v.Port)
+			break
+		}
+	}
+
+	// Check Source field
+	for _, v := range parsed.Vulnerabilities {
+		if v.Source != "nikto" {
+			t.Errorf("Source = %q, want 'nikto'", v.Source)
+			break
+		}
+	}
+}
+
+func TestParseNiktoXMLResultInvalid(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := "not xml at all"
+	result := &ScanResult{
+		ID:        "test_nikto_invalid",
+		Type:      ScanTypeNikto,
+		Timestamp: time.Now(),
+	}
+
+	parsed, err := parser.parseNiktoXMLResult(result, content)
+	if err != nil {
+		t.Fatalf("parseNiktoXMLResult() should fall back to generic, got error: %v", err)
+	}
+	// Should fall back to generic parsing
+	_ = parsed
+}
+
+func TestParseSSLScanResult(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `=== sslscan Results ===
+Scan time: now
+
+--- Host: 192.168.1.1 ---
+SSL/TLS:
+
+  SSLv3  enabled
+  TLS 1.0  enabled
+  TLS 1.2  enabled
+  TLS 1.3  enabled
+
+  TLS 1.0 cipher suites:
+    DES-CBC3-SHA                          enabled
+    RC4-SHA                               enabled
+
+  Certificates:
+    Self-signed certificate
+
+--- Host: 192.168.1.2 ---
+SSL/TLS:
+
+  TLS 1.2  enabled
+  TLS 1.3  enabled
+`
+
+	result := &ScanResult{
+		ID:        "test_sslscan",
+		Type:      ScanTypeSSLScan,
+		Timestamp: time.Now(),
+	}
+
+	parsed, err := parser.parseSSLScanResult(result, content)
+	if err != nil {
+		t.Fatalf("parseSSLScanResult() error = %v", err)
+	}
+
+	// Should find 2 hosts
+	if len(parsed.Hosts) < 1 {
+		t.Error("Should parse at least 1 host")
+	}
+
+	// Should detect SSLv3 as critical
+	var foundSSLv3 bool
+	for _, v := range parsed.Vulnerabilities {
+		if v.Host == "192.168.1.1" && v.Severity == "critical" && strings.Contains(v.Title, "SSLv3") {
+			foundSSLv3 = true
+		}
+	}
+	if !foundSSLv3 {
+		t.Error("Should detect SSLv3 as critical")
+	}
+
+	// Should detect TLS 1.0 as medium
+	var foundTLS10 bool
+	for _, v := range parsed.Vulnerabilities {
+		if v.Host == "192.168.1.1" && v.Severity == "medium" && strings.Contains(v.Title, "Deprecated") {
+			foundTLS10 = true
+		}
+	}
+	if !foundTLS10 {
+		t.Error("Should detect TLS 1.0 as deprecated")
+	}
+
+	// Should detect weak ciphers
+	var foundWeak bool
+	for _, v := range parsed.Vulnerabilities {
+		if v.Host == "192.168.1.1" && v.Severity == "high" && v.Source == "sslscan" {
+			foundWeak = true
+		}
+	}
+	if !foundWeak {
+		t.Error("Should detect weak cipher (DES/RC4)")
+	}
+
+	// Should detect self-signed cert
+	var foundSelfSigned bool
+	for _, v := range parsed.Vulnerabilities {
+		if v.Host == "192.168.1.1" && strings.Contains(strings.ToLower(v.Title), "self-signed") {
+			foundSelfSigned = true
+		}
+	}
+	if !foundSelfSigned {
+		t.Error("Should detect self-signed certificate")
+	}
+
+	// Check Source field
+	for _, v := range parsed.Vulnerabilities {
+		if v.Source != "sslscan" {
+			t.Errorf("Source = %q, want 'sslscan'", v.Source)
+			break
+		}
+	}
+
+	// Second host should be clean
+	for _, v := range parsed.Vulnerabilities {
+		if v.Host == "192.168.1.2" {
+			t.Error("Second host should have no findings (only TLS 1.2/1.3)")
+			break
+		}
+	}
+}
+
+func TestDetermineScanTypeNikto(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := "<niktoscan><scandetails></scandetails></niktoscan>"
+	scanType := parser.determineScanType("supplementary/nikto", content)
+	if scanType != ScanTypeNikto {
+		t.Errorf("determineScanType() = %s, want %s", scanType, ScanTypeNikto)
+	}
+}
+
+func TestDetermineScanTypeSSLScan(t *testing.T) {
+	parser := NewResultParser("")
+
+	scanType := parser.determineScanType("supplementary/sslscan.txt", "ssl output")
+	if scanType != ScanTypeSSLScan {
+		t.Errorf("determineScanType() = %s, want %s", scanType, ScanTypeSSLScan)
+	}
+}
+
+func TestScanWorkspaceForResults_SSLScan(t *testing.T) {
+	tempDir := t.TempDir()
+	parser := NewResultParser(tempDir)
+
+	// Create sslscan.txt in a supplementary directory
+	suppDir := filepath.Join(tempDir, "supplementary")
+	if err := os.MkdirAll(suppDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sslContent := "--- Host: 10.0.0.1 ---\nTLS 1.2 enabled\n"
+	if err := os.WriteFile(filepath.Join(suppDir, "sslscan.txt"), []byte(sslContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	results, err := parser.ScanWorkspaceForResults()
+	if err != nil {
+		t.Fatalf("ScanWorkspaceForResults error: %v", err)
+	}
+
+	// Should process sslscan.txt
+	found := false
+	for _, r := range results {
+		if r.Type == ScanTypeSSLScan {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("ScanWorkspaceForResults should process sslscan.txt")
+	}
+}

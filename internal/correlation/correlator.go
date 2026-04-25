@@ -27,6 +27,8 @@ const (
 	ScanTypeOSDetection        ScanType = "os_detection"
 	ScanTypeHostCategorization ScanType = "host_categorization"
 	ScanTypeScreenshot         ScanType = "screenshot"
+	ScanTypeNikto              ScanType = "nikto_scan"
+	ScanTypeSSLScan            ScanType = "ssl_scan"
 )
 
 // ScanResult represents the result of a network scan
@@ -78,6 +80,25 @@ type Service struct {
 	Confidence int    `json:"confidence,omitempty"`
 }
 
+// RiskFactorDetail represents a single contributing factor to the overall risk score.
+type RiskFactorDetail struct {
+	Category string `json:"category"` // "vulnerability", "ssl", "service", "port"
+	Title    string `json:"title"`
+	Score    int    `json:"score"`
+	Severity string `json:"severity"`
+	Source   string `json:"source"`
+}
+
+// RiskBreakdown provides a transparent breakdown of how the risk score was computed.
+type RiskBreakdown struct {
+	VulnerabilityScore int                `json:"vulnerability_score"`
+	SSLIssues          int                `json:"ssl_issues"`
+	ServiceExposure    int                `json:"service_exposure"`
+	OpenPortScore      int                `json:"open_port_score"`
+	Total              int                `json:"total"`
+	Factors            []RiskFactorDetail `json:"factors"`
+}
+
 // Vulnerability represents a security vulnerability
 type Vulnerability struct {
 	Host        string    `json:"host"`
@@ -87,6 +108,7 @@ type Vulnerability struct {
 	Title       string    `json:"title"`
 	Description string    `json:"description"`
 	Severity    string    `json:"severity"` // critical, high, medium, low, info
+	Source      string    `json:"source,omitempty"`
 	References  []string  `json:"references,omitempty"`
 	Solution    string    `json:"solution,omitempty"`
 	Discovery   time.Time `json:"discovery"`
@@ -101,6 +123,7 @@ type CorrelationResult struct {
 	Vulnerabilities []Vulnerability `json:"vulnerabilities"`
 	Timeline        []TimelineEvent `json:"timeline"`
 	RiskScore       int             `json:"risk_score"`
+	RiskDetails     RiskBreakdown   `json:"risk_details"`
 	Recommendations []string        `json:"recommendations"`
 	Metadata        map[string]any  `json:"metadata"`
 }
@@ -298,7 +321,9 @@ func (c *Correlator) correlateHost(hostIP string) {
 	c.sortTimeline(correlation.Timeline)
 
 	// Calculate risk score
-	correlation.RiskScore = c.calculateRiskScore(correlation)
+	breakdown := c.calculateRiskScore(correlation)
+	correlation.RiskScore = breakdown.Total
+	correlation.RiskDetails = breakdown
 
 	// Generate recommendations
 	correlation.Recommendations = c.generateRecommendations(correlation)
@@ -437,54 +462,176 @@ func (c *Correlator) sortTimeline(timeline []TimelineEvent) {
 	})
 }
 
-// calculateRiskScore calculates a risk score based on discovered vulnerabilities and services
-func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) int {
-	score := 0
+// calculateRiskScore calculates a risk score with transparent multi-factor breakdown.
+func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBreakdown {
+	var breakdown RiskBreakdown
+	factors := make([]RiskFactorDetail, 0)
 
-	// Base score for having services
-	score += len(correlation.Services) * 5
-
-	// Score based on vulnerabilities
+	// --- Vulnerability factor (max 500) ---
+	vulnScore := 0
+	criticalCount := 0
+	highCount := 0
 	for _, vuln := range correlation.Vulnerabilities {
-		switch strings.ToLower(vuln.Severity) {
+		var pts int
+		sev := strings.ToLower(vuln.Severity)
+		switch sev {
 		case "critical":
-			score += 100
+			if criticalCount < 2 {
+				pts = 150
+			}
+			criticalCount++
 		case "high":
-			score += 75
+			if highCount < 4 {
+				pts = 80
+			}
+			highCount++
 		case "medium":
-			score += 50
+			pts = 40
 		case "low":
-			score += 25
+			pts = 15
 		case "info":
-			score += 10
+			pts = 5
+		}
+		if pts > 0 {
+			vulnScore += pts
+			factors = append(factors, RiskFactorDetail{
+				Category: "vulnerability",
+				Title:    vuln.Title,
+				Score:    pts,
+				Severity: sev,
+				Source:   vuln.Source,
+			})
 		}
 	}
+	if vulnScore > 500 {
+		vulnScore = 500
+	}
+	breakdown.VulnerabilityScore = vulnScore
 
-	// Score based on open ports
+	// --- SSL/TLS factor (max 200) ---
+	slScore := 0
+	for _, vuln := range correlation.Vulnerabilities {
+		if vuln.Source != "sslscan" {
+			continue
+		}
+		var pts int
+		sev := strings.ToLower(vuln.Severity)
+		switch sev {
+		case "critical":
+			pts = 100 // SSLv2/SSLv3
+		case "high":
+			pts = 50 // weak cipher
+		case "medium":
+			pts = 30 // TLS 1.0/1.1 or cert issue
+		}
+		if pts > 0 {
+			slScore += pts
+			factors = append(factors, RiskFactorDetail{
+				Category: "ssl",
+				Title:    vuln.Title,
+				Score:    pts,
+				Severity: sev,
+				Source:   "sslscan",
+			})
+		}
+	}
+	if slScore > 200 {
+		slScore = 200
+	}
+	breakdown.SSLIssues = slScore
+
+	// --- Service exposure factor (max 200) ---
+	svcScore := 0
+	serviceMap := make(map[string]bool)
+	for _, svc := range correlation.Services {
+		svcName := strings.ToLower(svc.Name)
+		if serviceMap[svcName] {
+			continue
+		}
+		serviceMap[svcName] = true
+
+		var pts int
+		switch svcName {
+		case "telnet":
+			pts = 80
+		case "ftp":
+			pts = 60
+		case "smb", "microsoft-ds":
+			pts = 50
+		case "mysql", "postgresql", "oracle", "mssql", "redis":
+			pts = 40
+		}
+		if pts > 0 {
+			svcScore += pts
+			factors = append(factors, RiskFactorDetail{
+				Category: "service",
+				Title:    fmt.Sprintf("%s exposed (port %d)", svc.Name, svc.Port),
+				Score:    pts,
+				Severity: "medium",
+				Source:   "service-scan",
+			})
+		}
+	}
+	// http without https
+	if serviceMap["http"] && !serviceMap["https"] {
+		svcScore += 30
+		factors = append(factors, RiskFactorDetail{
+			Category: "service",
+			Title:    "HTTP without HTTPS",
+			Score:    30,
+			Severity: "low",
+			Source:   "service-scan",
+		})
+	}
+	if svcScore > 200 {
+		svcScore = 200
+	}
+	breakdown.ServiceExposure = svcScore
+
+	// --- Open port factor (max 100) ---
+	openCount := 0
 	if correlation.HostInfo != nil {
 		for _, port := range correlation.HostInfo.Ports {
 			if port.State == "open" {
-				score += 10
-
-				// Higher risk for certain services
-				switch strings.ToLower(port.Service) {
-				case "ssh", "telnet", "ftp", "http", "https", "smtp", "pop3", "imap":
-					score += 20
-				case "smb", "netbios", "ldap", "kerberos":
-					score += 30
-				case "mysql", "postgresql", "oracle", "mssql":
-					score += 25
-				}
+				openCount++
 			}
 		}
 	}
-
-	// Cap the score at 1000
-	if score > 1000 {
-		score = 1000
+	// Also count from services
+	if openCount == 0 {
+		openCount = len(correlation.Services)
 	}
+	var portScore int
+	switch {
+	case openCount > 50:
+		portScore = 100
+	case openCount > 20:
+		portScore = 60
+	case openCount > 5:
+		portScore = 30
+	case openCount > 0:
+		portScore = 10
+	}
+	if portScore > 0 {
+		factors = append(factors, RiskFactorDetail{
+			Category: "port",
+			Title:    fmt.Sprintf("%d open ports", openCount),
+			Score:    portScore,
+			Severity: "low",
+			Source:   "port-scan",
+		})
+	}
+	breakdown.OpenPortScore = portScore
 
-	return score
+	// --- Total (cap 1000) ---
+	total := vulnScore + slScore + svcScore + portScore
+	if total > 1000 {
+		total = 1000
+	}
+	breakdown.Total = total
+	breakdown.Factors = factors
+
+	return breakdown
 }
 
 // generateRecommendations generates security recommendations based on findings
@@ -494,12 +641,23 @@ func (c *Correlator) generateRecommendations(correlation *CorrelationResult) []s
 	// Recommendations based on vulnerabilities
 	criticalCount := 0
 	highCount := 0
+	sslCritical := 0
+	sslHigh := 0
 	for _, vuln := range correlation.Vulnerabilities {
-		switch strings.ToLower(vuln.Severity) {
+		sev := strings.ToLower(vuln.Severity)
+		switch sev {
 		case "critical":
-			criticalCount++
+			if vuln.Source == "sslscan" {
+				sslCritical++
+			} else {
+				criticalCount++
+			}
 		case "high":
-			highCount++
+			if vuln.Source == "sslscan" {
+				sslHigh++
+			} else {
+				highCount++
+			}
 		}
 	}
 
@@ -510,6 +668,16 @@ func (c *Correlator) generateRecommendations(correlation *CorrelationResult) []s
 	if highCount > 0 {
 		recommendations = append(recommendations,
 			fmt.Sprintf("Prioritize fixing %d high-severity vulnerabilities", highCount))
+	}
+
+	// SSL/TLS recommendations
+	if sslCritical > 0 {
+		recommendations = append(recommendations,
+			"Disable SSLv2/SSLv3 and upgrade to TLS 1.2+")
+	}
+	if sslHigh > 0 {
+		recommendations = append(recommendations,
+			"Remove weak ciphers from TLS configuration")
 	}
 
 	// Recommendations based on services
