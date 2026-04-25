@@ -6,7 +6,7 @@ import (
 )
 
 func TestFormatCategoryName(t *testing.T) {
-	tui := &TUI{}
+	tui := &TUI{str: stringsEN}
 	tests := []struct {
 		key  string
 		want string
@@ -169,7 +169,7 @@ func TestMergeCaptureAnalysisTasksPartialMatch(t *testing.T) {
 }
 
 func TestSearchAllCategories(t *testing.T) {
-	tui := &TUI{} // nil registry → falls back to hardcoded categories
+	tui := &TUI{str: stringsEN} // nil registry → falls back to hardcoded categories
 
 	// Empty query returns nil
 	if got := tui.searchAllCategories(""); got != nil {

@@ -41,6 +41,8 @@ type TUI struct {
 	outputViewer           *OutputViewer
 	taskListIsContinuation []bool // true for wrapped-description continuation rows
 
+	str *Strings
+
 	jobCounter atomic.Int64
 }
 
@@ -360,7 +362,7 @@ func ensureTrueColor() {
 	_ = os.Setenv("COLORTERM", "truecolor")
 }
 
-func NewTUI(scriptsDir, workspaceDir string) *TUI {
+func NewTUI(scriptsDir, workspaceDir, lang string) *TUI {
 
 	// Ensure TrueColor is available for screenshot rendering.
 	// Many terminals (e.g., qterminal) support 24-bit color but don't set
@@ -393,6 +395,7 @@ func NewTUI(scriptsDir, workspaceDir string) *TUI {
 		jobManager:   jobs.NewJobManager(3),
 		correlator:   correlation.NewCorrelator(workspaceDir),
 	}
+	tui.str = stringsForLang(lang)
 
 	if workspaceDir != "" {
 		if err := tui.correlator.LoadResults(); err != nil {
