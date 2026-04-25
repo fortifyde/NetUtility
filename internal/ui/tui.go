@@ -476,10 +476,20 @@ func (t *TUI) setupUI() {
 		})
 	}
 
-	// Set category selection handler
+	// Update task pane when category highlight changes (without moving focus)
+	t.categoryPane.SetChangedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
+		t.populateTaskPane(mainText)
+	})
+
+	// Set category selection handler (Enter key — moves focus to task pane)
 	t.categoryPane.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
 		t.showCategory(mainText)
 	})
+
+	// Show the first category's tasks on startup
+	if categories := t.getCategories(); len(categories) > 0 {
+		t.populateTaskPane(categories[0].Name)
+	}
 
 	// Set task selection handler — ignore continuation (wrapped description) rows
 	t.taskPane.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
@@ -685,6 +695,13 @@ func (t *TUI) setActiveFocus(pane *tview.List) {
 }
 
 func (t *TUI) showCategory(categoryName string) {
+	t.populateTaskPane(categoryName)
+	t.setActiveFocus(t.taskPane)
+}
+
+// populateTaskPane clears the task pane and fills it with the tasks for the
+// given category. It does NOT move focus to the task pane.
+func (t *TUI) populateTaskPane(categoryName string) {
 	t.currentCategory = categoryName
 	t.taskPane.Clear()
 	t.taskListIsContinuation = t.taskListIsContinuation[:0]
@@ -710,9 +727,6 @@ func (t *TUI) showCategory(categoryName string) {
 			break
 		}
 	}
-
-	// Switch focus to task pane and update visual focus indicator
-	t.setActiveFocus(t.taskPane)
 }
 
 func (t *TUI) isContinuation(idx int) bool {
