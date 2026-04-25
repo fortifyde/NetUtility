@@ -751,7 +751,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 		d.pages.RemovePage("host-details")
 		ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
 			d.app.SetFocus(d.topFindingsTable)
-		}, "")
+		}, "", d.str)
 	})
 	btnClose := tview.NewButton(d.str.BtnClose).SetSelectedFunc(func() {
 		d.pages.RemovePage("host-details")

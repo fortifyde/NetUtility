@@ -176,22 +176,6 @@ func hostMatchesText(ip string, result *correlation.CorrelationResult, text stri
 // filterCategories defines the cycling order for the category filter.
 var filterCategories = []string{"", "windows", "linux", "network_device", "unknown"}
 
-// categoryDisplayLabel returns the display label for a category raw value.
-func categoryDisplayLabel(cat string) string {
-	switch cat {
-	case "windows":
-		return "Windows"
-	case "linux":
-		return "Linux"
-	case "network_device":
-		return "Network Devices"
-	case "unknown":
-		return "Unknown"
-	default:
-		return ""
-	}
-}
-
 // cycleCategoryFilter advances filterCategory to the next value in the cycle.
 func (cv *CorrelationViewer) cycleCategoryFilter() {
 	for i, cat := range filterCategories {
@@ -210,6 +194,7 @@ type CorrelationViewer struct {
 	app        *tview.Application
 	pages      *tview.Pages
 	correlator *correlation.Correlator
+	str        *Strings
 
 	// UI components
 	hostsList    *tview.Table
@@ -229,12 +214,13 @@ type CorrelationViewer struct {
 }
 
 // NewCorrelationViewer creates a new correlation viewer
-func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func(), workspaceDir string) *CorrelationViewer {
+func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func(), workspaceDir string, str *Strings) *CorrelationViewer {
 	cv := &CorrelationViewer{
 		Flex:                 tview.NewFlex(),
 		app:                  app,
 		pages:                pages,
 		correlator:           correlator,
+		str:                  str,
 		stopChan:             make(chan struct{}),
 		returnToMainCallback: returnToMainCallback,
 		workspaceDir:         workspaceDir,
@@ -250,15 +236,15 @@ func NewCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator
 func (cv *CorrelationViewer) setupUI() {
 	// Create hosts table
 	cv.hostsList = tview.NewTable().SetBorders(true).SetSelectable(true, false)
-	cv.hostsList.SetBorder(true).SetTitle("Host Inventory")
+	cv.hostsList.SetBorder(true).SetTitle(cv.str.PaneTitleHostInventory)
 
 	// Create details panel
 	cv.detailsPanel = tview.NewTextView().SetDynamicColors(true).SetScrollable(true)
-	cv.detailsPanel.SetBorder(true).SetTitle("Host Details")
+	cv.detailsPanel.SetBorder(true).SetTitle(cv.str.PaneTitleHostDetails)
 
 	// Create controls panel
 	cv.controlsText = tview.NewTextView().SetDynamicColors(true)
-	cv.controlsText.SetBorder(true).SetTitle("Controls")
+	cv.controlsText.SetBorder(true).SetTitle(cv.str.PaneTitleControls)
 	cv.updateControlsText()
 
 	// Layout: Left panel (hosts table), Right panel (details + controls)
@@ -282,20 +268,13 @@ func (cv *CorrelationViewer) updateControlsText() {
 	var filterLine string
 	switch {
 	case cv.filterText != "":
-		filterLine = "[yellow]f[::-]      Reset search"
+		filterLine = cv.str.CorrResetSearch
 	case cv.filterCategory != "":
-		filterLine = fmt.Sprintf("[yellow]f[::-]      Cycle filter: %s", categoryDisplayLabel(cv.filterCategory))
+		filterLine = fmt.Sprintf(cv.str.FmtCorrFilterActiveCat, cv.str.CategoryDisplayLabel(cv.filterCategory))
 	default:
-		filterLine = "[white]f[::-]      Cycle category filter"
+		filterLine = cv.str.CorrCycleFilter
 	}
-
-	cv.controlsText.SetText(fmt.Sprintf(`[yellow]Navigation                    Actions[::-]
-[white]Enter[::-]  View host details       [white]s[::-]  View screenshot
-[white]/[::-]      Search hosts            [white]p[::-]  Generate package
-%s
-[white]Space[::-]  Categorize host         [white]q[::-]  Close
-
-[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`, filterLine))
+	cv.controlsText.SetText(fmt.Sprintf(cv.str.FmtCorrControlsText, filterLine))
 }
 
 // setupKeyBindings configures keyboard shortcuts
@@ -358,15 +337,15 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 
 // updateHostsList refreshes the hosts table with category-sorted inventory data.
 func (cv *CorrelationViewer) updateHostsList() {
-	catLabel := categoryDisplayLabel(cv.filterCategory)
-	title := "Host Inventory"
+	catLabel := cv.str.CategoryDisplayLabel(cv.filterCategory)
+	title := cv.str.PaneTitleHostInventory
 	switch {
 	case catLabel != "" && cv.filterText != "":
-		title = fmt.Sprintf("Host Inventory %s", tview.Escape(fmt.Sprintf("[%s · search: %s]", catLabel, cv.filterText)))
+		title = fmt.Sprintf(cv.str.FmtHostInventoryFilterCat, tview.Escape(fmt.Sprintf("[%s · search: %s]", catLabel, cv.filterText)))
 	case catLabel != "":
-		title = fmt.Sprintf("Host Inventory %s", tview.Escape(fmt.Sprintf("[%s]", catLabel)))
+		title = fmt.Sprintf(cv.str.FmtHostInventoryFilterCat, tview.Escape(fmt.Sprintf("[%s]", catLabel)))
 	case cv.filterText != "":
-		title = fmt.Sprintf("Host Inventory %s", tview.Escape(fmt.Sprintf("[search: %s]", cv.filterText)))
+		title = fmt.Sprintf(cv.str.FmtHostInventoryFilterText, tview.Escape(fmt.Sprintf("[search: %s]", cv.filterText)))
 	}
 	cv.hostsList.SetTitle(title)
 
@@ -381,11 +360,11 @@ func (cv *CorrelationViewer) updateHostsList() {
 		maxWidth  int // 0 = unlimited
 	}
 	columns := []colPolicy{
-		{"IP", 0, 0},
-		{"Category", 0, 0},
-		{"Hostname", 1, 30},
-		{"Vendor", 0, 20},
-		{"Ports", 2, 0},
+		{cv.str.HostColIP, 0, 0},
+		{cv.str.HostColCategory, 0, 0},
+		{cv.str.HostColHostname, 1, 30},
+		{cv.str.HostColVendor, 0, 20},
+		{cv.str.HostColPorts, 2, 0},
 	}
 	for i, col := range columns {
 		cell := tview.NewTableCell(col.label).
@@ -454,20 +433,20 @@ func (cv *CorrelationViewer) updateHostsList() {
 // updateDetailsPanel renders host identity, classification, and port data for the selected host.
 func (cv *CorrelationViewer) updateDetailsPanel() {
 	if cv.selectedHost == "" {
-		cv.detailsPanel.SetText("[gray]Select a host to view details[::-]")
+		cv.detailsPanel.SetText(cv.str.HostDetailsSelectPrompt)
 		return
 	}
 
 	result, exists := cv.correlator.GetCorrelationForHost(cv.selectedHost)
 	if !exists {
-		cv.detailsPanel.SetText("[gray]No data found for selected host[::-]")
+		cv.detailsPanel.SetText(cv.str.HostDetailsNoData)
 		return
 	}
 
 	var b strings.Builder
 
 	// --- Identity ---
-	b.WriteString("[yellow]Identity[::-]\n")
+	b.WriteString(cv.str.HostDetailsIdentity)
 	b.WriteString(fmt.Sprintf("IP:       [white]%s[::-]\n", result.Host))
 	mac := "-"
 	hostname := "-"
@@ -496,7 +475,7 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 	b.WriteString("\n")
 
 	// --- Classification ---
-	b.WriteString("[yellow]Classification[::-]\n")
+	b.WriteString(cv.str.HostDetailsClassification)
 	cat := hostCategory(result)
 	vendor := hostVendor(result)
 	confidence := "-"
@@ -532,9 +511,9 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			}
 		}
 	}
-	b.WriteString(fmt.Sprintf("[yellow]Ports & Services (%d)[::-]\n", len(openPorts)))
+	b.WriteString(fmt.Sprintf(cv.str.FmtHostDetailsPorts, len(openPorts)))
 	if len(openPorts) == 0 {
-		b.WriteString("[gray]No open ports found[::-]\n")
+		b.WriteString(cv.str.HostDetailsNoOpenPorts)
 	} else {
 		for _, p := range openPorts {
 			svc := p.Service
@@ -552,9 +531,9 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 
 	// --- Screenshots ---
 	screenshots := correlation.GetScreenshotsForHost(result)
-	b.WriteString(fmt.Sprintf("\n[yellow]Screenshots (%d)[::-]\n", len(screenshots)))
+	b.WriteString(fmt.Sprintf(cv.str.FmtHostDetailsScreenshots, len(screenshots)))
 	if len(screenshots) == 0 {
-		b.WriteString("[gray]No screenshots available[::-]\n")
+		b.WriteString(cv.str.HostDetailsNoScreenshots)
 	} else {
 		for i, ss := range screenshots {
 			statusColor := "green"
@@ -564,7 +543,7 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			b.WriteString(fmt.Sprintf("[%s]%d.[:-] [white]%s[::-]  [gray](%s)[::-]\n",
 				statusColor, i+1, ss.URL, ss.StatusCode))
 		}
-		b.WriteString("\n[gray]Press [yellow]s[gray] to view screenshots[::-]\n")
+		b.WriteString(cv.str.HostDetailsPressS)
 	}
 
 	cv.detailsPanel.SetText(b.String())
@@ -574,7 +553,7 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 // Enter applies the filter; Esc cancels.
 func (cv *CorrelationViewer) openHostSearchModal() {
 	inputField := tview.NewInputField().
-		SetLabel("Filter: ").
+		SetLabel(cv.str.FilterLabel).
 		SetFieldWidth(0).
 		SetText(cv.filterText)
 
@@ -605,7 +584,7 @@ func (cv *CorrelationViewer) openHostSearchModal() {
 	// Fixed-height content box: border (2) + input field (1) + padding (2) = 5 rows
 	contentBox := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(inputField, 3, 0, true)
-	contentBox.SetBorder(true).SetTitle("Filter Hosts")
+	contentBox.SetBorder(true).SetTitle(cv.str.PaneTitleFilterHosts)
 
 	centerRow := tview.NewFlex().SetDirection(tview.FlexColumn).
 		AddItem(nil, 0, 3, false).
@@ -648,11 +627,11 @@ func (cv *CorrelationViewer) openCategorizationModal() {
 	}
 
 	list := tview.NewList().
-		AddItem("Windows", "", '1', func() { applyCategory("windows") }).
-		AddItem("Linux", "", '2', func() { applyCategory("linux") }).
-		AddItem("Network Device", "", '3', func() { applyCategory("network_device") }).
-		AddItem("Cancel", "", 'q', closeModal)
-	list.SetBorder(true).SetTitle(fmt.Sprintf("Categorize %s", ip))
+		AddItem(cv.str.CatModalWindows, "", '1', func() { applyCategory("windows") }).
+		AddItem(cv.str.CatModalLinux, "", '2', func() { applyCategory("linux") }).
+		AddItem(cv.str.CatModalNetDevice, "", '3', func() { applyCategory("network_device") }).
+		AddItem(cv.str.BtnCancel, "", 'q', closeModal)
+	list.SetBorder(true).SetTitle(fmt.Sprintf(cv.str.FmtCatModalTitle, ip))
 
 	list.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		if event.Key() == tcell.KeyEscape {
@@ -767,8 +746,8 @@ func (cv *CorrelationViewer) Close() {
 // ShowCorrelationViewer creates and displays a correlation viewer page.
 // For the main TUI use showCorrelationViewer() which passes a proper returnToMain callback.
 // If focusHost is non-empty, the viewer pre-selects that host and opens the screenshot modal.
-func ShowCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func(), workspaceDir string, focusHost ...string) {
-	correlationViewer := NewCorrelationViewer(app, pages, correlator, returnToMainCallback, workspaceDir)
+func ShowCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func(), workspaceDir string, str *Strings, focusHost ...string) {
+	correlationViewer := NewCorrelationViewer(app, pages, correlator, returnToMainCallback, workspaceDir, str)
 	pages.AddPage("correlation", correlationViewer, true, true)
 	app.SetFocus(correlationViewer.hostsList)
 
