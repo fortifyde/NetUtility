@@ -43,7 +43,7 @@ func TestMergeInterfaceTasks(t *testing.T) {
 		},
 	}
 
-	result := mergeInterfaceTasks(input)
+	result := mergeInterfaceTasks(input, stringsEN)
 
 	hostCat := result[0]
 	if len(hostCat.Tasks) != 2 {
@@ -92,7 +92,7 @@ func TestMergeInterfaceTasksPartialMatch(t *testing.T) {
 			},
 		},
 	}
-	result := mergeInterfaceTasks(input)
+	result := mergeInterfaceTasks(input, stringsEN)
 	if len(result[0].Tasks) != 2 {
 		t.Fatalf("expected 2 tasks (no merge), got %d", len(result[0].Tasks))
 	}
@@ -109,7 +109,7 @@ func TestMergeInterfaceTasksNoOp(t *testing.T) {
 			Tasks: []Task{{Name: "Configure IP Addresses", Script: "/scripts/configure_ip.sh"}},
 		},
 	}
-	result := mergeInterfaceTasks(input)
+	result := mergeInterfaceTasks(input, stringsEN)
 	if len(result[0].Tasks) != 1 || result[0].Tasks[0].Name != "Configure IP Addresses" {
 		t.Errorf("no-op merge modified categories unexpectedly: %+v", result[0].Tasks)
 	}
@@ -128,7 +128,7 @@ func TestMergeCaptureAnalysisTasks(t *testing.T) {
 		},
 	}
 
-	result := mergeCaptureAnalysisTasks(input)
+	result := mergeCaptureAnalysisTasks(input, stringsEN)
 
 	cat := result[0]
 	if len(cat.Tasks) != 2 {
@@ -162,7 +162,7 @@ func TestMergeCaptureAnalysisTasksPartialMatch(t *testing.T) {
 			Tasks: []Task{{Name: "Extract VLANs"}, {Name: "MAC Address Analysis"}},
 		},
 	}
-	result := mergeCaptureAnalysisTasks(input)
+	result := mergeCaptureAnalysisTasks(input, stringsEN)
 	if len(result[0].Tasks) != 2 {
 		t.Fatalf("expected no merge with only 2/3 tasks, got %d tasks", len(result[0].Tasks))
 	}

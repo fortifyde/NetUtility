@@ -127,8 +127,8 @@ func (t *TUI) getCategoriesFromMetadata() []Category {
 		}
 	}
 
-	categories = mergeInterfaceTasks(categories)
-	return mergeCaptureAnalysisTasks(categories)
+	categories = mergeInterfaceTasks(categories, t.str)
+	return mergeCaptureAnalysisTasks(categories, t.str)
 }
 
 // wrapText splits text into lines of at most width runes, breaking at word boundaries.
@@ -160,15 +160,15 @@ func wrapText(text string, width int) []string {
 func (t *TUI) formatCategoryName(category string) string {
 	switch category {
 	case "host-config":
-		return "Host Configuration"
+		return t.str.CatHostConfig
 	case "utilities":
-		return "System Utilities"
+		return t.str.CatSystemUtilities
 	case "discovery":
-		return "Network Discovery"
+		return t.str.CatNetworkDiscovery
 	case "scanning":
-		return "Port Scanning"
+		return t.str.CatPortScanning
 	case "advanced":
-		return "Advanced Tools"
+		return t.str.CatAdvancedTools
 	default:
 		if len(category) > 0 {
 			return strings.ToUpper(category[:1]) + category[1:]
@@ -185,50 +185,50 @@ func (t *TUI) getHardcodedCategories() []Category {
 	}
 	return []Category{
 		{
-			Name: "Host Configuration",
+			Name: t.str.CatHostConfig,
 			Tasks: []Task{
-				{Name: "Select Working Directory", Description: "Choose working directory for operations", Script: s("system", "select_workdir.sh")},
+				{Name: t.str.TaskSelectWorkDir, Description: t.str.TaskSelectWorkDirDesc, Script: s("system", "select_workdir.sh")},
 				{
-					Name:        "Configure Interfaces",
-					Description: "Manage interface states or configure VLAN subinterfaces",
+					Name:        t.str.TaskConfigInterfaces,
+					Description: t.str.TaskConfigInterfacesDesc,
 					SubTasks: []Task{
-						{Name: "Interface States", Description: "View and toggle network interfaces", Script: s("system", "network_interfaces.sh")},
-						{Name: "VLAN Interfaces", Description: "Create VLAN subinterfaces", Script: s("system", "add_vlan.sh")},
+						{Name: t.str.TaskInterfaceStates, Description: t.str.TaskInterfaceStatesDesc, Script: s("system", "network_interfaces.sh")},
+						{Name: t.str.TaskVLANInterfaces, Description: t.str.TaskVLANInterfacesDesc, Script: s("system", "add_vlan.sh")},
 					},
 				},
-				{Name: "Configure IP Addresses", Description: "Set IP addresses on interfaces", Script: s("system", "configure_ip.sh")},
-				{Name: "Configure Routes", Description: "View and configure IP routes", Script: s("system", "configure_routes.sh")},
-				{Name: "Configure Nameservers", Description: "Set DNS nameservers", Script: s("system", "configure_dns.sh")},
-				{Name: "Backup Configuration", Description: "Backup current network configuration", Script: s("system", "backup_config.sh")},
-				{Name: "Restore Configuration", Description: "Restore network configuration from backup", Script: s("system", "restore_config.sh")},
+				{Name: t.str.TaskConfigureIP, Description: t.str.TaskConfigureIPDesc, Script: s("system", "configure_ip.sh")},
+				{Name: t.str.TaskConfigureRoutes, Description: t.str.TaskConfigureRoutesDesc, Script: s("system", "configure_routes.sh")},
+				{Name: t.str.TaskConfigureNameservers, Description: t.str.TaskConfigureNameserversDesc, Script: s("system", "configure_dns.sh")},
+				{Name: t.str.TaskBackupConfig, Description: t.str.TaskBackupConfigDesc, Script: s("system", "backup_config.sh")},
+				{Name: t.str.TaskRestoreConfig, Description: t.str.TaskRestoreConfigDesc, Script: s("system", "restore_config.sh")},
 			},
 		},
 		{
-			Name: "Network Discovery",
+			Name: t.str.CatNetworkDiscovery,
 			Tasks: []Task{
-				{Name: "Network Capture", Description: "Capture network traffic with integrated security analysis and unsafe protocol detection", Script: s("network", "network_capture.sh")},
-				{Name: "Extract VLAN IDs", Description: "Extract VLAN IDs from capture files", Script: s("network", "extract_vlans.sh")},
-				{Name: "Multi-Phase Discovery", Description: "Comprehensive network discovery with host categorization", Script: s("network", "multi_phase_discovery.sh")},
-				{Name: "Host Categorization", Description: "Categorize discovered hosts by OS", Script: s("network", "categorize_hosts.sh")},
+				{Name: t.str.TaskNetworkCapture, Description: t.str.TaskNetworkCaptureDesc, Script: s("network", "network_capture.sh")},
+				{Name: t.str.TaskExtractVLANIDs, Description: t.str.TaskExtractVLANIDsDesc, Script: s("network", "extract_vlans.sh")},
+				{Name: t.str.TaskMultiPhaseDiscovery, Description: t.str.TaskMultiPhaseDiscoveryDesc, Script: s("network", "multi_phase_discovery.sh")},
+				{Name: t.str.TaskHostCategorization, Description: t.str.TaskHostCategorizationDesc, Script: s("network", "categorize_hosts.sh")},
 			},
 		},
 		{
-			Name: "Port Scanning",
+			Name: t.str.CatPortScanning,
 			Tasks: []Task{
-				{Name: "Port & Service Scan", Description: "Comprehensive port scan with service version detection and OS fingerprinting", Script: s("scanning", "port_service_scan.sh")},
-				{Name: "Vulnerability Assessment", Description: "Safe vulnerability assessment using NSE scripts and supplementary tools", Script: s("scanning", "vulnerability_assessment.sh")},
+				{Name: t.str.TaskPortServiceScan, Description: t.str.TaskPortServiceScanDesc, Script: s("scanning", "port_service_scan.sh")},
+				{Name: t.str.TaskVulnAssessment, Description: t.str.TaskVulnAssessmentDesc, Script: s("scanning", "vulnerability_assessment.sh")},
 			},
 		},
 		{
-			Name: "Advanced Tools",
+			Name: t.str.CatAdvancedTools,
 			Tasks: []Task{
-				{Name: "Integrated Workflow", Description: "Comprehensive workflow: capture, analysis, interface config, and discovery", Script: s("network", "integrated_workflow.sh")},
+				{Name: t.str.TaskIntegratedWorkflow, Description: t.str.TaskIntegratedWorkflowDesc, Script: s("network", "integrated_workflow.sh")},
 			},
 		},
 		{
-			Name: "Advanced Tools",
+			Name: t.str.CatAdvancedTools,
 			Tasks: []Task{
-				{Name: "Device Configuration Gathering", Description: "SSH to device, detect vendor, and gather configuration", Script: s("config", "device_config.sh")},
+				{Name: t.str.TaskDeviceConfigGathering, Description: t.str.TaskDeviceConfigGatheringDesc, Script: s("config", "device_config.sh")},
 			},
 		},
 	}
@@ -237,7 +237,7 @@ func (t *TUI) getHardcodedCategories() []Category {
 // mergeInterfaceTasks finds "Manage Network Interfaces" and "Manage VLAN Interfaces"
 // in the "Host Configuration" category and replaces them with a single composite
 // "Configure Interfaces" task whose SubTasks hold the originals.
-func mergeInterfaceTasks(categories []Category) []Category {
+func mergeInterfaceTasks(categories []Category, str *Strings) []Category {
 	for ci, cat := range categories {
 		if cat.Name != "Host Configuration" {
 			continue
@@ -266,11 +266,11 @@ func mergeInterfaceTasks(categories []Category) []Category {
 			}
 		}
 		composite := Task{
-			Name:        "Configure Interfaces",
-			Description: "Manage interface states or configure VLAN subinterfaces",
+			Name:        str.TaskConfigInterfaces,
+			Description: str.TaskConfigInterfacesDesc,
 			SubTasks: []Task{
-				{Name: "Interface States", Description: ifaceTask.Description, Script: ifaceTask.Script},
-				{Name: "VLAN Interfaces", Description: vlanTask.Description, Script: vlanTask.Script},
+				{Name: str.TaskInterfaceStates, Description: ifaceTask.Description, Script: ifaceTask.Script},
+				{Name: str.TaskVLANInterfaces, Description: vlanTask.Description, Script: vlanTask.Script},
 			},
 		}
 		// Insert composite at the original position of the first interface task
@@ -287,7 +287,7 @@ func mergeInterfaceTasks(categories []Category) []Category {
 // mergeCaptureAnalysisTasks finds "Extract VLANs", "MAC Address Analysis", and
 // "Packet Capture Analysis" in the "Network Discovery" category and replaces them
 // with a single composite "Network Capture Analysis" task.
-func mergeCaptureAnalysisTasks(categories []Category) []Category {
+func mergeCaptureAnalysisTasks(categories []Category, str *Strings) []Category {
 	for ci, cat := range categories {
 		if cat.Name != "Network Discovery" {
 			continue
@@ -323,10 +323,10 @@ func mergeCaptureAnalysisTasks(categories []Category) []Category {
 			}
 		}
 		composite := Task{
-			Name:        "Network Capture Analysis",
-			Description: "Analyze VLANs, MAC addresses, or packet captures",
+			Name:        str.TaskNetworkCaptureAnalysis,
+			Description: str.TaskNetworkCaptureAnalysisDesc,
 			SubTasks: []Task{
-				{Name: "Extract VLANs", Description: vlanTask.Description, Script: vlanTask.Script},
+				{Name: str.TaskExtractVLANIDs, Description: vlanTask.Description, Script: vlanTask.Script},
 				{Name: "MAC Address Analysis", Description: macTask.Description, Script: macTask.Script},
 				{Name: "Packet Capture Analysis", Description: captureTask.Description, Script: captureTask.Script},
 			},
@@ -449,20 +449,17 @@ func (t *TUI) startCorrelationWorker() {
 
 func (t *TUI) setupUI() {
 	// Setup header pane (program info)
-	t.headerPane.SetBorder(true).SetTitle("Program Info")
-	headerText := fmt.Sprintf(`[cyan::b]%s[white::-] [green]%s[white]
-[gray]Network Assessment Toolkit[-]
-
-[yellow]Keys:[white] [cyan]Tab[white]=Switch [cyan]hjkl[white]=Navigate [cyan]/[white]=Search [cyan]Ctrl+J[white]=Jobs [cyan]Ctrl+N[white]=Hosts [cyan]Ctrl+D[white]=Dashboard [cyan]q[white]=Quit`, AppName, AppVersion)
+	t.headerPane.SetBorder(true).SetTitle(t.str.PaneTitleProgramInfo)
+	headerText := fmt.Sprintf(t.str.FmtHeaderText, AppName, AppVersion)
 	t.headerPane.SetText(headerText)
 	t.headerPane.SetTextAlign(tview.AlignCenter)
 
 	// Setup category pane
-	t.categoryPane.SetBorder(true).SetTitle("Categories")
+	t.categoryPane.SetBorder(true).SetTitle(t.str.PaneTitleCategories)
 	t.categoryPane.ShowSecondaryText(false)
 
 	// Setup task pane (75% width)
-	t.taskPane.SetBorder(true).SetTitle("Select a category")
+	t.taskPane.SetBorder(true).SetTitle(t.str.PaneTitleTaskDefault)
 	t.taskPane.ShowSecondaryText(false)
 
 	// Populate categories
@@ -534,7 +531,7 @@ func (t *TUI) setupUI() {
 	})
 
 	// Setup info pane (informational panel for first-time users)
-	t.infoPane.SetBorder(true).SetTitle("Quick Reference")
+	t.infoPane.SetBorder(true).SetTitle(t.str.PaneTitleQuickRef)
 	t.infoPane.SetDynamicColors(true)
 	t.updateInfoPanel() // Set initial content
 
@@ -685,7 +682,7 @@ func (t *TUI) showCategory(categoryName string) {
 	t.currentCategory = categoryName
 	t.taskPane.Clear()
 	t.taskListIsContinuation = t.taskListIsContinuation[:0]
-	t.taskPane.SetTitle(fmt.Sprintf("Tasks - %s", categoryName))
+	t.taskPane.SetTitle(fmt.Sprintf(t.str.FmtTasksTitle, categoryName))
 
 	_, _, paneWidth, _ := t.taskPane.GetInnerRect()
 	if paneWidth <= 0 {
@@ -758,7 +755,7 @@ func (t *TUI) executeTask(taskName string) {
 		}
 	}
 
-	t.showErrorModal("Script Not Found", fmt.Sprintf("Could not find script for task: %s", taskName))
+	t.showErrorModal(t.str.TitleScriptNotFound, fmt.Sprintf(t.str.FmtScriptNotFound, taskName))
 }
 
 // executeTaskWithStreaming executes a task using the JobManager for consistent tracking
@@ -767,7 +764,7 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 	absPath, err := filepath.Abs(scriptPath)
 	if err != nil {
 		// Show error modal
-		t.showErrorModal("Path Error", fmt.Sprintf("Could not resolve script path: %v", err))
+		t.showErrorModal(t.str.TitlePathError, fmt.Sprintf(t.str.FmtPathError, err))
 		return
 	}
 
@@ -794,7 +791,7 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 
 	// Connect OutputViewer to the running job
 	if err := t.outputViewer.ConnectToJob(job); err != nil {
-		t.showErrorModal("Connection Error", fmt.Sprintf("Failed to connect to job: %v", err))
+		t.showErrorModal(t.str.TitleConnectionError, fmt.Sprintf(t.str.FmtConnectionError, err))
 		t.pages.RemovePage("output")
 		return
 	}
@@ -807,14 +804,14 @@ func (t *TUI) showSubTaskMenu(task Task) {
 	for _, sub := range task.SubTasks {
 		buttons = append(buttons, sub.Name)
 	}
-	buttons = append(buttons, "Cancel")
+	buttons = append(buttons, t.str.BtnCancel)
 
 	modal := tview.NewModal().
-		SetText(fmt.Sprintf("%s\n\nSelect an operation:", task.Name)).
+		SetText(fmt.Sprintf("%s\n\n%s", task.Name, t.str.SubtaskSelectOp)).
 		AddButtons(buttons).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			t.pages.RemovePage("subtask-menu")
-			if buttonLabel == "Cancel" {
+			if buttonLabel == t.str.BtnCancel {
 				t.setActiveFocus(t.taskPane)
 				return
 			}
@@ -833,13 +830,13 @@ func (t *TUI) showSubTaskMenu(task Task) {
 func (t *TUI) showExecutionOptions(scriptPath, taskName string) {
 	modal := tview.NewModal().
 		SetText(fmt.Sprintf("Maximum concurrent jobs reached.\n\nHow would you like to execute '%s'?", taskName)).
-		AddButtons([]string{"Queue Job", "View Jobs", "Cancel"}).
+		AddButtons([]string{t.str.BtnQueueJob, t.str.BtnViewJobs, t.str.BtnCancel}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			t.pages.RemovePage("execution-options")
 			switch buttonLabel {
-			case "Queue Job":
+			case t.str.BtnQueueJob:
 				t.queueJob(scriptPath, taskName)
-			case "View Jobs":
+			case t.str.BtnViewJobs:
 				t.showJobsManager()
 			}
 		})
@@ -855,10 +852,10 @@ func (t *TUI) queueJob(scriptPath, taskName string) {
 	// Try to start it immediately (in case a slot opened up)
 	if err := t.jobManager.StartJob(job.ID); err != nil {
 		// Job was queued, show confirmation
-		t.showInfoModal("Job Queued", fmt.Sprintf("'%s' has been queued for execution.\n\nPress Ctrl+J to view job manager.", taskName))
+		t.showInfoModal(t.str.TitleJobQueued, fmt.Sprintf(t.str.FmtJobQueued, taskName))
 	} else {
 		// Job started immediately
-		t.showInfoModal("Job Started", fmt.Sprintf("'%s' has been started in the background.\n\nPress Ctrl+J to view job manager.", taskName))
+		t.showInfoModal(t.str.TitleJobStarted, fmt.Sprintf(t.str.FmtJobStarted, taskName))
 	}
 }
 
@@ -900,7 +897,7 @@ func (t *TUI) showDashboard() {
 func (t *TUI) showInfoModal(title, message string) {
 	infoModal := tview.NewModal().
 		SetText(message).
-		AddButtons([]string{"OK"}).
+		AddButtons([]string{t.str.BtnOK}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			t.pages.RemovePage("info")
 		})
@@ -912,7 +909,7 @@ func (t *TUI) showInfoModal(title, message string) {
 func (t *TUI) showErrorModal(title, message string) {
 	errorModal := tview.NewModal().
 		SetText(message).
-		AddButtons([]string{"OK"}).
+		AddButtons([]string{t.str.BtnOK}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			t.pages.RemovePage("error")
 		})
@@ -946,7 +943,7 @@ func (t *TUI) startSearch() {
 	}
 
 	inputField := tview.NewInputField().
-		SetLabel("Search: ").
+		SetLabel(t.str.SearchLabel).
 		SetFieldWidth(0)
 
 	resultList := tview.NewList().ShowSecondaryText(false)
@@ -1090,7 +1087,7 @@ func (t *TUI) startSearch() {
 	contentBox := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(inputField, 3, 0, true).
 		AddItem(resultList, 0, 1, false)
-	contentBox.SetBorder(true).SetTitle("Search Tasks")
+	contentBox.SetBorder(true).SetTitle(t.str.PaneTitleSearch)
 
 	// Center: 40% wide (3:4:3), 60% tall (1:3:1)
 	centerRow := tview.NewFlex().SetDirection(tview.FlexColumn).
@@ -1109,41 +1106,9 @@ func (t *TUI) startSearch() {
 
 // showHelp displays help information
 func (t *TUI) showHelp() {
-	helpText := `NetUtility TUI Help
-
-Navigation:
-  Tab          Switch between categories and tasks
-  Enter        Select category or execute task
-  Escape, q    Quit application
-
-Vim-like Keys:
-  h            Focus categories (left panel)
-  l            Focus tasks (right panel)
-  j            Move down in current panel
-  k            Move up in current panel
-
-Search:
-  /            Start search mode
-
-Global (work from any view):
-  Ctrl+J       Job manager
-  Ctrl+D       Dashboard
-  Ctrl+N       Host inventory
-  Ctrl+Z       Return to main screen
-
-Advanced Features:
-  - Up to 3 scripts can run concurrently
-  - Additional scripts are queued automatically
-  - Use Ctrl+J to view running, queued, and completed jobs
-  - Use Ctrl+N to view correlated host inventory
-
-Mouse:
-  Click        Select items
-  Scroll       Navigate lists`
-
 	helpModal := tview.NewModal().
-		SetText(helpText).
-		AddButtons([]string{"Close"}).
+		SetText(t.str.HelpText).
+		AddButtons([]string{t.str.BtnClose}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			t.pages.RemovePage("help")
 		})
@@ -1157,18 +1122,18 @@ func (t *TUI) updateInfoPanel() {
 	var content strings.Builder
 
 	if current == t.categoryPane {
-		content.WriteString("[yellow]Categories:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Select [white]Tab/l[::-]=Tasks [white]/[::-]=Search [white]?[::-]=Help [white]q[::-]=Quit\n")
-		content.WriteString("[yellow]Global:[::-]     [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Main")
+		content.WriteString(t.str.InfoCatLine1)
+		content.WriteString(t.str.InfoCatLine2)
 	} else if current == t.taskPane {
 		if t.currentCategory != "" {
-			content.WriteString(fmt.Sprintf("[yellow]%s:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Execute [white]Tab/h[::-]=Categories [white]/[::-]=Search\n", t.currentCategory))
+			content.WriteString(fmt.Sprintf(t.str.FmtInfoTaskLine1, t.currentCategory))
 		} else {
-			content.WriteString("[yellow]Tasks:[::-] Select a category first  [white]Tab/h[::-]=Categories [white]/[::-]=Search\n")
+			content.WriteString(t.str.InfoTaskNoCatLine1)
 		}
-		content.WriteString("[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Main [white]q[::-]=Quit")
+		content.WriteString(t.str.InfoGlobalLine)
 	} else {
-		content.WriteString("[yellow]Navigate:[::-] [white]Tab[::-]=Switch [white]h[::-]=Categories [white]l[::-]=Tasks [white]j/k[::-]=Move [white]/[::-]=Search [white]?[::-]=Help\n")
-		content.WriteString("[yellow]Global:[::-]   [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Main [white]q[::-]=Quit")
+		content.WriteString(t.str.InfoDefaultLine1)
+		content.WriteString(t.str.InfoDefaultLine2)
 	}
 
 	t.infoPane.SetText(content.String())
@@ -1202,13 +1167,13 @@ func (t *TUI) confirmQuit() {
 		t.app.Stop()
 		return
 	}
-	message := fmt.Sprintf("%d job(s) still running.\n\nQuit anyway? Running jobs will be abandoned.", stats.RunningJobs)
+	message := fmt.Sprintf(t.str.FmtConfirmQuit, stats.RunningJobs)
 	modal := tview.NewModal().
 		SetText(message).
-		AddButtons([]string{"Quit", "Cancel"}).
+		AddButtons([]string{t.str.BtnQuit, t.str.BtnCancel}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			t.pages.RemovePage("quit-confirm")
-			if buttonLabel == "Quit" {
+			if buttonLabel == t.str.BtnQuit {
 				t.app.Stop()
 			}
 		})
