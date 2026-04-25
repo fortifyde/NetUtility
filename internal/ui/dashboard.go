@@ -203,7 +203,6 @@ func (d *Dashboard) calculateStats(correlations map[string]*correlation.Correlat
 // updateStatsPanel renders the discovery statistics panel.
 func (d *Dashboard) updateStatsPanel(stats DashboardStats) {
 	var content strings.Builder
-	content.WriteString(d.str.DashStatsHeading)
 	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsHostsDiscovered, stats.TotalHosts))
 	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsWindows, stats.HostsByCategory["windows"]))
 	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsLinux, stats.HostsByCategory["linux"]))
@@ -544,7 +543,10 @@ func (d *Dashboard) updateServicesPanel(correlations map[string]*correlation.Cor
 		svcs = append(svcs, svcEntry{name, count})
 	}
 	sort.Slice(svcs, func(i, j int) bool {
-		return svcs[i].count > svcs[j].count
+		if svcs[i].count != svcs[j].count {
+			return svcs[i].count > svcs[j].count
+		}
+		return svcs[i].name < svcs[j].name
 	})
 
 	content.WriteString(d.str.DashTopServicesHeading)

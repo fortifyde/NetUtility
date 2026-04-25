@@ -468,9 +468,7 @@ Mouse:
 [white]1-9[::-]      Set max concurrent jobs
 [white]q[::-]        Close
 [yellow]Global:[::-] [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+N[::-]=Hosts  [white]Ctrl+Z[::-]=Main`,
-	FmtJobStats: `[yellow]Job Statistics:[::-]
-
-[white]Total Jobs:[::-]      %d
+	FmtJobStats: `[white]Total Jobs:[::-]      %d
 [green]Running:[::-]         %d/%d
 [blue]Pending:[::-]         %d
 [green]Completed:[::-]       %d
@@ -606,7 +604,7 @@ Script Control:
 	// Correlation viewer
 	FmtCorrControlsText: `[yellow]Navigation                    Actions[::-]
 [white]Enter[::-]  View host details       [white]s[::-]  View screenshot
-[white]/[::-]      Search hosts            [white]p[::-]  Generate package
+[white]/[::-]      Search hosts            [white]p[::-]  Create Hostfile Package
 %s
 [white]Space[::-]  Categorize host         [white]q[::-]  Close
 
@@ -774,7 +772,7 @@ Maus:
 	TaskExtractVLANIDs:             "VLAN-IDs extrahieren",
 	TaskExtractVLANIDsDesc:         "VLAN-IDs aus Mitschnittdateien extrahieren",
 	TaskMultiPhaseDiscovery:        "Discovery Scan",
-	TaskMultiPhaseDiscoveryDesc:    "Umfassende Netzwerkerkennung mit Host-Kategorisierung",
+	TaskMultiPhaseDiscoveryDesc:    "Umfassender Discovery-Scan mit Host-Kategorisierung",
 	TaskHostCategorization:         "Host-Kategorisierung",
 	TaskHostCategorizationDesc:     "Erkannte Hosts nach Betriebssystem kategorisieren",
 	TaskPortServiceScan:            "Port- & Dienst-Scan",
@@ -801,9 +799,7 @@ Maus:
 [white]1-9[::-]      Max. gleichzeitige Jobs setzen
 [white]q[::-]        Schließen
 [yellow]Global:[::-] [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+N[::-]=Hosts  [white]Ctrl+Z[::-]=Hauptmenü`,
-	FmtJobStats: `[yellow]Job-Statistik:[::-]
-
-[white]Jobs gesamt:[::-]      %d
+	FmtJobStats: `[white]Jobs gesamt:[::-]      %d
 [green]Laufend:[::-]          %d/%d
 [blue]Ausstehend:[::-]       %d
 [green]Abgeschlossen:[::-]   %d
@@ -829,8 +825,8 @@ Maus:
 
 	// Output viewer
 	StatusReady:         "[green]Bereit[::-] - Leertaste=Pause f=Folgen t=Zeit s=Quelle /=Suchen g/G=Scrollen | q=Zurück Esc=Abbrechen",
-	StatusInputMode:     "[yellow]Eingabemodus[::-] - Enter=Senden Tab=Anzeigen | q=Zurück Esc=Abbrechen",
-	StatusViewMode:      "[green]Ansichtsmodus[::-] - Tab=Eingabe Leertaste=Pause f=Folgen t=Zeit s=Quelle /=Suchen g/G=Scrollen | q=Zurück Esc=Abbrechen",
+	StatusInputMode:     "[yellow]Eingabemodus[::-] - Enter=Senden Tab=Ausgabe | q=Zurück Esc=Abbrechen",
+	StatusViewMode:      "[green]Ausgabemodus[::-] - Tab=Eingabe Leertaste=Pause f=Folgen t=Zeit s=Quelle /=Suchen g/G=Scrollen | q=Zurück Esc=Abbrechen",
 	StatusWaitingInput:  "[yellow]Wartet auf Eingabe[::-] - Enter=Senden Tab=Anzeigen | q=Zurück Esc=Abbrechen",
 	StatusPasswordInput: "[yellow]Passworteingabe[::-] - Enter=Senden Tab=Anzeigen | q=Zurück Esc=Abbrechen",
 	StatusInputSent:     "[green]Eingabe gesendet[::-] - Warte auf Antwort... | q=Zurück Esc=Abbrechen",
@@ -892,9 +888,9 @@ Skriptsteuerung:
 	FmtDashJobsCompleted:        "Abgeschlossen: [blue]%d[::-]\n",
 	FmtDashJobsFailed:           "Fehlgeschlagen: [red]%d[::-]\n",
 	FmtDashLastScan:             "\nLetzter Scan: [white]%s[::-]\n",
-	DashNoChartYet:              "[gray]Noch keine Hosts erkannt.[::-]\n\n[gray]Starten Sie die Netzwerkerkennung[::-]\n[gray]über das Skripte-Menü.[::-]\n",
+	DashNoChartYet:              "[gray]Noch keine Hosts erkannt.[::-]\n\n[gray]Starte Discovery-Scan[::-]\n[gray]über das Skripte-Menü.[::-]\n",
 	FmtDashCategoryBar:          "[%s]%-16s[::-]  [%s]%s[::-]  [white]%d[::-]\n",
-	DashNoActivityYet:           "[gray]Noch keine Jobs ausgeführt.[::-]\n[gray]Starten Sie eine Erkennung[::-]\n[gray]über das Skripte-Menü.[::-]\n",
+	DashNoActivityYet:           "[gray]Noch keine Jobs ausgeführt.[::-]\n[gray]Starte Discovery-Scan[::-]\n[gray]über das Skripte-Menü.[::-]\n",
 	DashNoHostsDiscovered:       "[gray]Noch keine Hosts erkannt.[::-]\n",
 	DashRiskDistHeading:         "[yellow]Risikoverteilung[::-]\n",
 	DashSevSummaryHeading:       "\n[yellow]Schweregrad-Übersicht[::-]\n",
@@ -907,7 +903,7 @@ Skriptsteuerung:
 	DashTopServicesHeading:      "[yellow]Top-Dienste[::-]\n",
 	FmtDashServiceEntry:         "  [white]%-12s[::-] [green]%d[::-] Hosts\n",
 	DashPortsHeading:            "\n[yellow]Ports[::-]\n",
-	FmtDashUniqueOpenPorts:      "  Eindeutig offen: [white]%d[::-]\n",
+	FmtDashUniqueOpenPorts:      "  Einmalig offen: [white]%d[::-]\n",
 	FmtDashMostExposedHost:      "  Am meisten exponiert: [white]%s[::-] ([red]%d[::-])\n",
 	FmtHostOpenPorts:            "Offene Ports: [white]%s[::-]\n",
 	FmtFindingsCount:            "%s (%d Befunde)",
@@ -939,7 +935,7 @@ Skriptsteuerung:
 	// Correlation viewer
 	FmtCorrControlsText: `[yellow]Navigation                     Aktionen[::-]
 [white]Enter[::-]  Host-Details anzeigen   [white]s[::-]  Screenshot anzeigen
-[white]/[::-]      Hosts suchen            [white]p[::-]  Paket erstellen
+[white]/[::-]      Hosts suchen            [white]p[::-]  Hostfile-Paket erstellen
 %s
 [white]Space[::-]  Host kategorisieren     [white]q[::-]  Schließen
 
