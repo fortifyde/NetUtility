@@ -3,7 +3,7 @@ script:
   description: "SSH into network devices, auto-detect vendor, and extract running configs and compliance data"
   name_de: "ALK Sammler"
   description_de: "Aktive Lan-Komponenten gebündelt per SSH auslesen. Sammlung von Running-Configs sowie Compliance-Daten"
-  category: "config"
+  category: "advanced"
   subcategory: "backup"
 
   file: "gather_network_configs.sh"

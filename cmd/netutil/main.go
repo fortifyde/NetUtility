@@ -380,7 +380,14 @@ func executeScript(scriptPath, scriptName string, cfg *config.Config) bool {
 		return false
 	}
 
-	return runScriptDirect(absPath, scriptName)
+	success := runScriptDirect(absPath, scriptName)
+
+	// Fix workspace file ownership when running as root.
+	if cfg.IsWorkspaceConfigured() {
+		config.FixWorkspaceOwnershipForPath(cfg.WorkspaceDir)
+	}
+
+	return success
 }
 
 // showHelp displays available commands

@@ -1,7 +1,7 @@
 script:
   name: "Network Capture"
   description: "Capture network traffic with tshark, extract VLAN information, and perform security analysis for unsafe protocols"
-  name_de: "Netzwerkaufzeichnung"
+  name_de: "Netzwerkmitschnitt"
   description_de: "Netzwerkmitschnitt aufzeichnen und mit erweiterten Filteroptionen analysieren"
   category: "discovery"
   subcategory: "capture"

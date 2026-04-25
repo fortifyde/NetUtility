@@ -66,6 +66,9 @@ type JobManager struct {
 	jobCompletedChan chan *Job
 	jobFailedChan    chan *Job
 	stopChan         chan struct{}
+
+	// onJobDone is called after each job completes (success or failure).
+	onJobDone func()
 }
 
 // NewJobManager creates a new job manager
@@ -82,6 +85,14 @@ func NewJobManager(maxConcurrent int) *JobManager {
 		jobFailedChan:    make(chan *Job, 10),
 		stopChan:         make(chan struct{}),
 	}
+}
+
+// SetOnJobDone registers a callback invoked after each job completes.
+// The callback must not block for long.
+func (jm *JobManager) SetOnJobDone(fn func()) {
+	jm.mu.Lock()
+	defer jm.mu.Unlock()
+	jm.onJobDone = fn
 }
 
 // CreateJob creates a new job but doesn't start it
@@ -229,6 +240,13 @@ func (jm *JobManager) monitorJob(job *Job) {
 			default:
 			}
 		}
+	}
+
+	jm.mu.RLock()
+	onJobDone := jm.onJobDone
+	jm.mu.RUnlock()
+	if onJobDone != nil {
+		onJobDone()
 	}
 
 	// Start any pending jobs that were waiting for this slot.

@@ -1,7 +1,7 @@
 script:
   name: "Packet Capture Analysis"
   description: "Analyze pcap files for WPAD detection, Windows domain discovery via BROWSER protocol, SSDP service discovery, STP topology analysis, IPv4 endpoint mapping, VLAN correlation, MAC OUI identification, and protocol-level security assessment"
-  name_de: "Analyse Netzwerkmitschnitt"
+  name_de: "Netzwerkmitschnitt Analyse"
   description_de: "pcap-Dateien auf Protokollstatistiken und grundliegende Sicherheitsmängel analysieren"
   category: "discovery"
   subcategory: "analysis"

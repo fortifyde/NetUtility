@@ -12,6 +12,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
+	"netutil/internal/config"
 	"netutil/internal/correlation"
 	"netutil/internal/jobs"
 	"netutil/internal/metadata"
@@ -412,6 +413,10 @@ func NewTUI(scriptsDir, workspaceDir, lang string) *TUI {
 	}
 	tui.str = stringsForLang(lang)
 	tui.lang = lang
+
+	if workspaceDir != "" {
+		tui.jobManager.SetOnJobDone(func() { config.FixWorkspaceOwnershipForPath(workspaceDir) })
+	}
 
 	if workspaceDir != "" {
 		if err := tui.correlator.LoadResults(); err != nil {

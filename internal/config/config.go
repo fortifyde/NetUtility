@@ -495,48 +495,13 @@ func GetOriginalUser() (*user.User, error) {
 	return user.Current()
 }
 
-// FixWorkspaceOwnership fixes workspace ownership when running as root
+// FixWorkspaceOwnership fixes workspace ownership when running as root.
 func (c *Config) FixWorkspaceOwnership() error {
 	if !c.IsWorkspaceConfigured() {
 		return fmt.Errorf("workspace not configured")
 	}
-
-	// Only fix ownership if running as root
-	if os.Geteuid() != 0 {
-		return nil // No need to fix ownership
-	}
-
-	// Get original user
-	originalUser, err := GetOriginalUser()
-	if err != nil {
-		return fmt.Errorf("failed to get original user: %w", err)
-	}
-
-	// Parse user and group IDs
-	uid, err := strconv.Atoi(originalUser.Uid)
-	if err != nil {
-		return fmt.Errorf("invalid user ID: %w", err)
-	}
-
-	gid, err := strconv.Atoi(originalUser.Gid)
-	if err != nil {
-		return fmt.Errorf("invalid group ID: %w", err)
-	}
-
-	// Fix ownership of workspace directory and subdirectories
-	return filepath.Walk(c.WorkspaceDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil // Skip files with errors
-		}
-
-		// Change ownership to original user
-		if chownErr := syscall.Chown(path, uid, gid); chownErr != nil {
-			// Log but don't fail - some files might not be changeable
-			fmt.Fprintf(os.Stderr, "Warning: Failed to change ownership of %s: %v\n", path, chownErr)
-		}
-
-		return nil
-	})
+	FixWorkspaceOwnershipForPath(c.WorkspaceDir)
+	return nil
 }
 
 // FixWorkspacePermissions ensures workspace directories have correct permissions for root access
@@ -610,4 +575,38 @@ func (c *Config) EnsureWorkspaceWritable() error {
 	os.Remove(testFile)
 
 	return nil
+}
+
+// FixWorkspaceOwnershipForPath fixes file ownership under dir when running as root via sudo.
+func FixWorkspaceOwnershipForPath(dir string) {
+	if os.Geteuid() != 0 {
+		return
+	}
+
+	originalUser, err := GetOriginalUser()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to get original user for chown: %v\n", err)
+		return
+	}
+
+	uid, err := strconv.Atoi(originalUser.Uid)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Invalid user ID for chown: %v\n", err)
+		return
+	}
+	gid, err := strconv.Atoi(originalUser.Gid)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Invalid group ID for chown: %v\n", err)
+		return
+	}
+
+	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if chownErr := syscall.Chown(path, uid, gid); chownErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to change ownership of %s: %v\n", path, chownErr)
+		}
+		return nil
+	})
 }
