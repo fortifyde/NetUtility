@@ -177,23 +177,22 @@ func main() {
 var commandMappings = map[string]ScriptInfo{
 	// Discovery
 	"capture":         {"scripts/discovery/network_capture.sh", "Network Capture"},
-	"multi-discovery": {"scripts/discovery/multi_phase_discovery.sh", "Multi-Phase Discovery"},
-	"ipv6-discovery":  {"scripts/discovery/ipv6_discovery.sh", "IPv6 Discovery"},
+	"multi-discovery": {"scripts/discovery/multi_phase_discovery.sh", "Discovery-Scan"},
 	"extract-vlans":   {"scripts/discovery/extract_vlans.sh", "Extract VLANs"},
 	"mac-analysis":    {"scripts/discovery/mac_analysis.sh", "MAC Address Analysis"},
-	"packet-analysis": {"scripts/discovery/advanced_packet_analysis.sh", "Advanced Packet Analysis"},
+	"packet-analysis": {"scripts/discovery/advanced_packet_analysis.sh", "Packet Capture Analysis"},
 	// Scanning
 	"port-scan":     {"scripts/scanning/port_service_scan.sh", "Port & Service Scan"},
 	"full-scan":     {"scripts/scanning/port_service_scan.sh", "Port & Service Scan"},
 	"vuln":          {"scripts/scanning/vulnerability_assessment.sh", "Vulnerability Assessment"},
 	"vulnerability": {"scripts/scanning/vulnerability_assessment.sh", "Vulnerability Assessment"},
 	// Host configuration
-	"config-ip":        {"scripts/host-config/configure_ip.sh", "Configure IP"},
-	"ip":               {"scripts/host-config/configure_ip.sh", "Configure IP"},
-	"interfaces":       {"scripts/host-config/network_interfaces.sh", "Network Interfaces"},
+	"config-ip":        {"scripts/host-config/configure_ip.sh", "Configure IP Addresses"},
+	"ip":               {"scripts/host-config/configure_ip.sh", "Configure IP Addresses"},
+	"interfaces":       {"scripts/host-config/network_interfaces.sh", "Manage Network Interfaces"},
 	"routes":           {"scripts/host-config/configure_routes.sh", "Configure Routes"},
 	"dns":              {"scripts/host-config/configure_dns.sh", "Configure DNS"},
-	"vlan":             {"scripts/host-config/add_vlan.sh", "Add VLAN"},
+	"vlan":             {"scripts/host-config/add_vlan.sh", "Manage VLAN Interfaces"},
 	"setup-fileserver": {"scripts/host-config/setup_file_server.sh", "Setup File Server"},
 	// Utilities
 	"backup":       {"scripts/utilities/backup_config.sh", "Backup Configuration"},
@@ -203,8 +202,9 @@ var commandMappings = map[string]ScriptInfo{
 	"update-oui":   {"scripts/utilities/update_oui_db.sh", "Update OUI Database"},
 	"exclude-team": {"scripts/utilities/exclude_team_ips.sh", "Exclude Team IPs"},
 	// Advanced
-	"auto-discover":  {"scripts/advanced/auto_discover.sh", "Automated Discovery Workflow"},
-	"gather-configs": {"scripts/config/gather_network_configs.sh", "Gather Network Configs"},
+	"auto-discover":  {"scripts/advanced/auto_discover.sh", "Auto Discovery"},
+	"gather-configs": {"scripts/config/gather_network_configs.sh", "Network Config Gatherer"},
+	"screenshot":     {"scripts/advanced/web_screenshot.sh", "Web Services Gatherer"},
 }
 
 // Numeric shortcuts (most frequently used)
@@ -237,11 +237,11 @@ func runFirstTimeSetup(cfg *config.Config) error {
 }
 
 var numericShortcuts = map[string]ScriptInfo{
-	"1": {"scripts/network/network_enum.sh", "Network Enumeration"},
-	"2": {"scripts/network/network_capture.sh", "Network Capture"},
+	"1": {"scripts/discovery/multi_phase_discovery.sh", "Discovery-Scan"},
+	"2": {"scripts/discovery/network_capture.sh", "Network Capture"},
 	"3": {"scripts/scanning/vulnerability_assessment.sh", "Vulnerability Assessment"},
-	"4": {"scripts/system/configure_ip.sh", "Configure IP"},
-	"5": {"scripts/system/network_interfaces.sh", "Network Interfaces"},
+	"4": {"scripts/host-config/configure_ip.sh", "Configure IP Addresses"},
+	"5": {"scripts/host-config/network_interfaces.sh", "Manage Network Interfaces"},
 }
 
 type ScriptInfo struct {

@@ -5,21 +5,20 @@ script:
   description_de: "Routingtabelle einsehen und Netzwerkrouten verwalten"
   category: "host-config"
   subcategory: "networking"
-  
+
   file: "configure_routes.sh"
   requires_root: true
   estimated_duration: "1-2 minutes"
-  
+
   cli_shortcuts:
     - "routes"
-    - "routing"
   keywords:
     - "routes"
     - "routing"
     - "ip"
     - "table"
     - "gateway"
-  
+
   parameters:
     - name: "operation"
       type: "choice"
@@ -38,17 +37,17 @@ script:
             description: "Show detailed routing table"
           - value: "5"
             description: "Show route to destination"
-  
+
   dependencies:
     tools:
       - name: "ip"
         package: "iproute2"
         check_command: "which ip"
-  
+
   output:
     creates_files: false
     workspace_subdirs: []
-  
+
   tags:
     - "routing"
     - "networking"
@@ -56,13 +55,10 @@ script:
   risk_level: "medium"
   network_access: false
   modifies_system: true
-  
+
   examples:
     - description: "Manage routing table"
       command: "netutil routes"
-    - description: "Configure routing"
-      command: "netutil routing"
-  
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-19"
+  last_updated: "2025-04-25"

@@ -1,69 +1,66 @@
 script:
   name: "Extract VLANs"
-  description: "Extract and analyze VLAN information from network capture"
+  description: "Extract VLAN IDs from packet captures, analyze VLAN traffic, and optionally create VLAN subinterfaces with IP address assignment"
   name_de: "VLANs extrahieren"
   description_de: "VLAN-Informationen aus Netzwerkmitschnitt auslesen und Schnittstellen konfigurieren"
   category: "discovery"
   subcategory: "discovery"
-  
+
   file: "extract_vlans.sh"
   requires_root: true
   estimated_duration: "3-10 minutes"
-  
+
   cli_shortcuts:
-    - "vlans"
     - "extract-vlans"
-    - "vlan-discovery"
   keywords:
     - "vlan"
     - "extract"
     - "discovery"
     - "802.1q"
     - "tagging"
-  
+    - "subinterface"
+    - "interface-creation"
+    - "batch"
+
   parameters:
-    - name: "interface"
-      type: "interface"
-      description: "Network interface to monitor"
-      required: false
     - name: "capture_file"
-      type: "file"
-      description: "Packet capture file to analyze"
+      type: "file_path"
+      description: "Packet capture file to analyze (selected via interactive prompt)"
+      required: true
+    - name: "parent_interface"
+      type: "interface"
+      description: "Parent interface for VLAN subinterface creation (prompted only if user confirms creation)"
       required: false
-  
+
   dependencies:
     tools:
-      - name: "tcpdump"
-        package: "tcpdump"
-        check_command: "which tcpdump"
       - name: "tshark"
         package: "wireshark"
         check_command: "which tshark"
-  
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+
   output:
     creates_files: true
     file_patterns:
-      - "vlan_discovery_*.txt"
-      - "vlan_traffic_*.pcap"
-      - "vlan_analysis_*.csv"
+      - "extracted_vlans_*.txt"
+      - "vlan_details_*.txt"
     workspace_subdirs:
-      - "vlan-discovery"
-  
+      - "captures"
+
   tags:
     - "vlan"
     - "discovery"
     - "802.1q"
     - "network-analysis"
-  risk_level: "low"
+  risk_level: "medium"
   network_access: true
-  modifies_system: false
-  
+  modifies_system: true
+
   examples:
-    - description: "Extract VLAN information"
-      command: "netutil vlans"
-    - description: "Discover VLANs on network"
+    - description: "Extract VLAN information from capture"
       command: "netutil extract-vlans"
-  
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-19"
+  last_updated: "2025-04-25"

@@ -3,7 +3,7 @@ script:
   description: "Configure HTTP(s) file server with authentication for sharing scan results across VLANs"
   name_de: "Webserver einrichten"
   description_de: "HTTP(s)-Dateiserver mit Authentifizierung zum Teilen von Scan-Ergebnissen über VLANs hinweg konfigurieren"
-  category: "utilities"
+  category: "host-config"
   subcategory: "services"
 
   file: "setup_file_server.sh"
@@ -12,8 +12,6 @@ script:
 
   cli_shortcuts:
     - "setup-fileserver"
-    - "file-server"
-    - "setup-file-server"
   keywords:
     - "file"
     - "server"
@@ -24,10 +22,42 @@ script:
     - "service"
     - "systemd"
 
-  parameters: []
+  parameters:
+    - name: "port"
+      type: "number"
+      description: "Server port"
+      required: false
+      default: "8080"
+    - name: "listen_address"
+      type: "string"
+      description: "Listen address"
+      required: false
+      default: "0.0.0.0"
+    - name: "enable_tls"
+      type: "string"
+      description: "Enable HTTPS/TLS encryption (y/n)"
+      required: false
+      default: "y"
+    - name: "username"
+      type: "string"
+      description: "Authentication username"
+      required: false
+    - name: "password"
+      type: "string"
+      description: "Authentication password"
+      required: false
 
   dependencies:
     tools:
+      - name: "openssl"
+        package: "openssl"
+        check_command: "which openssl"
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+      - name: "hostname"
+        package: "hostname"
+        check_command: "which hostname"
       - name: "systemctl"
         package: "systemd"
         check_command: "which systemctl"
@@ -74,5 +104,4 @@ script:
     - "Default port 8080, configurable during setup"
 
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-22"
+  last_updated: "2025-04-25"

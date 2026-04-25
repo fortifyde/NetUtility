@@ -5,74 +5,96 @@ script:
   description_de: "All-in-one Tool: Netzwerkmitschnitt, Host-Konfiguration und einfacher Discovery-Scan mit Host-Einteilung"
   category: "advanced"
   subcategory: "automation"
-  
+
   file: "auto_discover.sh"
   requires_root: true
   estimated_duration: "15-45 minutes"
-  
+
   cli_shortcuts:
     - "auto-discover"
-    - "auto-discovery" 
-    - "smart-discovery"
   keywords:
-    - "auto-discovery"
-    - "vlan-aware"
-    - "automation"
-    - "intelligent"
-    - "comprehensive"
-  
+    - "promiscuous-capture"
+    - "tshark"
+    - "vlan-interface"
+    - "network-topology"
+    - "l2-l3-discovery"
+
   parameters:
-    - name: "target"
-      type: "target"
-      description: "Target network or IP range"
-      required: false
-    - name: "workflow_type"
-      type: "choice"
-      description: "Type of workflow to run"
+    - name: "interface"
+      type: "interface"
+      description: "Parent interface for VLAN discovery"
       required: true
-      default: "1"
+    - name: "discovery_mode"
+      type: "choice"
+      description: "L2 creates VLAN sub-interfaces; L3 uses routed access from a single source VLAN"
+      required: false
+      default: "l2"
       validation:
         choices:
-          - value: "1"
-            description: "Quick assessment"
-          - value: "2"
-            description: "Comprehensive scan"
-          - value: "3"
-            description: "Security audit"
-  
+          - value: "l2"
+            description: "Create VLAN sub-interfaces (tag into each VLAN)"
+          - value: "l3"
+            description: "Routed access from a single source VLAN"
+    - name: "capture_duration"
+      type: "number"
+      description: "Promiscuous capture duration in minutes"
+      required: false
+      default: "10"
+      validation:
+        range:
+          min: 1
+          max: 60
+    - name: "vlan_selection"
+      type: "text"
+      description: "VLAN IDs to configure (space-separated, 'all', 'none', or 'skip')"
+      required: false
+    - name: "ip_assignment"
+      type: "text"
+      description: "Interactive per-VLAN IP address configuration (suggested or custom with CIDR)"
+      required: false
+    - name: "scan_priority"
+      type: "text"
+      description: "Optional ordering of VLANs to scan first when multiple selected"
+      required: false
+
   dependencies:
     tools:
-      - name: "nmap"
-        package: "nmap"
-        check_command: "which nmap"
-      - name: "fping"
-        package: "fping"
-        check_command: "which fping"
-  
+      - name: "tshark"
+        package: "tshark"
+        check_command: "which tshark"
+      - name: "capinfos"
+        package: "tshark"
+        check_command: "which capinfos"
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+
   output:
     creates_files: true
     file_patterns:
-      - "workflow_report_*.txt"
-      - "assessment_summary_*.html"
-      - "findings_*.csv"
+      - "reports/auto_discover_*/auto_discovery_report.txt"
+      - "captures/auto_discover_capture_*.pcap"
+      - "discovery/auto_discovery/*"
     workspace_subdirs:
-      - "workflow-results"
-  
+      - "reports"
+      - "captures"
+      - "discovery"
+      - "analysis"
+      - "latest"
+
   tags:
     - "workflow"
     - "automation"
-    - "assessment"
-    - "comprehensive"
-  risk_level: "low"
+    - "vlan"
+    - "discovery"
+    - "capture"
+  risk_level: "high"
   network_access: true
-  modifies_system: false
-  
+  modifies_system: true
+
   examples:
     - description: "Run auto-discovery workflow"
       command: "netutil auto-discover"
-    - description: "VLAN-aware network discovery"
-      command: "netutil auto-discovery"
-  
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-19"
+  last_updated: "2025-04-25"

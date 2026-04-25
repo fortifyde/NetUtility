@@ -1,77 +1,62 @@
 script:
   name: "MAC Address Analysis"
-  description: "Analyze MAC addresses from network capture to identify device vendors, detect anomalies, and map network topology"
+  description: "Analyze MAC addresses from network capture to identify device vendors, detect anomalies, and perform security analysis including MAC randomization and multicast/broadcast detection"
   name_de: "MAC-Adressanalyse"
-  description_de: "MAC-Adressen aus Netzwerkmitschnitt analysieren zur Gerätehersteller-Identifikation, Anomalie-Erkennung und Netzwerktopologie-Erkennung"
+  description_de: "MAC-Adressen aus Netzwerkmitschnitt analysieren zur Gerätehersteller-Identifikation, Anomalie-Erkennung und Sicherheitsanalyse inklusive MAC-Randomisierung und Multicast/Broadcast-Erkennung"
   category: "discovery"
   subcategory: "analysis"
-  
+
   file: "mac_analysis.sh"
   requires_root: false
   estimated_duration: "0-5 minutes"
-  
+
   cli_shortcuts:
-    - "mac"
     - "mac-analysis"
-    - "vendor"
   keywords:
     - "mac"
     - "vendor"
     - "analysis"
-    - "topology"
+    - "security"
+    - "randomization"
+    - "oui-database"
+    - "ouihelper"
     - "devices"
-    - "oui"
-  
+
   parameters:
-    - name: "input_source"
-      type: "choice"
-      description: "Source of MAC addresses to analyze"
+    - name: "capture_file"
+      type: "file_path"
+      description: "Capture file (.pcap) to analyze for MAC addresses"
       required: true
-      default: "1"
-      validation:
-        choices:
-          - value: "1"
-            description: "Analyze current ARP table"
-          - value: "2"
-            description: "Analyze from capture file"
-          - value: "3"
-            description: "Analyze from text file"
-    - name: "input_file"
-      type: "file"
-      description: "Input file (for options 2 and 3)"
-      required: false
-  
+
   dependencies:
     tools:
-      - name: "arp"
-        package: "net-tools"
-        check_command: "which arp"
-  
+      - name: "tshark"
+        package: "wireshark-cli"
+        check_command: "which tshark"
+      - name: "ouihelper"
+        package: "netutility-built-in"
+        check_command: "which ouihelper"
+
   output:
     creates_files: true
     file_patterns:
-      - "mac_analysis_*.txt"
-      - "vendor_report_*.txt"
-      - "device_topology_*.txt"
+      - "mac_analysis_*_*.txt"
     workspace_subdirs:
-      - "mac-analysis"
-  
+      - "analysis"
+
   tags:
     - "mac"
     - "vendor"
     - "analysis"
-    - "topology"
+    - "security"
     - "forensics"
   risk_level: "low"
   network_access: false
   modifies_system: false
-  
+
   examples:
-    - description: "Analyze MAC addresses"
-      command: "netutil mac"
-    - description: "Device vendor analysis"
-      command: "netutil vendor"
-  
+    - description: "Analyze MAC addresses from a capture file"
+      command: "netutil mac-analysis"
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-07-19"
+  last_updated: "2025-04-25"

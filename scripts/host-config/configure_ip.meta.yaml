@@ -5,15 +5,14 @@ script:
   description_de: "IP-Adresskonfiguration mit Validierung"
   category: "host-config"
   subcategory: "networking"
-  
+
   file: "configure_ip.sh"
   requires_root: true
   estimated_duration: "1-3 minutes"
-  
+
   cli_shortcuts:
     - "config-ip"
     - "ip"
-    - "configure-ip"
   keywords:
     - "ip"
     - "address"
@@ -24,7 +23,7 @@ script:
     - "add"
     - "remove"
     - "flush"
-  
+
   parameters:
     - name: "interface"
       type: "interface"
@@ -39,8 +38,6 @@ script:
         choices:
           - value: "add"
             description: "Add IP address"
-          - value: "remove"
-            description: "Remove IP address"
           - value: "flush"
             description: "Flush all IP addresses"
           - value: "interactive"
@@ -51,21 +48,18 @@ script:
       required: false
       validation:
         pattern: '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'
-  
+
   dependencies:
     tools:
       - name: "ip"
         package: "iproute2"
         check_command: "which ip"
-      - name: "grep"
-        package: "grep"
-        check_command: "which grep"
-  
+
   output:
     creates_files: false
     workspace_subdirs: []
     logs_operations: true
-  
+
   tags:
     - "networking"
     - "configuration"
@@ -77,17 +71,16 @@ script:
   risk_level: "medium"
   network_access: false
   modifies_system: true
-  
+
   examples:
     - description: "Interactive IP configuration"
       command: "netutil config-ip"
     - description: "Add IP address directly"
       command: "./configure_ip.sh -i eth0 -a 192.168.1.100/24"
-    - description: "Remove IP address directly"
+    - description: "Remove IP address directly (CLI only)"
       command: "./configure_ip.sh -i eth0 -r 192.168.1.100/24"
     - description: "Flush all addresses from interface"
       command: "./configure_ip.sh --flush eth0"
-  
+
   version: "2.0"
-  author: "fortifyde"
-  last_updated: "2025-01-20"
+  last_updated: "2025-04-25"

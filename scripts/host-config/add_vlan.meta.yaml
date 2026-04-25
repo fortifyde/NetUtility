@@ -1,8 +1,8 @@
 script:
   name: "Manage VLAN Interfaces"
-  description: "Create, configure, and remove VLAN subinterfaces on network adapters"
+  description: "Create, configure, and remove VLAN subinterfaces including batch/multiple VLAN operations"
   name_de: "VLAN-Schnittstellen verwalten"
-  description_de: "VLAN-Schnittstellen auf Netzwerkadaptern erstellen, konfigurieren und entfernen"
+  description_de: "VLAN-Schnittstellen erstellen, konfigurieren und entfernen inklusive Batch-Operationen"
   category: "host-config"
   subcategory: "networking"
 
@@ -12,13 +12,15 @@ script:
 
   cli_shortcuts:
     - "vlan"
-    - "add-vlan"
   keywords:
     - "vlan"
     - "interface"
     - "subinterface"
     - "tagging"
     - "802.1q"
+    - "batch"
+    - "multiple"
+    - "bulk"
 
   parameters:
     - name: "parent_interface"
@@ -35,9 +37,13 @@ script:
           - value: "1"
             description: "Add VLAN interface"
           - value: "2"
-            description: "Remove VLAN interface"
+            description: "Add Multiple VLAN interfaces (batch)"
           - value: "3"
+            description: "Remove VLAN interface"
+          - value: "4"
             description: "List VLAN interfaces"
+          - value: "5"
+            description: "Exit"
     - name: "vlan_id"
       type: "number"
       description: "VLAN ID (1-4094)"
@@ -73,11 +79,8 @@ script:
   modifies_system: true
 
   examples:
-    - description: "Create VLAN interface"
+    - description: "Manage VLAN interfaces"
       command: "netutil vlan"
-    - description: "Add VLAN using full command"
-      command: "netutil add-vlan"
 
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-18"
+  last_updated: "2025-04-25"

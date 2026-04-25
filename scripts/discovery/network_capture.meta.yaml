@@ -1,76 +1,77 @@
 script:
   name: "Network Capture"
-  description: "Capture and analyze network traffic with advanced filtering options"
+  description: "Capture network traffic with tshark, extract VLAN information, and perform security analysis for unsafe protocols"
   name_de: "Netzwerkaufzeichnung"
   description_de: "Netzwerkmitschnitt aufzeichnen und mit erweiterten Filteroptionen analysieren"
   category: "discovery"
   subcategory: "capture"
-  
+
   file: "network_capture.sh"
   requires_root: true
-  estimated_duration: "5-30 minutes"
-  
+  estimated_duration: "5 minutes to 24+ hours (configurable)"
+
   cli_shortcuts:
     - "capture"
-    - "cap"
-    - "tcpdump"
   keywords:
     - "capture"
-    - "tcpdump"
+    - "tshark"
     - "packets"
     - "traffic"
     - "network"
-    - "sniff"
-  
+    - "security"
+    - "vlan"
+    - "analysis"
+    - "pcap"
+    - "wireshark"
+
   parameters:
     - name: "interface"
       type: "interface"
       description: "Network interface to capture from"
       required: true
     - name: "duration"
-      type: "number"
-      description: "Capture duration in seconds"
+      type: "duration"
+      description: "Capture duration in seconds (0 for manual stop via Ctrl+C)"
       required: false
-      default: "60"
+      default: "600"
       validation:
         range:
-          min: 1
-          max: 3600
-    - name: "filter"
-      type: "text"
-      description: "BPF filter expression"
-      required: false
-      default: ""
-  
+          min: 0
+          max: 86400
+
   dependencies:
     tools:
-      - name: "tcpdump"
-        package: "tcpdump"
-        check_command: "which tcpdump"
-  
+      - name: "tshark"
+        package: "tshark"
+        check_command: "which tshark"
+      - name: "capinfos"
+        package: "tshark"
+        check_command: "which capinfos"
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+
   output:
     creates_files: true
     file_patterns:
       - "capture_*.pcap"
-      - "capture_summary_*.txt"
+      - "vlans_*.txt"
+      - "security_analysis_*.txt"
     workspace_subdirs:
       - "captures"
-  
+
   tags:
     - "capture"
     - "analysis"
     - "traffic"
     - "monitoring"
-  risk_level: "low"
+  risk_level: "medium"
   network_access: true
-  modifies_system: false
-  
+  modifies_system: true
+
   examples:
-    - description: "Capture network traffic"
+    - description: "Capture network traffic with tshark"
       command: "netutil capture"
-    - description: "Packet capture using shortcut"
-      command: "netutil cap"
-  
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-07-19"
+  last_updated: "2025-04-25"

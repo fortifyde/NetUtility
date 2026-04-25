@@ -1,45 +1,68 @@
 script:
   name: "Discovery-Scan"
-  description: "Progressive network discovery with host categorization across multiple scan phases"
+  description: "8-phase comprehensive network discovery with host categorization, service enumeration, OS detection, and evidence processing"
   name_de: "Discovery-Scan"
-  description_de: "Netzwerk-Discovery mit Host-Kategorisierung über mehrere Scan-Phasen. Detaillierter als Auto-Discovery"
+  description_de: "Umfassender Discovery-Scan mit Host-Kategorisierung, Service-Enumeration, OS-Erkennung und Beweissicherung (detaillierter als Auto-Discovery)"
   category: "discovery"
   subcategory: "discovery"
-  
+
   file: "multi_phase_discovery.sh"
   requires_root: true
-  estimated_duration: "10-120 minutes"
-  
+  estimated_duration: "30-300 minutes"
+
   cli_shortcuts:
     - "multi-discovery"
-    - "phased-scan"
-    - "progressive-scan"
   keywords:
     - "discovery"
     - "multi-phase"
-    - "progressive"
-    - "advanced"
-    - "scanning"
-  
+    - "arp-scan"
+    - "host-categorization"
+    - "service-enumeration"
+    - "os-detection"
+    - "smb"
+    - "snmp"
+    - "dns"
+    - "port-scanning"
+    - "evidence"
+    - "vendor-detection"
+    - "checkpoint-resume"
+    - "ipv6"
+    - "vlan"
+    - "multi-network"
+
   parameters:
-    - name: "target"
-      type: "target"
-      description: "Target network or IP range"
+    - name: "interface"
+      type: "interface"
+      description: "Network interface to use for scanning (VLAN interfaces supported)"
       required: false
-    - name: "phases"
+    - name: "network_range"
+      type: "target"
+      description: "Network range to scan (CIDR). Auto-detected from selected interface, with confirmation prompt"
+      required: false
+    - name: "dns_nameserver"
+      type: "ip_address"
+      description: "DNS nameserver IP to configure if /etc/resolv.conf has none"
+      required: false
+    - name: "routed_networks"
+      type: "target"
+      description: "Additional routed networks to scan (CIDR, prompted iteratively)"
+      required: false
+    - name: "max_concurrent_networks"
+      type: "number"
+      description: "Maximum number of networks to scan concurrently when multiple networks are specified"
+      required: false
+      default: "all"
+    - name: "resume_checkpoint"
       type: "choice"
-      description: "Number of discovery phases"
-      required: true
-      default: "3"
+      description: "Resume from last completed phase checkpoint if previous session exists"
+      required: false
       validation:
         choices:
-          - value: "2"
-            description: "2-phase discovery"
-          - value: "3"
-            description: "3-phase discovery"
-          - value: "4"
-            description: "4-phase comprehensive"
-  
+          - value: "resume"
+            description: "Resume from last completed phase"
+          - value: "fresh"
+            description: "Start fresh, discarding previous progress"
+
   dependencies:
     tools:
       - name: "nmap"
@@ -51,31 +74,92 @@ script:
       - name: "masscan"
         package: "masscan"
         check_command: "which masscan"
-  
+      - name: "arp-scan"
+        package: "arp-scan"
+        check_command: "which arp-scan"
+      - name: "arping"
+        package: "iputils"
+        check_command: "which arping"
+      - name: "ping6"
+        package: "iputils-ping"
+        check_command: "which ping6"
+      - name: "rdisc6"
+        package: "ndisc6"
+        check_command: "which rdisc6"
+      - name: "nc"
+        package: "nmap-ncat"
+        check_command: "which nc"
+      - name: "curl"
+        package: "curl"
+        check_command: "which curl"
+      - name: "openssl"
+        package: "openssl"
+        check_command: "which openssl"
+      - name: "dig"
+        package: "bind-utils"
+        check_command: "which dig"
+      - name: "traceroute"
+        package: "traceroute"
+        check_command: "which traceroute"
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+      - name: "snmpget"
+        package: "net-snmp"
+        check_command: "which snmpget"
+      - name: "snmpwalk"
+        package: "net-snmp"
+        check_command: "which snmpwalk"
+      - name: "nmblookup"
+        package: "samba"
+        check_command: "which nmblookup"
+      - name: "smbclient"
+        package: "samba"
+        check_command: "which smbclient"
+    scripts:
+      - "ph7_registry.sh"
+      - "ph7_classify_lib.sh"
   output:
     creates_files: true
     file_patterns:
-      - "phase*_results_*.txt"
-      - "discovery_summary_*.txt"
-      - "progressive_scan_*.xml"
+      - "meta/discovery_report.txt"
+      - "meta/EVIDENCE_MANIFEST.txt"
+      - "meta/comprehensive_service_inventory.csv"
+      - "meta/service_summary.txt"
+      - "meta/session_metadata.txt"
+      - "evidence/*/raw_scans/*.txt"
+      - "evidence/*/raw_scans/*.nmap"
+      - "hostfiles/*.txt"
+      - "service_targets/*_targets.txt"
     workspace_subdirs:
-      - "multi-phase"
-  
+      - "discovery"
+
   tags:
     - "discovery"
     - "multi-phase"
-    - "advanced-scanning"
-    - "progressive"
-  risk_level: "low"
+    - "arp-scan"
+    - "host-categorization"
+    - "service-enumeration"
+    - "os-detection"
+    - "smb"
+    - "snmp"
+    - "dns"
+    - "port-scanning"
+    - "evidence"
+    - "vendor-detection"
+    - "checkpoint-resume"
+    - "ipv6"
+    - "vlan"
+    - "multi-network"
+  risk_level: "medium"
   network_access: true
-  modifies_system: false
-  
+  modifies_system: true
+
   examples:
-    - description: "Run multi-phase discovery"
+    - description: "Run 8-phase multi-network discovery"
       command: "netutil multi-discovery"
-    - description: "Progressive network scan"
-      command: "netutil phased-scan"
-  
-  version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-19"
+    - description: "Run discovery on specific interface"
+      command: "netutil multi-discovery eth0"
+
+  version: "2.0"
+  last_updated: "2025-04-25"

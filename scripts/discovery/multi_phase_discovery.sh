@@ -1477,42 +1477,202 @@ perform_masscan_discovery() {
     done
 }
 
-# IPv6 Network Discovery - Integration with refactored IPv6 script
+# IPv6 Network Discovery
 perform_ipv6_discovery() {
-    interface="$1"
-    output_file="$2"
+    local interface="$1"
+    local output_file="$2"
 
     echo "  Performing IPv6 network discovery..." >> "$REPORT_FILE"
-    
+
     # Check if IPv6 is available on the interface
     if ! ip -6 addr show "$interface" | grep -q "inet6"; then
         echo "    No IPv6 addresses found on $interface, skipping IPv6 discovery" >> "$REPORT_FILE"
         return 0
     fi
-    
-    # Source the IPv6 discovery script to load the function
-    . "$(dirname "$0")/ipv6_discovery.sh"
-    
-    # Call the IPv6 discovery function with our evidence directory
-    perform_ipv6_discovery_main "$interface" "$EVIDENCE_DIR"
-    
-    # Extract discovered IPv6 hosts for integration into our workflow
-    IPV6_HOSTS_FILE="$EVIDENCE_DIR/ipv6_discovery/discovered_ipv6_hosts.txt"
+
+    # Set up IPv6 evidence directory structure
+    local IPV6_EVIDENCE_DIR="$EVIDENCE_DIR/ipv6_discovery"
+    mkdir -p "$IPV6_EVIDENCE_DIR/multicast_discovery/raw_scans" \
+             "$IPV6_EVIDENCE_DIR/neighbor_analysis" \
+             "$IPV6_EVIDENCE_DIR/router_discovery" \
+             "$IPV6_EVIDENCE_DIR/address_scanning" \
+             "$IPV6_EVIDENCE_DIR/service_discovery/raw_scans" \
+             "$IPV6_EVIDENCE_DIR/security_analysis"
+
+    local IPV6_HOSTS_FILE="$IPV6_EVIDENCE_DIR/discovered_ipv6_hosts.txt"
+    local IPV6_REPORT_FILE="$IPV6_EVIDENCE_DIR/ipv6_discovery_report.txt"
+
+    # Initialize report
+    echo "=== IPv6 Network Discovery Report ===" > "$IPV6_REPORT_FILE"
+    echo "Interface: $interface" >> "$IPV6_REPORT_FILE"
+    echo "Discovery started: $(date)" >> "$IPV6_REPORT_FILE"
+    echo >> "$IPV6_REPORT_FILE"
+
+    local TEMP_DIR
+    TEMP_DIR=$(mktemp -d)
+    > "$IPV6_HOSTS_FILE"
+
+    # Display current IPv6 configuration
+    echo "--- CURRENT IPv6 CONFIGURATION ---" >> "$IPV6_REPORT_FILE"
+    echo "IPv6 addresses on $interface:" >> "$IPV6_REPORT_FILE"
+    ip -6 addr show "$interface" | grep "inet6" | \
+        sed 's/^[[:space:]]*/ /' >> "$IPV6_REPORT_FILE"
+    echo >> "$IPV6_REPORT_FILE"
+    echo "IPv6 routing table:" >> "$IPV6_REPORT_FILE"
+    ip -6 route show dev "$interface" | sed 's/^/ /' >> "$IPV6_REPORT_FILE"
+    echo >> "$IPV6_REPORT_FILE"
+
+    # Phase 1: IPv6 Multicast Discovery
+    echo "--- PHASE 1: IPv6 MULTICAST DISCOVERY ---" >> "$IPV6_REPORT_FILE"
+
+    local IPV6_ALL_NODES="ff02::1"
+    local IPV6_ALL_ROUTERS="ff02::2"
+    local IPV6_ALL_DHCP="ff02::1:2"
+
+    # Ping all-nodes multicast
+    echo "Pinging all-nodes multicast ($IPV6_ALL_NODES):" >> "$IPV6_REPORT_FILE"
+    ping6 -c 3 -I "$interface" "$IPV6_ALL_NODES" 2>/dev/null | \
+        grep "bytes from" | awk '{print \$4}' | cut -d':' -f1 | sort -u > "$TEMP_DIR/all_nodes.txt"
+    if [ -s "$TEMP_DIR/all_nodes.txt" ]; then
+        echo "Responses from all-nodes multicast:" >> "$IPV6_REPORT_FILE"
+        sed 's/^/ /' "$TEMP_DIR/all_nodes.txt" >> "$IPV6_REPORT_FILE"
+        cat "$TEMP_DIR/all_nodes.txt" >> "$IPV6_HOSTS_FILE"
+        cp "$TEMP_DIR/all_nodes.txt" "$IPV6_EVIDENCE_DIR/multicast_discovery/all_nodes_responses.txt"
+    else
+        echo "No responses to all-nodes multicast" >> "$IPV6_REPORT_FILE"
+    fi
+    echo >> "$IPV6_REPORT_FILE"
+
+    # Ping all-routers multicast
+    echo "Pinging all-routers multicast ($IPV6_ALL_ROUTERS):" >> "$IPV6_REPORT_FILE"
+    ping6 -c 3 -I "$interface" "$IPV6_ALL_ROUTERS" 2>/dev/null | \
+        grep "bytes from" | awk '{print \$4}' | cut -d':' -f1 | sort -u > "$TEMP_DIR/all_routers.txt"
+    if [ -s "$TEMP_DIR/all_routers.txt" ]; then
+        echo "Responses from all-routers multicast:" >> "$IPV6_REPORT_FILE"
+        sed 's/^/ /' "$TEMP_DIR/all_routers.txt" >> "$IPV6_REPORT_FILE"
+        cat "$TEMP_DIR/all_routers.txt" >> "$IPV6_HOSTS_FILE"
+        cp "$TEMP_DIR/all_routers.txt" "$IPV6_EVIDENCE_DIR/multicast_discovery/all_routers_responses.txt"
+    else
+        echo "No responses to all-routers multicast" >> "$IPV6_REPORT_FILE"
+    fi
+    echo >> "$IPV6_REPORT_FILE"
+
+    # Ping DHCPv6 multicast
+    echo "Pinging DHCPv6 multicast ($IPV6_ALL_DHCP):" >> "$IPV6_REPORT_FILE"
+    ping6 -c 3 -I "$interface" "$IPV6_ALL_DHCP" 2>/dev/null | \
+        grep "bytes from" | awk '{print \$4}' | cut -d':' -f1 | sort -u > "$TEMP_DIR/dhcpv6.txt"
+    if [ -s "$TEMP_DIR/dhcpv6.txt" ]; then
+        echo "Responses from DHCPv6 multicast:" >> "$IPV6_REPORT_FILE"
+        sed 's/^/ /' "$TEMP_DIR/dhcpv6.txt" >> "$IPV6_REPORT_FILE"
+        cat "$TEMP_DIR/dhcpv6.txt" >> "$IPV6_HOSTS_FILE"
+        cp "$TEMP_DIR/dhcpv6.txt" "$IPV6_EVIDENCE_DIR/multicast_discovery/dhcpv6_responses.txt"
+    else
+        echo "No responses to DHCPv6 multicast" >> "$IPV6_REPORT_FILE"
+    fi
+    echo >> "$IPV6_REPORT_FILE"
+
+    # Phase 2: Neighbor Discovery Table
+    echo "--- PHASE 2: NEIGHBOR DISCOVERY TABLE ---" >> "$IPV6_REPORT_FILE"
+    echo "Current IPv6 neighbor cache:" >> "$IPV6_REPORT_FILE"
+    ip -6 neighbor show dev "$interface" | \
+        grep -v "FAILED" | sed 's/^/ /' >> "$IPV6_REPORT_FILE"
+    echo >> "$IPV6_REPORT_FILE"
+
+    ip -6 neighbor show dev "$interface" | \
+        grep -v "FAILED" | awk '{print \$1}' > "$TEMP_DIR/neighbors.txt"
+    if [ -s "$TEMP_DIR/neighbors.txt" ]; then
+        cat "$TEMP_DIR/neighbors.txt" >> "$IPV6_HOSTS_FILE"
+        cp "$TEMP_DIR/neighbors.txt" "$IPV6_EVIDENCE_DIR/neighbor_analysis/neighbor_cache.txt"
+    fi
+
+    # Phase 3: Router Solicitation
+    echo "--- PHASE 3: ROUTER SOLICITATION ---" >> "$IPV6_REPORT_FILE"
+    if command -v rdisc6 >/dev/null 2>&1; then
+        echo "Using rdisc6 for router discovery..." >> "$IPV6_REPORT_FILE"
+        timeout 10 rdisc6 "$interface" 2>/dev/null | \
+            grep -E "Soliciting|Advertisement from" >> "$IPV6_REPORT_FILE"
+        timeout 10 rdisc6 "$interface" 2>/dev/null | \
+            grep "Advertisement from" | awk '{print \$3}' | sort -u > "$TEMP_DIR/routers.txt"
+        if [ -s "$TEMP_DIR/routers.txt" ]; then
+            cat "$TEMP_DIR/routers.txt" >> "$IPV6_HOSTS_FILE"
+            cp "$TEMP_DIR/routers.txt" "$IPV6_EVIDENCE_DIR/router_discovery/discovered_routers.txt"
+        fi
+    else
+        echo "rdisc6 not available, using manual router discovery..." >> "$IPV6_REPORT_FILE"
+        ping6 -c 2 -I "$interface" "$IPV6_ALL_ROUTERS" >/dev/null 2>&1
+        sleep 2
+        echo "Router advertisements received (check neighbor cache):" >> "$IPV6_REPORT_FILE"
+        ip -6 neighbor show dev "$interface" | \
+            grep "router" | sed 's/^/ /' >> "$IPV6_REPORT_FILE"
+        ip -6 neighbor show dev "$interface" | \
+            grep "router" | awk '{print \$1}' > "$TEMP_DIR/routers.txt"
+        if [ -s "$TEMP_DIR/routers.txt" ]; then
+            cat "$TEMP_DIR/routers.txt" >> "$IPV6_HOSTS_FILE"
+            cp "$TEMP_DIR/routers.txt" "$IPV6_EVIDENCE_DIR/router_discovery/neighbor_routers.txt"
+        fi
+    fi
+    echo >> "$IPV6_REPORT_FILE"
+
+    # Phase 4: Address Scanning (link-local probing)
+    local link_local_prefix
+    link_local_prefix=$(ip -6 addr show "$interface" | grep "fe80" | \
+        head -1 | awk '{print \$2}' | cut -d'/' -f1 | cut -d':' -f1-4)
+    if [ -n "$link_local_prefix" ] && command -v ping6 >/dev/null 2>&1; then
+        echo "--- PHASE 4: ADDRESS SCANNING ---" >> "$IPV6_REPORT_FILE"
+        echo "Scanning link-local addresses with prefix $link_local_prefix:" >> "$IPV6_REPORT_FILE"
+        for suffix in "::1" "::2" "::10" "::254"; do
+            test_addr="${link_local_prefix}${suffix}"
+            if ping6 -c 1 -W 1 "$test_addr%$interface" >/dev/null 2>&1; then
+                echo " $test_addr - ALIVE" >> "$IPV6_REPORT_FILE"
+                echo "$test_addr" >> "$IPV6_HOSTS_FILE"
+                echo "$test_addr" >> "$TEMP_DIR/scanned_addresses.txt"
+            fi
+        done
+        if [ -s "$TEMP_DIR/scanned_addresses.txt" ]; then
+            cp "$TEMP_DIR/scanned_addresses.txt" "$IPV6_EVIDENCE_DIR/address_scanning/link_local_scan.txt"
+        fi
+        echo >> "$IPV6_REPORT_FILE"
+    fi
+
+    # Deduplicate all discovered addresses
+    cat "$TEMP_DIR"/*.txt 2>/dev/null | sort -u > "$IPV6_HOSTS_FILE"
+
+    # Phase 5: Service Discovery (if nmap available and hosts found)
+    if [ -s "$IPV6_HOSTS_FILE" ] && command -v nmap >/dev/null 2>&1; then
+        echo "--- PHASE 5: IPv6 SERVICE DISCOVERY ---" >> "$IPV6_REPORT_FILE"
+        echo "Performing IPv6 port scan on discovered hosts..." >> "$IPV6_REPORT_FILE"
+        local nmap_output="$IPV6_EVIDENCE_DIR/service_discovery/raw_scans/ipv6_services.txt"
+        nmap -6 -n -sS --top-ports 20 -T4 --open -oN "$nmap_output" \
+              -iL "$IPV6_HOSTS_FILE" 2>/dev/null | \
+              grep -E "Nmap scan report|open" >> "$IPV6_REPORT_FILE"
+        echo >> "$IPV6_REPORT_FILE"
+    fi
+
+    # Summary
+    local total_discovered
+    total_discovered=$(wc -l < "$IPV6_HOSTS_FILE" 2>/dev/null || echo 0)
+    echo "--- DISCOVERY SUMMARY ---" >> "$IPV6_REPORT_FILE"
+    echo "Total unique IPv6 addresses: $total_discovered" >> "$IPV6_REPORT_FILE"
+    echo "Discovery completed at $(date)" >> "$IPV6_REPORT_FILE"
+    echo >> "$IPV6_REPORT_FILE"
+
+    # Clean up temp directory
+    rm -rf "$TEMP_DIR"
+
+    # Integrate discovered hosts into multi-phase workflow output
     if [ -f "$IPV6_HOSTS_FILE" ] && [ -s "$IPV6_HOSTS_FILE" ]; then
         cat "$IPV6_HOSTS_FILE" >> "$output_file"
         ipv6_count=$(wc -l < "$IPV6_HOSTS_FILE")
         echo "    Found $ipv6_count unique IPv6 addresses" >> "$REPORT_FILE"
-        
         if [ "$ipv6_count" -gt 0 ]; then
             echo "    Sample IPv6 discoveries:" >> "$REPORT_FILE"
             head -3 "$IPV6_HOSTS_FILE" | sed 's/^/      /' >> "$REPORT_FILE"
         fi
-        
         echo "    IPv6 evidence saved to: evidence/ipv6_discovery/" >> "$REPORT_FILE"
     else
         echo "    No IPv6 hosts discovered" >> "$REPORT_FILE"
     fi
-    
+
     # Remove duplicates from output
     if [ -s "$output_file" ]; then
         sort -u "$output_file" -o "$output_file"

@@ -1,19 +1,17 @@
 script:
   name: "Packet Capture Analysis"
-  description: "Analyze pcap files for protocol statistics and security assessment"
+  description: "Analyze pcap files for WPAD detection, Windows domain discovery via BROWSER protocol, SSDP service discovery, STP topology analysis, IPv4 endpoint mapping, VLAN correlation, MAC OUI identification, and protocol-level security assessment"
   name_de: "Analyse Netzwerkmitschnitt"
   description_de: "pcap-Dateien auf Protokollstatistiken und grundliegende Sicherheitsmängel analysieren"
   category: "discovery"
   subcategory: "analysis"
-  
+
   file: "advanced_packet_analysis.sh"
   requires_root: true
   estimated_duration: "5-15 minutes"
-  
+
   cli_shortcuts:
-    - "advanced-analysis"
     - "packet-analysis"
-    - "deep-analysis"
   keywords:
     - "packet"
     - "analysis"
@@ -21,31 +19,33 @@ script:
     - "statistics"
     - "security"
     - "wireshark"
-  
+    - "wpad"
+    - "ssdp"
+    - "stp"
+    - "domain"
+    - "endpoint"
+    - "vlan"
+    - "browser-protocol"
+
   parameters:
     - name: "capture_file"
       type: "file"
       description: "Packet capture file to analyze"
       required: false
-  
+
   dependencies:
     tools:
       - name: "tshark"
         package: "wireshark"
         check_command: "which tshark"
-      - name: "tcpdump"
-        package: "tcpdump"
-        check_command: "which tcpdump"
-  
+
   output:
     creates_files: true
     file_patterns:
-      - "analysis_report_*.txt"
-      - "protocol_stats_*.csv"
-      - "security_assessment_*.txt"
+      - "advanced_analysis_*_*.txt"
     workspace_subdirs:
       - "analysis"
-  
+
   tags:
     - "packet-analysis"
     - "protocol-analysis"
@@ -53,15 +53,12 @@ script:
     - "statistics"
     - "wireshark"
   risk_level: "low"
-  network_access: true
+  network_access: false
   modifies_system: false
-  
+
   examples:
-    - description: "Perform advanced packet analysis"
-      command: "netutil advanced-analysis"
     - description: "Analyze packet capture"
       command: "netutil packet-analysis"
-  
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-19"
+  last_updated: "2025-04-25"

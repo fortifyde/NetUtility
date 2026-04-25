@@ -12,7 +12,6 @@ script:
 
   cli_shortcuts:
     - "exclude-team"
-    - "exclude-ips"
   keywords:
     - "team"
     - "exclude"
@@ -22,7 +21,11 @@ script:
     - "oui"
     - "vendor"
 
-  parameters: []
+  parameters:
+    - name: "file"
+      type: "file"
+      description: "Provide a file of IPs to exclude (one per line)"
+      required: false
 
   dependencies:
     tools:
@@ -37,11 +40,12 @@ script:
         check_command: "which ouihelper"
 
   output:
-    creates_files: false
+    creates_files: true
     modifies_files: true
+    file_patterns:
+      - "excluded_hosts.json"
     workspace_subdirs:
       - "discovery"
-      - "correlations"
 
   tags:
     - "discovery"
@@ -56,9 +60,6 @@ script:
   examples:
     - description: "Run team IP exclusion with auto-detection"
       command: "netutil exclude-team"
-    - description: "Exclude specific IPs manually"
-      command: "netutil exclude-ips"
 
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2026-04-19"
+  last_updated: "2025-04-25"

@@ -5,38 +5,44 @@ script:
   description_de: "Arbeitsverzeichnis für NetUtility-Vorgänge neu konfigurieren"
   category: "utilities"
   subcategory: "configuration"
-  
+
   file: "select_workdir.sh"
   requires_root: false
   estimated_duration: "1 minute"
-  
+
   cli_shortcuts:
     - "workdir"
-    - "workspace"
-    - "dir"
   keywords:
     - "workdir"
     - "workspace"
     - "directory"
     - "configuration"
     - "setup"
-  
+
   parameters:
     - name: "directory_path"
       type: "directory"
       description: "Path to working directory"
       required: false
-  
+
   dependencies:
     tools:
-      - name: "mkdir"
+      - name: "mktemp"
         package: "coreutils"
-        check_command: "which mkdir"
-  
+        check_command: "which mktemp"
+
   output:
-    creates_files: false
-    workspace_subdirs: []
-  
+    creates_files: true
+    workspace_subdirs:
+      - "captures"
+      - "discovery"
+      - "port_and_security_scans"
+      - "analysis"
+      - "reports"
+      - "configs"
+      - "logs"
+      - "latest"
+
   tags:
     - "workspace"
     - "configuration"
@@ -45,13 +51,10 @@ script:
   risk_level: "low"
   network_access: false
   modifies_system: false
-  
+
   examples:
     - description: "Select working directory"
       command: "netutil workdir"
-    - description: "Configure workspace"
-      command: "netutil workspace"
-  
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-19"
+  last_updated: "2025-04-25"

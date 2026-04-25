@@ -56,6 +56,9 @@ script:
         check_command: "which nmap"
     scripts:
       - "../common/utils.sh"
+      - "../common/colors.sh"
+      - "../common/logging.sh"
+      - "../common/validation.sh"
 
   output:
     creates_files: true
@@ -86,4 +89,4 @@ script:
       command: "netutil port-scan"
 
   version: "1.0"
-  last_updated: "2026-04-24"
+  last_updated: "2025-04-25"

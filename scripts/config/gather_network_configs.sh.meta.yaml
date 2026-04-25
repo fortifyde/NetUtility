@@ -3,7 +3,7 @@ script:
   description: "SSH into network devices, auto-detect vendor, and extract running configs and compliance data"
   name_de: "ALK Sammler"
   description_de: "Aktive Lan-Komponenten gebündelt per SSH auslesen. Sammlung von Running-Configs sowie Compliance-Daten"
-  category: "advanced"
+  category: "config"
   subcategory: "backup"
 
   file: "gather_network_configs.sh"
@@ -12,9 +12,6 @@ script:
 
   cli_shortcuts:
     - "gather-configs"
-    - "backup-configs"
-    - "config-backup"
-    - "get-configs"
   keywords:
     - "config"
     - "configuration"
@@ -29,37 +26,35 @@ script:
     - "aruba"
 
   parameters:
-    - name: "target"
+    - name: "targets"
       type: "target"
-      description: "Device IP, range, or categorized host file"
+      description: "Device IP, range, or categorized host file (--targets)"
       required: false
-    - name: "mode"
+    - name: "dry_run"
+      type: "boolean"
+      description: "Test connectivity only, no extraction (--dry-run)"
+      required: false
+      default: "false"
+    - name: "cred_mode"
       type: "choice"
-      description: "Execution mode"
+      description: "Credential input method (--cred-mode)"
       required: false
-      default: "extract"
+      default: "prompt"
       validation:
         choices:
-          - value: "dry-run"
-            description: "Test connectivity only (no extraction)"
-          - value: "extract"
-            description: "Full configuration extraction"
-    - name: "credentials"
-      type: "choice"
-      description: "Credential input method"
-      required: false
-      default: "common"
-      validation:
-        choices:
-          - value: "common"
+          - value: "prompt"
             description: "Common username/password for all devices"
+          - value: "session"
+            description: "Use session-stored credentials"
           - value: "file"
             description: "Credentials file (IP,user,pass format)"
-          - value: "interactive"
-            description: "Prompt for each device"
+    - name: "cred_file"
+      type: "file_path"
+      description: "Path to credentials file (--cred-file)"
+      required: false
     - name: "concurrency"
-      type: "text"
-      description: "Maximum parallel connections"
+      type: "number"
+      description: "Maximum parallel connections (--concurrency)"
       required: false
       default: "5"
 
@@ -99,6 +94,8 @@ script:
         description: "Additional compliance command outputs"
       - path: "configs/gather_YYYYMMDD_HHMMSS/device_*/metadata.txt"
         description: "Device metadata and session info"
+      - path: "configs/gather_YYYYMMDD_HHMMSS/device_*/connection.log"
+        description: "Connection log"
       - path: "configs/gather_YYYYMMDD_HHMMSS/session_summary.txt"
         description: "Session summary report"
       - path: "configs/gather_YYYYMMDD_HHMMSS/failures.txt"
@@ -145,5 +142,4 @@ script:
     - "Uses expect (optional) for reliable paginated output when terminal paging cannot be disabled"
 
   version: "1.0.0"
-  author: "fortifyde"
-  last_updated: "2025-01-22"
+  last_updated: "2025-04-25"

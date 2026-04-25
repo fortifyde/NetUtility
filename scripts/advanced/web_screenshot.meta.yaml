@@ -65,10 +65,10 @@ script:
   output:
     creates_files: true
     file_patterns:
-      - "captures/screenshots/*/*.png"
-      - "captures/screenshots/*/*.jpg"
+      - "captures/screenshots/*/*.jpeg"
       - "captures/screenshots/*/gowitness.jsonl"
       - "captures/screenshots/*/screenshot_report.txt"
+      - "captures/screenshots/*/gowitness_output.txt"
     workspace_subdirs:
       - "captures/screenshots"
 
@@ -91,5 +91,4 @@ script:
       command: "netutil screenshot (select option 3)"
 
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-20"
+  last_updated: "2025-04-25"

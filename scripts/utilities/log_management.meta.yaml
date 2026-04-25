@@ -5,21 +5,21 @@ script:
   description_de: "NetUtility Protokollierung anzeigen und verwalten"
   category: "utilities"
   subcategory: "logging"
-  
+
   file: "log_management.sh"
   requires_root: true
   estimated_duration: "1-5 minutes"
-  
+
   cli_shortcuts:
     - "logs"
-    - "logmgmt"
   keywords:
     - "logs"
     - "logging"
-    - "syslog"
-    - "journalctl"
     - "management"
-  
+    - "export"
+    - "rotate"
+    - "level"
+
   parameters:
     - name: "operation"
       type: "choice"
@@ -29,30 +29,42 @@ script:
       validation:
         choices:
           - value: "1"
-            description: "View recent system logs"
+            description: "View log statistics"
           - value: "2"
-            description: "View network logs"
+            description: "View recent log entries"
           - value: "3"
             description: "Search logs"
           - value: "4"
+            description: "Clear logs"
+          - value: "5"
+            description: "Rotate logs manually"
+          - value: "6"
+            description: "Set log level"
+          - value: "7"
             description: "Export logs"
-  
+          - value: "8"
+            description: "Exit"
+
   dependencies:
     tools:
-      - name: "journalctl"
-        package: "systemd"
-        check_command: "which journalctl"
       - name: "grep"
         package: "grep"
         check_command: "which grep"
-  
+      - name: "tar"
+        package: "tar"
+        check_command: "which tar"
+      - name: "sed"
+        package: "sed"
+        check_command: "which sed"
+
   output:
     creates_files: true
     file_patterns:
-      - "logs_export_*.txt"
+      - "netutil_logs_*.txt"
+      - "netutil_logs_complete_*.tar.gz"
     workspace_subdirs:
-      - "logs"
-  
+      - "log_exports"
+
   tags:
     - "logs"
     - "system"
@@ -60,14 +72,11 @@ script:
     - "troubleshooting"
   risk_level: "low"
   network_access: false
-  modifies_system: false
-  
+  modifies_system: true
+
   examples:
     - description: "View and manage logs"
       command: "netutil logs"
-    - description: "Log management"
-      command: "netutil logmgmt"
-  
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-19"
+  last_updated: "2025-04-25"

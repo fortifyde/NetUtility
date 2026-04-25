@@ -1,26 +1,23 @@
 script:
   name: "Manage Network Interfaces"
-  description: "Manage network interface states"
+  description: "Manage network interface states (up/down) and VLAN interface control"
   name_de: "Netzwerkschnittstellen verwalten"
-  description_de: "Netzwerkschnittstellenstatus verwalten"
+  description_de: "Netzwerkschnittstellenstatus verwalten und VLAN-Schnittstellen steuern"
   category: "host-config"
   subcategory: "networking"
-  
+
   file: "network_interfaces.sh"
   requires_root: true
   estimated_duration: "1-5 minutes"
-  
+
   cli_shortcuts:
     - "interfaces"
-    - "if"
-    - "netif"
   keywords:
     - "interfaces"
     - "network"
     - "ethernet"
-    - "wifi"
     - "configuration"
-  
+
   parameters:
     - name: "operation"
       type: "choice"
@@ -30,42 +27,39 @@ script:
       validation:
         choices:
           - value: "1"
-            description: "List all interfaces"
+            description: "Bring interface UP"
           - value: "2"
-            description: "Enable/disable interface"
+            description: "Bring interface DOWN"
           - value: "3"
-            description: "Configure interface"
+            description: "Bring all VLAN interfaces UP"
           - value: "4"
-            description: "Show interface details"
-  
+            description: "Bring all VLAN interfaces DOWN"
+          - value: "5"
+            description: "Show interface statistics"
+          - value: "6"
+            description: "Exit"
+
   dependencies:
     tools:
       - name: "ip"
         package: "iproute2"
         check_command: "which ip"
-      - name: "ifconfig"
-        package: "net-tools"
-        check_command: "which ifconfig"
-  
+
   output:
     creates_files: false
     workspace_subdirs: []
-  
+
   tags:
     - "interfaces"
     - "networking"
     - "ethernet"
-    - "wifi"
   risk_level: "medium"
   network_access: false
   modifies_system: true
-  
+
   examples:
     - description: "Manage network interfaces"
       command: "netutil interfaces"
-    - description: "Configure network interface"
-      command: "netutil if"
-  
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-19"
+  last_updated: "2025-04-25"

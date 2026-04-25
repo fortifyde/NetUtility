@@ -5,23 +5,22 @@ script:
   description_de: "Sicherung von Netzwerkkonfigurationen und Einstellungen erstellen"
   category: "utilities"
   subcategory: "backup"
-  
+
   file: "backup_config.sh"
   requires_root: true
   estimated_duration: "1-2 minutes"
-  
+
   cli_shortcuts:
     - "backup"
-    - "backup-config"
   keywords:
     - "backup"
     - "configuration"
     - "save"
     - "archive"
     - "network"
-  
+
   parameters: []
-  
+
   dependencies:
     tools:
       - name: "tar"
@@ -30,14 +29,17 @@ script:
       - name: "gzip"
         package: "gzip"
         check_command: "which gzip"
-  
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+
   output:
     creates_files: true
     file_patterns:
       - "network_config_*.tar.gz"
     workspace_subdirs:
       - "netutil_backups"
-  
+
   tags:
     - "backup"
     - "configuration"
@@ -46,13 +48,10 @@ script:
   risk_level: "low"
   network_access: false
   modifies_system: false
-  
+
   examples:
     - description: "Create network configuration backup"
       command: "netutil backup"
-    - description: "Backup network config"
-      command: "netutil backup-config"
-  
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-19"
+  last_updated: "2025-04-25"

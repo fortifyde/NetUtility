@@ -5,15 +5,13 @@ script:
   description_de: "IEEE-OUI-Datenbank für MAC-Adressen-Herstelleridentifikation herunterladen und aktualisieren (ERFORDERT INTERNET)"
   category: "utilities"
   subcategory: "database"
-  
+
   file: "update_oui_db.sh"
   requires_root: false
   estimated_duration: "1-3 minutes"
-  
+
   cli_shortcuts:
     - "update-oui"
-    - "oui-update"
-    - "update-oui-db"
   keywords:
     - "oui"
     - "database"
@@ -21,23 +19,22 @@ script:
     - "mac"
     - "vendor"
     - "ieee"
-  
+
   parameters: []
-  
+
   dependencies:
     tools:
       - name: "wget or curl"
         package: "wget or curl"
         check_command: "command -v wget || command -v curl"
-  
+
   output:
     creates_files: true
     file_patterns:
       - "oui.txt"
       - "oui_backup_*.txt"
-    workspace_subdirs:
-      - "data"
-  
+    workspace_subdirs: []
+
   tags:
     - "database"
     - "oui"
@@ -48,13 +45,10 @@ script:
   risk_level: "low"
   network_access: true
   modifies_system: false
-  
+
   examples:
     - description: "Update OUI database"
       command: "netutil update-oui"
-    - description: "Update MAC vendor database"
-      command: "netutil oui-update"
-  
+
   version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-07-29"
+  last_updated: "2025-04-25"
