@@ -203,24 +203,22 @@ func (d *Dashboard) calculateStats(correlations map[string]*correlation.Correlat
 // updateStatsPanel renders the discovery statistics panel.
 func (d *Dashboard) updateStatsPanel(stats DashboardStats) {
 	var content strings.Builder
-
-	content.WriteString("[yellow]Discovery Stats[::-]\n\n")
-	content.WriteString(fmt.Sprintf("Hosts Discovered:  [white]%d[::-]\n", stats.TotalHosts))
-	content.WriteString(fmt.Sprintf("  Windows:         [green]%d[::-]\n", stats.HostsByCategory["windows"]))
-	content.WriteString(fmt.Sprintf("  Linux:           [yellow]%d[::-]\n", stats.HostsByCategory["linux"]))
-	content.WriteString(fmt.Sprintf("  Net Devices:     [blue]%d[::-]\n", stats.HostsByCategory["network_device"]))
-	content.WriteString(fmt.Sprintf("  Unknown:         [gray]%d[::-]\n", stats.HostsByCategory["unknown"]))
+	content.WriteString(d.str.DashStatsHeading)
+	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsHostsDiscovered, stats.TotalHosts))
+	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsWindows, stats.HostsByCategory["windows"]))
+	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsLinux, stats.HostsByCategory["linux"]))
+	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsNetDevices, stats.HostsByCategory["network_device"]))
+	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsUnknown, stats.HostsByCategory["unknown"]))
 	content.WriteString("\n")
-	content.WriteString(fmt.Sprintf("Services Found:    [white]%d[::-]\n", stats.TotalServices))
+	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsServices, stats.TotalServices))
 	content.WriteString("\n")
-	content.WriteString("[yellow]Jobs[::-]\n")
-	content.WriteString(fmt.Sprintf("Running:   [green]%d[::-]/%d max\n", stats.RunningJobs, stats.MaxConcurrent))
-	content.WriteString(fmt.Sprintf("Completed: [blue]%d[::-]\n", stats.CompletedJobs))
-	content.WriteString(fmt.Sprintf("Failed:    [red]%d[::-]\n", stats.FailedJobs))
+	content.WriteString(d.str.DashJobsHeading)
+	content.WriteString(fmt.Sprintf(d.str.FmtDashJobsRunning, stats.RunningJobs, stats.MaxConcurrent))
+	content.WriteString(fmt.Sprintf(d.str.FmtDashJobsCompleted, stats.CompletedJobs))
+	content.WriteString(fmt.Sprintf(d.str.FmtDashJobsFailed, stats.FailedJobs))
 	if !stats.LastScanTime.IsZero() {
-		content.WriteString(fmt.Sprintf("\nLast Scan: [white]%s[::-]\n", stats.LastScanTime.Format("15:04")))
+		content.WriteString(fmt.Sprintf(d.str.FmtDashLastScan, stats.LastScanTime.Format("15:04")))
 	}
-
 	d.statsPanel.SetText(content.String())
 }
 
@@ -229,8 +227,6 @@ func (d *Dashboard) updateChartsPanel(stats DashboardStats) {
 	var content strings.Builder
 
 	categories := []string{"windows", "linux", "network_device", "unknown"}
-	labels := []string{"Windows   ", "Linux     ", "Net Device", "Unknown   "}
-
 	maxCount := 0
 	for _, cat := range categories {
 		if n := stats.HostsByCategory[cat]; n > maxCount {
@@ -239,12 +235,10 @@ func (d *Dashboard) updateChartsPanel(stats DashboardStats) {
 	}
 
 	if maxCount == 0 {
-		content.WriteString("[gray]No hosts discovered yet.[::-]\n\n")
-		content.WriteString("[gray]Run Network Discovery from[::-]\n")
-		content.WriteString("[gray]the Scripts menu to populate.[::-]\n")
+		content.WriteString(d.str.DashNoChartYet)
 	} else {
 		const barWidth = 15
-		for i, cat := range categories {
+		for _, cat := range categories {
 			count := stats.HostsByCategory[cat]
 			filled := count * barWidth / maxCount
 			if filled > barWidth {
@@ -252,8 +246,8 @@ func (d *Dashboard) updateChartsPanel(stats DashboardStats) {
 			}
 			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
 			color := categoryTviewColor(cat)
-			content.WriteString(fmt.Sprintf("[%s]%s[::-]  [%s]%s[::-]  [white]%d[::-]\n",
-				color, labels[i], color, bar, count))
+			label := d.str.CategoryDisplayLabel(cat)
+			content.WriteString(fmt.Sprintf(d.str.FmtDashCategoryBar, color, label, color, bar, count))
 		}
 	}
 
@@ -315,9 +309,7 @@ func (d *Dashboard) updateActivityPanel() {
 	}
 
 	if len(allJobs) == 0 {
-		content.WriteString("[gray]No jobs run yet.[::-]\n")
-		content.WriteString("[gray]Start a discovery from[::-]\n")
-		content.WriteString("[gray]the Scripts menu.[::-]\n")
+		content.WriteString(d.str.DashNoActivityYet)
 	}
 
 	d.alertsPanel.SetText(content.String())
@@ -341,7 +333,7 @@ func (d *Dashboard) updateRiskPanel(correlations map[string]*correlation.Correla
 	var content strings.Builder
 
 	if len(correlations) == 0 {
-		content.WriteString("[gray]No hosts discovered yet.[::-]\n")
+		content.WriteString(d.str.DashNoHostsDiscovered)
 		d.riskPanel.SetText(content.String())
 		return
 	}
@@ -377,13 +369,13 @@ func (d *Dashboard) updateRiskPanel(correlations map[string]*correlation.Correla
 		}
 	}
 
-	content.WriteString("[yellow]Risk Distribution[::-]\n")
+	content.WriteString(d.str.DashRiskDistHeading)
 	for _, tier := range riskTiers {
 		count := tierCounts[tier.label]
-		content.WriteString(fmt.Sprintf("  [%s]■ %-9s %d hosts[::-]\n", tier.tviewColor, d.str.RiskLabel(tier.label), count))
+		content.WriteString(fmt.Sprintf(d.str.FmtDashRiskTierLine, tier.tviewColor, d.str.RiskLabel(tier.label), count))
 	}
 
-	content.WriteString("\n[yellow]Severity Summary[::-]\n")
+	content.WriteString(d.str.DashSevSummaryHeading)
 	for _, sev := range []string{"critical", "high", "medium", "low", "info"} {
 		if count := severityCounts[sev]; count > 0 {
 			content.WriteString(fmt.Sprintf("  [%s]%-10s %d[::-]\n", severityTviewColor(sev), d.str.SeverityLabel(sev)+":", count))
@@ -392,19 +384,19 @@ func (d *Dashboard) updateRiskPanel(correlations map[string]*correlation.Correla
 
 	// Source breakdown
 	if niktoCount > 0 || sslCount > 0 {
-		content.WriteString("\n[yellow]By Source[::-]\n")
+		content.WriteString(d.str.DashBySourceHeading)
 		if niktoCount > 0 {
-			content.WriteString(fmt.Sprintf("  Nikto:     [white]%d findings[::-]\n", niktoCount))
+			content.WriteString(fmt.Sprintf(d.str.FmtDashNiktoFindings, niktoCount))
 		}
 		if sslCount > 0 {
-			content.WriteString(fmt.Sprintf("  SSL/TLS:   [white]%d issues[::-]\n", sslCount))
+			content.WriteString(fmt.Sprintf(d.str.FmtDashSSLIssues, sslCount))
 		}
 	}
 
 	avgScore := totalScore / len(correlations)
-	content.WriteString(fmt.Sprintf("\nAverage Score: [white]%d[::-]\n", avgScore))
+	content.WriteString(fmt.Sprintf(d.str.FmtDashAvgScore, avgScore))
 	if highestIP != "" {
-		content.WriteString(fmt.Sprintf("Highest: [white]%s[::-] ([red]%d[::-])\n", highestIP, highestScore))
+		content.WriteString(fmt.Sprintf(d.str.FmtDashHighestRisk, highestIP, highestScore))
 	}
 
 	d.riskPanel.SetText(content.String())
@@ -486,7 +478,7 @@ func (d *Dashboard) updateTopFindings(correlations map[string]*correlation.Corre
 		finding := d.topFindingText(e.result)
 		totalVulns := len(e.result.Vulnerabilities)
 		if totalVulns > 0 {
-			finding = fmt.Sprintf("%s (%d findings)", finding, totalVulns)
+			finding = fmt.Sprintf(d.str.FmtFindingsCount, finding, totalVulns)
 		}
 
 		d.topFindingsTable.SetCell(row, 0, tview.NewTableCell(fmt.Sprintf("%d", score)).
@@ -512,7 +504,7 @@ func (d *Dashboard) updateServicesPanel(correlations map[string]*correlation.Cor
 	var content strings.Builder
 
 	if len(correlations) == 0 {
-		content.WriteString("[gray]No hosts discovered yet.[::-]\n")
+		content.WriteString(d.str.DashNoHostsDiscovered)
 		d.servicesPanel.SetText(content.String())
 		return
 	}
@@ -555,20 +547,20 @@ func (d *Dashboard) updateServicesPanel(correlations map[string]*correlation.Cor
 		return svcs[i].count > svcs[j].count
 	})
 
-	content.WriteString("[yellow]Top Services[::-]\n")
+	content.WriteString(d.str.DashTopServicesHeading)
 	maxShow := 8
 	if len(svcs) < maxShow {
 		maxShow = len(svcs)
 	}
 	for i := 0; i < maxShow; i++ {
 		s := svcs[i]
-		content.WriteString(fmt.Sprintf("  [white]%-12s[::-] [green]%d[::-] hosts\n", s.name, s.count))
+		content.WriteString(fmt.Sprintf(d.str.FmtDashServiceEntry, s.name, s.count))
 	}
 
-	content.WriteString("\n[yellow]Ports[::-]\n")
-	content.WriteString(fmt.Sprintf("  Unique open: [white]%d[::-]\n", len(portSet)))
+	content.WriteString(d.str.DashPortsHeading)
+	content.WriteString(fmt.Sprintf(d.str.FmtDashUniqueOpenPorts, len(portSet)))
 	if maxPortHost != "" {
-		content.WriteString(fmt.Sprintf("  Most exposed: [white]%s[::-] ([red]%d[::-])\n", maxPortHost, maxPortCount))
+		content.WriteString(fmt.Sprintf(d.str.FmtDashMostExposedHost, maxPortHost, maxPortCount))
 	}
 
 	d.servicesPanel.SetText(content.String())
@@ -640,14 +632,6 @@ func severityTviewColor(severity string) string {
 	default:
 		return "gray"
 	}
-}
-
-// titleCase capitalizes the first letter of a string.
-func titleCase(s string) string {
-	if s == "" {
-		return s
-	}
-	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // showHostDetailsModal displays a scrollable vulnerability-focused detail view for the selected host.
@@ -750,7 +734,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 		}
 	}
 	if len(openPorts) > 0 {
-		details.WriteString(fmt.Sprintf("Open Ports: [white]%s[::-]\n", strings.Join(openPorts, ", ")))
+		details.WriteString(fmt.Sprintf(d.str.FmtHostOpenPorts, strings.Join(openPorts, ", ")))
 	}
 
 	// Build scrollable view

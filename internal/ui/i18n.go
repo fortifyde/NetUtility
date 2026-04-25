@@ -171,6 +171,40 @@ type Strings struct {
 	FmtTopFindingMedium  string // Sprintf(fmt, count)
 	FmtTopFindingPorts   string // Sprintf(fmt, count)
 	TopFindingNone       string
+
+	// Panel body strings
+	DashStatsHeading            string
+	FmtDashStatsHostsDiscovered string // Sprintf(fmt, count)
+	FmtDashStatsWindows         string // Sprintf(fmt, count)
+	FmtDashStatsLinux           string // Sprintf(fmt, count)
+	FmtDashStatsNetDevices      string // Sprintf(fmt, count)
+	FmtDashStatsUnknown         string // Sprintf(fmt, count)
+	FmtDashStatsServices        string // Sprintf(fmt, count)
+	DashJobsHeading             string
+	FmtDashJobsRunning          string // Sprintf(fmt, running, max)
+	FmtDashJobsCompleted        string // Sprintf(fmt, count)
+	FmtDashJobsFailed           string // Sprintf(fmt, count)
+	FmtDashLastScan             string // Sprintf(fmt, timeStr)
+	DashNoChartYet              string
+	FmtDashCategoryBar          string // Sprintf(fmt, color, label, color, bar, count)
+	DashNoActivityYet           string
+	DashNoHostsDiscovered       string
+	DashRiskDistHeading         string
+	DashSevSummaryHeading       string
+	DashBySourceHeading         string
+	FmtDashNiktoFindings        string // Sprintf(fmt, count)
+	FmtDashSSLIssues            string // Sprintf(fmt, count)
+	FmtDashAvgScore             string // Sprintf(fmt, score)
+	FmtDashHighestRisk          string // Sprintf(fmt, ip, score)
+	FmtDashRiskTierLine         string // Sprintf(fmt, color, riskLabel, count)
+	DashTopServicesHeading      string
+	FmtDashServiceEntry         string // Sprintf(fmt, name, count)
+	DashPortsHeading            string
+	FmtDashUniqueOpenPorts      string // Sprintf(fmt, count)
+	FmtDashMostExposedHost      string // Sprintf(fmt, ip, count)
+	FmtHostOpenPorts            string // Sprintf(fmt, portsList)
+	FmtFindingsCount            string // Sprintf(fmt, finding, totalCount)
+
 	RiskTierCritical     string
 	RiskTierHigh         string
 	RiskTierMedium       string
@@ -514,6 +548,40 @@ Script Control:
 	FmtTopFindingMedium:  "%d medium-severity vulns",
 	FmtTopFindingPorts:   "%d open ports",
 	TopFindingNone:       "-",
+
+	// Panel body
+	DashStatsHeading:            "[yellow]Discovery Stats[::-]\n\n",
+	FmtDashStatsHostsDiscovered: "Hosts Discovered:  [white]%d[::-]\n",
+	FmtDashStatsWindows:         "  Windows:         [green]%d[::-]\n",
+	FmtDashStatsLinux:           "  Linux:           [yellow]%d[::-]\n",
+	FmtDashStatsNetDevices:      "  Net Devices:     [blue]%d[::-]\n",
+	FmtDashStatsUnknown:         "  Unknown:         [gray]%d[::-]\n",
+	FmtDashStatsServices:        "Services Found:    [white]%d[::-]\n",
+	DashJobsHeading:             "[yellow]Jobs[::-]\n",
+	FmtDashJobsRunning:          "Running:   [green]%d[::-]/%d max\n",
+	FmtDashJobsCompleted:        "Completed: [blue]%d[::-]\n",
+	FmtDashJobsFailed:           "Failed:    [red]%d[::-]\n",
+	FmtDashLastScan:             "\nLast Scan: [white]%s[::-]\n",
+	DashNoChartYet:              "[gray]No hosts discovered yet.[::-]\n\n[gray]Run Network Discovery from[::-]\n[gray]the Scripts menu to populate.[::-]\n",
+	FmtDashCategoryBar:          "[%s]%-10s[::-]  [%s]%s[::-]  [white]%d[::-]\n",
+	DashNoActivityYet:           "[gray]No jobs run yet.[::-]\n[gray]Start a discovery from[::-]\n[gray]the Scripts menu.[::-]\n",
+	DashNoHostsDiscovered:       "[gray]No hosts discovered yet.[::-]\n",
+	DashRiskDistHeading:         "[yellow]Risk Distribution[::-]\n",
+	DashSevSummaryHeading:       "\n[yellow]Severity Summary[::-]\n",
+	DashBySourceHeading:         "\n[yellow]By Source[::-]\n",
+	FmtDashNiktoFindings:        "  Nikto:     [white]%d findings[::-]\n",
+	FmtDashSSLIssues:            "  SSL/TLS:   [white]%d issues[::-]\n",
+	FmtDashAvgScore:             "\nAverage Score: [white]%d[::-]\n",
+	FmtDashHighestRisk:          "Highest: [white]%s[::-] ([red]%d[::-])\n",
+	FmtDashRiskTierLine:         "  [%s]■ %-9s %d hosts[::-]\n",
+	DashTopServicesHeading:      "[yellow]Top Services[::-]\n",
+	FmtDashServiceEntry:         "  [white]%-12s[::-] [green]%d[::-] hosts\n",
+	DashPortsHeading:            "\n[yellow]Ports[::-]\n",
+	FmtDashUniqueOpenPorts:      "  Unique open: [white]%d[::-]\n",
+	FmtDashMostExposedHost:      "  Most exposed: [white]%s[::-] ([red]%d[::-])\n",
+	FmtHostOpenPorts:            "Open Ports: [white]%s[::-]\n",
+	FmtFindingsCount:            "%s (%d findings)",
+
 	RiskTierCritical:     "Critical",
 	RiskTierHigh:         "High",
 	RiskTierMedium:       "Medium",
@@ -810,6 +878,40 @@ Skriptsteuerung:
 	DashHeaderCategory:   "Kategorie",
 	DashHeaderTopFinding: "Wichtigster Fund (Gesamt)",
 	DashNoHostsYet:       "Noch keine Hosts erkannt — Netzwerkerkennung starten.",
+
+	// Panel body
+	DashStatsHeading:            "[yellow]Entdeckungsstatistiken[::-]\n\n",
+	FmtDashStatsHostsDiscovered: "Entdeckte Hosts:    [white]%d[::-]\n",
+	FmtDashStatsWindows:         "  Windows:          [green]%d[::-]\n",
+	FmtDashStatsLinux:           "  Linux:            [yellow]%d[::-]\n",
+	FmtDashStatsNetDevices:      "  Netzwerkgeräte:   [blue]%d[::-]\n",
+	FmtDashStatsUnknown:         "  Unbekannt:        [gray]%d[::-]\n",
+	FmtDashStatsServices:        "Dienste gefunden:   [white]%d[::-]\n",
+	DashJobsHeading:             "[yellow]Jobs[::-]\n",
+	FmtDashJobsRunning:          "Laufend:      [green]%d[::-]/%d max\n",
+	FmtDashJobsCompleted:        "Abgeschlossen: [blue]%d[::-]\n",
+	FmtDashJobsFailed:           "Fehlgeschlagen: [red]%d[::-]\n",
+	FmtDashLastScan:             "\nLetzter Scan: [white]%s[::-]\n",
+	DashNoChartYet:              "[gray]Noch keine Hosts erkannt.[::-]\n\n[gray]Starten Sie die Netzwerkerkennung[::-]\n[gray]über das Skripte-Menü.[::-]\n",
+	FmtDashCategoryBar:          "[%s]%-10s[::-]  [%s]%s[::-]  [white]%d[::-]\n",
+	DashNoActivityYet:           "[gray]Noch keine Jobs ausgeführt.[::-]\n[gray]Starten Sie eine Erkennung[::-]\n[gray]über das Skripte-Menü.[::-]\n",
+	DashNoHostsDiscovered:       "[gray]Noch keine Hosts erkannt.[::-]\n",
+	DashRiskDistHeading:         "[yellow]Risikoverteilung[::-]\n",
+	DashSevSummaryHeading:       "\n[yellow]Schweregrad-Übersicht[::-]\n",
+	DashBySourceHeading:         "\n[yellow]Nach Quelle[::-]\n",
+	FmtDashNiktoFindings:        "  Nikto:     [white]%d Befunde[::-]\n",
+	FmtDashSSLIssues:            "  SSL/TLS:   [white]%d Probleme[::-]\n",
+	FmtDashAvgScore:             "\nDurchschnittliche Punktzahl: [white]%d[::-]\n",
+	FmtDashHighestRisk:          "Höchste: [white]%s[::-] ([red]%d[::-])\n",
+	FmtDashRiskTierLine:         "  [%s]■ %-9s %d Hosts[::-]\n",
+	DashTopServicesHeading:      "[yellow]Top-Dienste[::-]\n",
+	FmtDashServiceEntry:         "  [white]%-12s[::-] [green]%d[::-] Hosts\n",
+	DashPortsHeading:            "\n[yellow]Ports[::-]\n",
+	FmtDashUniqueOpenPorts:      "  Eindeutig offen: [white]%d[::-]\n",
+	FmtDashMostExposedHost:      "  Am meisten exponiert: [white]%s[::-] ([red]%d[::-])\n",
+	FmtHostOpenPorts:            "Offene Ports: [white]%s[::-]\n",
+	FmtFindingsCount:            "%s (%d Befunde)",
+
 	FmtTopFindingMedium:  "%d mittlere Schwachstellen",
 	FmtTopFindingPorts:   "%d offene Ports",
 	TopFindingNone:       "-",
