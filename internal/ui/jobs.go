@@ -324,7 +324,7 @@ func (jv *JobsViewer) viewJobOutput() {
 	outputViewer := NewOutputViewer(jv.app, jv.pages, jv.jobManager, func() {
 		jv.pages.RemovePage("job-output")
 		jv.app.SetFocus(jv.jobsList)
-	})
+	}, jv.str)
 
 	if job.IsRunning() {
 		if err := outputViewer.ConnectToJob(job); err != nil {

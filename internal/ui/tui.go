@@ -785,7 +785,7 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 	}
 
 	// Job started successfully - show live output
-	t.outputViewer = NewOutputViewer(t.app, t.pages, t.jobManager, t.returnToMain)
+	t.outputViewer = NewOutputViewer(t.app, t.pages, t.jobManager, t.returnToMain, t.str)
 	t.pages.AddPage("output", t.outputViewer, true, true)
 	t.outputViewer.FocusView()
 
