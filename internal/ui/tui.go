@@ -487,10 +487,16 @@ func (t *TUI) setupUI() {
 		t.showCategory(mainText)
 	})
 
-	// Show the first category's tasks on startup
-	if categories := t.getCategories(); len(categories) > 0 {
-		t.populateTaskPane(categories[0].Name)
-	}
+	// Show the first category's tasks on startup. Defer to the first draw so
+	// the task pane has its actual width from the flex layout, avoiding early
+	// text wrapping from the fallback width.
+	t.taskPane.SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
+		t.taskPane.SetDrawFunc(nil) // one-shot: remove itself after first draw
+		if categories := t.getCategories(); len(categories) > 0 {
+			t.populateTaskPane(categories[0].Name)
+		}
+		return t.taskPane.GetInnerRect()
+	})
 
 	// Set task selection handler — ignore continuation (wrapped description) rows
 	t.taskPane.SetSelectedFunc(func(index int, mainText, secondaryText string, shortcut rune) {
