@@ -634,3 +634,44 @@ func TestLoadConfigNormalizesWorkspaceDir(t *testing.T) {
 		t.Error("WorkspaceDir should have trailing slash removed after normalization")
 	}
 }
+
+func TestLanguageDefaultAndNormalisation(t *testing.T) {
+	// Default config must have Language == "en"
+	cfg := GetDefaultConfig()
+	if cfg.Language != "en" {
+		t.Errorf("default Language = %q, want %q", cfg.Language, "en")
+	}
+
+	// JSON round-trip: "de" is preserved
+	jsonDE := `{"language":"de"}`
+	var c1 Config
+	if err := json.Unmarshal([]byte(jsonDE), &c1); err != nil {
+		t.Fatal(err)
+	}
+	c1.normaliseLanguage()
+	if c1.Language != "de" {
+		t.Errorf("Language after normalise = %q, want %q", c1.Language, "de")
+	}
+
+	// Unknown value normalises to "en"
+	jsonXX := `{"language":"fr"}`
+	var c2 Config
+	if err := json.Unmarshal([]byte(jsonXX), &c2); err != nil {
+		t.Fatal(err)
+	}
+	c2.normaliseLanguage()
+	if c2.Language != "en" {
+		t.Errorf("Language after normalise = %q, want %q", c2.Language, "en")
+	}
+
+	// Missing field normalises to "en"
+	jsonEmpty := `{}`
+	var c3 Config
+	if err := json.Unmarshal([]byte(jsonEmpty), &c3); err != nil {
+		t.Fatal(err)
+	}
+	c3.normaliseLanguage()
+	if c3.Language != "en" {
+		t.Errorf("Language after normalise = %q, want %q", c3.Language, "en")
+	}
+}

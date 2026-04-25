@@ -26,6 +26,7 @@ type Config struct {
 	DefaultInterface    string            `json:"default_interface"`
 	AutoCreateWorkspace bool              `json:"auto_create_workspace"`
 	ShowPathsShort      bool              `json:"show_paths_short"`
+	Language            string            `json:"language"`
 }
 
 type RecentCommand struct {
@@ -44,6 +45,14 @@ func GetDefaultConfig() *Config {
 		DefaultInterface:    "",
 		AutoCreateWorkspace: false, // Only create after user sets workspace
 		ShowPathsShort:      true,
+		Language:            "en",
+	}
+}
+
+// normaliseLanguage ensures Language is a supported value; unknown values become "en".
+func (c *Config) normaliseLanguage() {
+	if c.Language != "de" {
+		c.Language = "en"
 	}
 }
 
@@ -98,6 +107,9 @@ func LoadConfig() (*Config, error) {
 	if config.WorkspaceDir != "" {
 		config.WorkspaceDir = strings.TrimRight(config.WorkspaceDir, "/")
 	}
+
+	// Normalise language — any value other than "de" becomes "en"
+	config.normaliseLanguage()
 
 	return &config, nil
 }
