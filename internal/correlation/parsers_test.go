@@ -614,6 +614,51 @@ System is vulnerable - critical security flaw discovered
 	}
 }
 
+
+func TestParseVulnerabilityScanNotVulnerable(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `Nmap scan report for 192.168.1.1
+| vulners:
+|   Scanner is not vulnerable to CVE-2021-44228
+|   No vulnerable software found
+|   System is VULNERABLE to CVE-2017-0144
+Nmap scan report for 192.168.1.2
+| http-vuln-cve2020-1234:
+|   NOT VULNERABLE
+`
+
+	result := &ScanResult{
+		ID:        "test",
+		Type:      ScanTypeVulnerability,
+		Timestamp: time.Now(),
+	}
+
+	parsed, err := parser.parseVulnerabilityScan(result, content)
+	if err != nil {
+		t.Fatalf("parseVulnerabilityScan() error = %v", err)
+	}
+
+	for _, vuln := range parsed.Vulnerabilities {
+		if strings.Contains(strings.ToLower(vuln.Title), "not vulnerable") || strings.Contains(strings.ToLower(vuln.Description), "not vulnerable") {
+			t.Errorf("NOT VULNERABLE lines should not be parsed as findings, got: %s", vuln.Title)
+		}
+		if strings.Contains(strings.ToLower(vuln.Title), "no vulnerable") || strings.Contains(strings.ToLower(vuln.Description), "no vulnerable") {
+			t.Errorf("'no vulnerable' lines should not be parsed as findings, got: %s", vuln.Title)
+		}
+	}
+
+	// Should only find the real vulnerability
+	foundReal := false
+	for _, vuln := range parsed.Vulnerabilities {
+		if strings.Contains(vuln.Title, "CVE-2017-0144") {
+			foundReal = true
+		}
+	}
+	if !foundReal {
+		t.Error("Should still detect actual VULNERABLE line")
+	}
+}
 func TestParsePortScanUDPPorts(t *testing.T) {
 	parser := NewResultParser("")
 

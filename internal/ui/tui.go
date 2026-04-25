@@ -520,11 +520,8 @@ func (t *TUI) updateJobsPanel() {
 			sb.WriteString("\u25CB ")
 		}
 
-		// Job name (truncate to ~28 chars)
+		// Job name
 		name := job.Name
-		if len(name) > 28 {
-			name = name[:25] + "..."
-		}
 		sb.WriteString(name)
 
 		// Duration for running jobs

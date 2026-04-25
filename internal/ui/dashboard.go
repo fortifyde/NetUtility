@@ -683,6 +683,40 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 	details.WriteString(fmt.Sprintf(d.str.FmtRiskBreakdownSSL, bd.SSLIssues))
 	details.WriteString(fmt.Sprintf(d.str.FmtRiskBreakdownPorts, bd.OpenPortScore))
 
+	// Risk factors by category
+	factorCategories := []struct {
+		key   string
+		label string
+	}{{"vulnerability", "Vulnerabilities"}, {"ssl", "SSL/TLS"}, {"service", "Service Exposure"}, {"port", "Open Ports"}}
+
+	for _, cat := range factorCategories {
+		var catFactors []correlation.RiskFactorDetail
+		for _, f := range bd.Factors {
+			if f.Category == cat.key {
+				catFactors = append(catFactors, f)
+			}
+		}
+		if len(catFactors) == 0 {
+			continue
+		}
+		details.WriteString(fmt.Sprintf(d.str.FmtRiskFactorCategory, cat.label, len(catFactors)))
+		maxFactors := len(catFactors)
+		if maxFactors > 15 {
+			maxFactors = 15
+		}
+		for i := 0; i < maxFactors; i++ {
+			f := catFactors[i]
+			source := ""
+			if f.Source != "" {
+				source = fmt.Sprintf(" (%s)", f.Source)
+			}
+			details.WriteString(fmt.Sprintf(d.str.FmtRiskFactorLine, f.Title, f.Score, source))
+		}
+		if len(catFactors) > maxFactors {
+			details.WriteString(fmt.Sprintf(d.str.FmtAndMore, len(catFactors)-maxFactors))
+		}
+	}
+
 	// Vulnerabilities by severity
 	severities := []struct {
 		sev   string
@@ -699,14 +733,10 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 		if len(sevVulns) == 0 {
 			continue
 		}
-		if s.sev == "medium" && len(sevVulns) > 3 {
-			details.WriteString(fmt.Sprintf(d.str.FmtSevFindingsCount, s.color, d.str.SeverityLabel(s.sev), len(sevVulns)))
-		} else {
-			details.WriteString(fmt.Sprintf(d.str.FmtSevFindings, s.color, d.str.SeverityLabel(s.sev)))
-		}
+		details.WriteString(fmt.Sprintf(d.str.FmtSevFindings, s.color, d.str.SeverityLabel(s.sev)))
 		maxShow := len(sevVulns)
-		if maxShow > 5 {
-			maxShow = 5
+		if maxShow > 15 {
+			maxShow = 15
 		}
 		for i := 0; i < maxShow; i++ {
 			v := sevVulns[i]

@@ -222,6 +222,8 @@ type Strings struct {
 	FmtRiskBreakdownService   string
 	FmtRiskBreakdownSSL       string
 	FmtRiskBreakdownPorts     string
+	FmtRiskFactorCategory     string // Sprintf(fmt, category, count)
+	FmtRiskFactorLine         string // Sprintf(fmt, title, score, source)
 	FmtHostRiskDetailWithHost string // Sprintf(fmt, ip, hostname, extra)
 	FmtHostRiskDetail         string // Sprintf(fmt, ip, extra)
 	FmtRiskDetailTitle        string // Sprintf(fmt, ip)
@@ -612,6 +614,8 @@ Script Control:
 	FmtRiskBreakdownService:   "  Service Exposure: [white]%d pts[::-]\n",
 	FmtRiskBreakdownSSL:       "  SSL/TLS Issues:   [white]%d pts[::-]\n",
 	FmtRiskBreakdownPorts:     "  Open Ports:       [white]%d pts[::-]\n\n",
+	FmtRiskFactorCategory:    "\n[white]%s (%d factors):[::-]\n",
+	FmtRiskFactorLine:        "  [gray]●[::-] %s [darkgray](%d pts)%s[::-]\n",
 	FmtHostRiskDetailWithHost: "[yellow]Host Risk Details: %s (%s)[::-]%s",
 	FmtHostRiskDetail:         "[yellow]Host Risk Details: %s[::-]%s",
 	FmtRiskDetailTitle:        "Risk Details: %s",
@@ -947,6 +951,8 @@ Skriptsteuerung:
 	FmtRiskBreakdownService:   "  Dienst-Exponierung: [white]%d Pkt[::-]\n",
 	FmtRiskBreakdownSSL:       "  SSL/TLS-Probleme:  [white]%d Pkt[::-]\n",
 	FmtRiskBreakdownPorts:     "  Offene Ports:      [white]%d Pkt[::-]\n\n",
+	FmtRiskFactorCategory:    "\n[white]%s (%d Faktoren):[::-]\n",
+	FmtRiskFactorLine:        "  [gray]●[::-] %s [darkgray](%d Pkt)%s[::-]\n",
 	FmtHostRiskDetailWithHost: "[yellow]Host-Risikodetails: %s (%s)[::-]%s",
 	FmtHostRiskDetail:         "[yellow]Host-Risikodetails: %s[::-]%s",
 	FmtRiskDetailTitle:        "Risikodetails: %s",

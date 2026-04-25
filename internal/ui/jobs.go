@@ -293,8 +293,6 @@ func (jv *JobsViewer) getJobProgress(job *jobs.Job) string {
 	}
 }
 
-// renderProgressBar renders a compact Unicode block progress bar.
-// Example: "[████████░░] 2/3 V100:3/8 V200:done"
 func renderProgressBar(current, total int, desc string) string {
 	const barWidth = 10
 	filled := current * barWidth / total
@@ -302,9 +300,6 @@ func renderProgressBar(current, total int, desc string) string {
 		filled = barWidth
 	}
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
-	if len([]rune(desc)) > 20 {
-		desc = string([]rune(desc)[:20])
-	}
 	if desc != "" {
 		return fmt.Sprintf("[%s] %d/%d %s", bar, current, total, desc)
 	}

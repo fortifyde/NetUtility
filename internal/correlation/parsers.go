@@ -308,12 +308,16 @@ func (rp *ResultParser) parseVulnerabilityScan(result *ScanResult, content strin
 		}
 
 		// Parse NSE vulnerability scripts
-		if currentHost != "" && strings.Contains(strings.ToLower(line), "vulnerable") {
+		lineLower := strings.ToLower(line)
+		if currentHost != "" && strings.Contains(lineLower, "vulnerable") {
+			// Skip negative findings from nmap NSE scripts
+			if strings.Contains(lineLower, "not vulnerable") || strings.Contains(lineLower, "no vulnerable") {
+				continue
+			}
 			severity := "medium" // Default severity
 			title := line
 
 			// Determine severity from keywords
-			lineLower := strings.ToLower(line)
 			if strings.Contains(lineLower, "critical") {
 				severity = "critical"
 			} else if strings.Contains(lineLower, "high") {
