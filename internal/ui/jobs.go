@@ -317,7 +317,7 @@ func (jv *JobsViewer) viewJobOutput() {
 
 	job, exists := jv.jobManager.GetJob(jv.selectedJob)
 	if !exists {
-		jv.showError("Job not found")
+		jv.showError(jv.str.ErrJobNotFound)
 		return
 	}
 
@@ -328,14 +328,14 @@ func (jv *JobsViewer) viewJobOutput() {
 
 	if job.IsRunning() {
 		if err := outputViewer.ConnectToJob(job); err != nil {
-			jv.showError(fmt.Sprintf("Failed to connect to job: %v", err))
+			jv.showError(fmt.Sprintf(jv.str.FmtErrConnectJob, err))
 			return
 		}
 	} else {
 		// Show stored output for completed/failed/cancelled jobs
 		lines := job.GetOutputLines()
 		if len(lines) == 0 {
-			jv.showError("No output captured for this job")
+			jv.showError(jv.str.ErrNoOutputCaptured)
 			return
 		}
 		outputViewer.ShowHistoricalOutput(job.Name, job.GetStatus(), lines)
@@ -348,12 +348,12 @@ func (jv *JobsViewer) viewJobOutput() {
 // cancelSelectedJob cancels the currently selected job
 func (jv *JobsViewer) cancelSelectedJob() {
 	if jv.selectedJob == "" {
-		jv.showError("No job selected")
+		jv.showError(jv.str.ErrNoJobSelected)
 		return
 	}
 
 	if err := jv.jobManager.CancelJob(jv.selectedJob); err != nil {
-		jv.showError(fmt.Sprintf("Failed to cancel job: %v", err))
+		jv.showError(fmt.Sprintf(jv.str.FmtErrCancelJob, err))
 		return
 	}
 
@@ -443,7 +443,7 @@ func (jv *JobsViewer) Close() {
 // showError displays an error message
 func (jv *JobsViewer) showError(message string) {
 	modal := tview.NewModal().
-		SetText(fmt.Sprintf("Error: %s", message)).
+		SetText(fmt.Sprintf(jv.str.FmtShowErrorPrefix, message)).
 		AddButtons([]string{jv.str.BtnOK}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			jv.pages.RemovePage("error")

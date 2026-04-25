@@ -137,6 +137,12 @@ type Strings struct {
 	FmtSetMaxConcurrent string // Sprintf(fmt, max)
 	FmtMaxConcurrentSet string // Sprintf(fmt, max)
 	FmtRemovedCompleted string // Sprintf(fmt, count)
+	ErrJobNotFound       string
+	FmtErrConnectJob     string // Sprintf(fmt, err)
+	ErrNoOutputCaptured  string
+	ErrNoJobSelected     string
+	FmtErrCancelJob      string // Sprintf(fmt, err)
+	FmtShowErrorPrefix   string // Sprintf(fmt, message)
 
 	// ── Output viewer ─────────────────────────────────────────────────────────
 	StatusReady         string
@@ -447,6 +453,12 @@ Mouse:
 	FmtSetMaxConcurrent: "Set max concurrent jobs to %d?",
 	FmtMaxConcurrentSet: "Max concurrent jobs set to %d",
 	FmtRemovedCompleted: "Removed %d completed jobs",
+	ErrJobNotFound:      "Job not found",
+	FmtErrConnectJob:    "Failed to connect to job: %v",
+	ErrNoOutputCaptured: "No output captured for this job",
+	ErrNoJobSelected:    "No job selected",
+	FmtErrCancelJob:     "Failed to cancel job: %v",
+	FmtShowErrorPrefix:  "Error: %s",
 
 	// Output viewer
 	StatusReady:         "[green]Ready[::-] - Space=Pause f=Follow t=Time s=Source /=Search g/G=Scroll | q=Back Esc=Cancel",
@@ -740,6 +752,12 @@ Maus:
 	FmtSetMaxConcurrent: "Max. gleichzeitige Jobs auf %d setzen?",
 	FmtMaxConcurrentSet: "Max. gleichzeitige Jobs auf %d gesetzt",
 	FmtRemovedCompleted: "%d abgeschlossene Jobs entfernt",
+	ErrJobNotFound:      "Job nicht gefunden",
+	FmtErrConnectJob:    "Verbindung zum Job fehlgeschlagen: %v",
+	ErrNoOutputCaptured: "Keine Ausgabe für diesen Job verfügbar",
+	ErrNoJobSelected:    "Kein Job ausgewählt",
+	FmtErrCancelJob:     "Job konnte nicht abgebrochen werden: %v",
+	FmtShowErrorPrefix:  "Fehler: %s",
 
 	// Output viewer
 	StatusReady:         "[green]Bereit[::-] - Leertaste=Pause f=Folgen t=Zeit s=Quelle /=Suchen g/G=Scrollen | q=Zurück Esc=Abbrechen",
