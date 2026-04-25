@@ -491,9 +491,11 @@ select_host_file() {
 
             # Apply filter if specified
             if [ -n "$filter" ]; then
-                find "$_hf_dir" -maxdepth 1 -type f -name "${filter}_hosts.txt" | sort > /tmp/netutil_catfiles.$$
+                # Match both <filter>_hosts.txt and <filter>.txt naming conventions
+                find "$_hf_dir" -maxdepth 1 -type f \( -name "${filter}_hosts.txt" -o -name "${filter}.txt" \) | sort > /tmp/netutil_catfiles.$$
             else
-                find "$_hf_dir" -maxdepth 1 -type f -name "*_hosts.txt" ! -name "*_enriched.txt" | sort > /tmp/netutil_catfiles.$$
+                # Find all categorized host files (exclude enriched and debug files)
+                find "$_hf_dir" -maxdepth 1 -type f -name "*.txt" ! -name "*_enriched.txt" | sort > /tmp/netutil_catfiles.$$
             fi
 
             while read -r host_file; do
@@ -504,21 +506,27 @@ select_host_file() {
                 echo "$file_count:$host_file:$display_name" >> /tmp/netutil_files.$$
             done < /tmp/netutil_catfiles.$$
             rm -f /tmp/netutil_catfiles.$$
+            # Find vendor-specific network device files (cisco, fortinet, etc.)
+            # These live flat in hostfiles/ alongside the main category files.
+            # Only needed for the filtered network_devices case — unfiltered search
+            # already finds all .txt files above.
+            if [ "$filter" = "network_devices" ]; then
+                find "$_hf_dir" -maxdepth 1 -type f -name "*.txt" \
+                    ! -name "*_hosts.txt" \
+                    ! -name "*_enriched.txt" \
+                    ! -name "all_discovered_hosts.txt" \
+                    ! -name "network_devices.txt" \
+                    ! -name "unknown.txt" \
+                    | sort > /tmp/netutil_vendorfiles.$$
 
-            # Find vendor-specific files in network_devices subdirectory
-            if [ -d "$_hf_dir/network_devices" ]; then
-                if [ -z "$filter" ] || [ "$filter" = "network_devices" ]; then
-                    find "$_hf_dir/network_devices" -maxdepth 1 -type f -name "*.txt" | sort > /tmp/netutil_vendorfiles.$$
-
-                    while read -r vendor_file; do
-                        [ -z "$vendor_file" ] && continue
-                        vendor=$(basename "$vendor_file" .txt)
-                        display_name="$_hf_prefix/$vendor"
-                        file_count=$((file_count + 1))
-                        echo "$file_count:$vendor_file:$display_name" >> /tmp/netutil_files.$$
-                    done < /tmp/netutil_vendorfiles.$$
-                    rm -f /tmp/netutil_vendorfiles.$$
-                fi
+                while read -r vendor_file; do
+                    [ -z "$vendor_file" ] && continue
+                    vendor=$(basename "$vendor_file" .txt)
+                    display_name="$_hf_prefix/$vendor"
+                    file_count=$((file_count + 1))
+                    echo "$file_count:$vendor_file:$display_name" >> /tmp/netutil_files.$$
+                done < /tmp/netutil_vendorfiles.$$
+                rm -f /tmp/netutil_vendorfiles.$$
             fi
         }
 
