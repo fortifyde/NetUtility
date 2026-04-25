@@ -239,7 +239,7 @@ func (t *TUI) getHardcodedCategories() []Category {
 // "Configure Interfaces" task whose SubTasks hold the originals.
 func mergeInterfaceTasks(categories []Category, str *Strings) []Category {
 	for ci, cat := range categories {
-		if cat.Name != "Host Configuration" {
+		if cat.Name != str.CatHostConfig {
 			continue
 		}
 		var ifaceTask, vlanTask Task
@@ -289,7 +289,7 @@ func mergeInterfaceTasks(categories []Category, str *Strings) []Category {
 // with a single composite "Network Capture Analysis" task.
 func mergeCaptureAnalysisTasks(categories []Category, str *Strings) []Category {
 	for ci, cat := range categories {
-		if cat.Name != "Network Discovery" {
+		if cat.Name != str.CatNetworkDiscovery {
 			continue
 		}
 		var vlanTask, macTask, captureTask Task
@@ -829,7 +829,7 @@ func (t *TUI) showSubTaskMenu(task Task) {
 // showExecutionOptions shows options for script execution when at capacity
 func (t *TUI) showExecutionOptions(scriptPath, taskName string) {
 	modal := tview.NewModal().
-		SetText(fmt.Sprintf("Maximum concurrent jobs reached.\n\nHow would you like to execute '%s'?", taskName)).
+		SetText(fmt.Sprintf(t.str.FmtExecutionOptions, taskName)).
 		AddButtons([]string{t.str.BtnQueueJob, t.str.BtnViewJobs, t.str.BtnCancel}).
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			t.pages.RemovePage("execution-options")

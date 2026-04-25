@@ -73,6 +73,7 @@ type Strings struct {
 	FmtPathError         string // Sprintf(fmt, err)
 	TitleConnectionError string
 	FmtConnectionError   string // Sprintf(fmt, err)
+	FmtExecutionOptions  string // Sprintf(fmt, taskName)
 
 	// ── Category display names ────────────────────────────────────────────────
 	CatHostConfig       string
@@ -367,6 +368,7 @@ Mouse:
 	FmtPathError:         "Could not resolve script path: %v",
 	TitleConnectionError: "Connection Error",
 	FmtConnectionError:   "Failed to connect to job: %v",
+	FmtExecutionOptions:  "Maximum concurrent jobs reached.\n\nHow would you like to execute '%s'?",
 
 	// Category display names
 	CatHostConfig:       "Host Configuration",
@@ -659,6 +661,7 @@ Maus:
 	FmtPathError:         "Skriptpfad konnte nicht aufgelöst werden: %v",
 	TitleConnectionError: "Verbindungsfehler",
 	FmtConnectionError:   "Verbindung zum Skript fehlgeschlagen: %v",
+	FmtExecutionOptions:  "Maximale Anzahl gleichzeitiger Jobs erreicht.\n\nWie soll '%s' ausgeführt werden?",
 
 	// Category display names
 	CatHostConfig:       "Host-Konfiguration",
