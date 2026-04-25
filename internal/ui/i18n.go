@@ -157,7 +157,7 @@ type Strings struct {
 	FmtTitleWithJobs    string // Sprintf(fmt, jobCount, scriptName, status)
 	FmtTitleNoJobs      string // Sprintf(fmt, scriptPath, status)
 	OutputViewerHelp    string
-	FmtHistoricalStatus string // Sprintf(fmt, statusStr, statusStr)
+	FmtHistoricalStatus string // Sprintf(fmt, colorName, statusStr)
 	FmtReconnected      string // Sprintf(fmt, maxLines, totalLines)
 
 	// ── Dashboard ─────────────────────────────────────────────────────────────
