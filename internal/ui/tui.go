@@ -467,6 +467,7 @@ func (t *TUI) setupUI() {
 	// Setup task pane (75% width)
 	t.taskPane.SetBorder(true).SetTitle(t.str.PaneTitleTaskDefault)
 	t.taskPane.ShowSecondaryText(false)
+	t.taskPane.SetSelectedFocusOnly(true)
 
 	// Populate categories
 	for i, category := range t.getCategories() {
@@ -715,9 +716,9 @@ func (t *TUI) populateTaskPane(categoryName string) {
 	// Find and display tasks for selected category
 	for _, category := range t.getCategories() {
 		if category.Name == categoryName {
-			for i, task := range category.Tasks {
+			for _, task := range category.Tasks {
 				lines := wrapText(task.Description, paneWidth)
-				t.taskPane.AddItem(task.Name, "", rune('1'+i), nil)
+				t.taskPane.AddItem(task.Name, "", 0, nil)
 				t.taskListIsContinuation = append(t.taskListIsContinuation, false)
 				for _, line := range lines {
 					t.taskPane.AddItem("[green]  "+line+"[white]", "", 0, nil)
