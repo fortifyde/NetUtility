@@ -210,7 +210,6 @@ type Strings struct {
 	CatDisplayUnknown          string
 	FmtHostInventoryFilterCat  string // Sprintf(fmt, catLabel)
 	FmtHostInventoryFilterText string // Sprintf(fmt, filterText)
-	FmtHostInventoryFilterBoth string // Sprintf(fmt, catLabel, filterText)
 	CatModalWindows            string
 	CatModalLinux              string
 	CatModalNetDevice          string
@@ -553,7 +552,6 @@ Script Control:
 	CatDisplayUnknown:          "Unknown",
 	FmtHostInventoryFilterCat:  "Host Inventory %s",
 	FmtHostInventoryFilterText: "Host Inventory %s",
-	FmtHostInventoryFilterBoth: "Host Inventory %s",
 	CatModalWindows:            "Windows",
 	CatModalLinux:              "Linux",
 	CatModalNetDevice:          "Network Device",
@@ -846,7 +844,6 @@ Skriptsteuerung:
 	CatDisplayUnknown:          "Unbekannt",
 	FmtHostInventoryFilterCat:  "Host-Inventar %s",
 	FmtHostInventoryFilterText: "Host-Inventar %s",
-	FmtHostInventoryFilterBoth: "Host-Inventar %s",
 	CatModalWindows:            "Windows",
 	CatModalLinux:              "Linux",
 	CatModalNetDevice:          "Netzwerkgerät",
