@@ -61,6 +61,8 @@ func (rp *ResultParser) ParseJobResult(scriptPath, outputContent string, timesta
 		return rp.parseNiktoXMLResult(result, outputContent)
 	case ScanTypeSSLScan:
 		return rp.parseSSLScanResult(result, outputContent)
+	case ScanTypeNmapXML:
+		return rp.parseNmapXML(result, outputContent)
 	default:
 		return rp.parseGenericOutput(result, outputContent)
 	}
@@ -76,6 +78,11 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 		return ScanTypeHostCategorization
 	}
 
+	// Nmap XML detection — check before generic name patterns
+	if strings.Contains(contentLower, "<nmaprun") {
+		return ScanTypeNmapXML
+	}
+
 	// Nikto XML detection — check content before generic name patterns
 	if strings.Contains(contentLower, "<niktoscan>") {
 		return ScanTypeNikto
@@ -86,7 +93,16 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 		return ScanTypeSSLScan
 	}
 
-	// Check script name patterns
+	// .nmap text files are parsed for port/service data (the companion .xml
+	// file provides authoritative vulnerability findings). Without this guard,
+	// "vuln_results.nmap" would route to ScanTypeVulnerability and produce
+	// false positives from NSE output like "ROCA: Vulnerable RSA generation".
+	ext := filepath.Ext(scriptName)
+	if ext == ".nmap" {
+		return ScanTypePortScan
+	}
+
+	// Remaining script name patterns.
 	if strings.Contains(scriptName, "enum") || strings.Contains(scriptName, "discovery") {
 		return ScanTypeNetworkEnum
 	}
@@ -580,6 +596,287 @@ type niktoItem struct {
 	Text        string `xml:",chardata"`
 }
 
+// --- Nmap XML types for parsing ---
+
+// nmapRun is the top-level XML structure for nmap XML output.
+type nmapRun struct {
+	XMLName xml.Name     `xml:"nmaprun"`
+	Hosts   []nmapHost   `xml:"host"`
+}
+
+type nmapHost struct {
+	Status    nmapStatus    `xml:"status"`
+	Addresses []nmapAddress `xml:"address"`
+	Hostnames nmapHostnames `xml:"hostnames"`
+	Ports     *nmapPorts    `xml:"ports"`
+}
+
+type nmapStatus struct {
+	State string `xml:"state,attr"`
+}
+
+type nmapAddress struct {
+	Addr     string `xml:"addr,attr"`
+	AddrType string `xml:"addrtype,attr"`
+	Vendor   string `xml:"vendor,attr"`
+}
+
+type nmapHostnames struct {
+	Names []nmapHostname `xml:"hostname"`
+}
+
+type nmapHostname struct {
+	Name string `xml:"name,attr"`
+	Type string `xml:"type,attr"`
+}
+
+type nmapPorts struct {
+	Ports []nmapPort `xml:"port"`
+}
+
+type nmapPort struct {
+	Protocol string        `xml:"protocol,attr"`
+	PortID   int           `xml:"portid,attr"`
+	State    nmapPortState `xml:"state"`
+	Service  *nmapService  `xml:"service"`
+	Scripts  []nmapScript  `xml:"script"`
+}
+
+type nmapPortState struct {
+	State string `xml:"state,attr"`
+}
+
+type nmapService struct {
+	Name      string `xml:"name,attr"`
+	Product   string `xml:"product,attr"`
+	Version   string `xml:"version,attr"`
+	ExtraInfo string `xml:"extrainfo,attr"`
+	Method    string `xml:"method,attr"`
+	Conf      int    `xml:"conf,attr"`
+}
+
+type nmapScript struct {
+	ID     string      `xml:"id,attr"`
+	Output string      `xml:"output,attr"`
+	Tables []nmapTable `xml:"table"`
+	Elems  []nmapElem  `xml:"elem"`
+}
+
+type nmapTable struct {
+	Key    string      `xml:"key,attr"`
+	Elems  []nmapElem  `xml:"elem"`
+	Tables []nmapTable `xml:"table"`
+}
+
+type nmapElem struct {
+	Key   string `xml:"key,attr"`
+	Value string `xml:",chardata"`
+}
+
+// parseNmapXML parses nmap XML output into scan results.
+// It extracts hosts, ports, services, and NSE script findings.
+// Only scripts reporting VULNERABLE or LIKELY VULNERABLE state produce
+// vulnerability entries; the vulners script (CPE database lookup) is skipped.
+func (rp *ResultParser) parseNmapXML(result *ScanResult, content string) (*ScanResult, error) {
+	var run nmapRun
+	if err := xml.Unmarshal([]byte(content), &run); err != nil {
+		return rp.parseGenericOutput(result, content)
+	}
+
+	for _, h := range run.Hosts {
+		if h.Status.State != "up" {
+			continue
+		}
+
+		var ip, mac, hostname string
+		for _, addr := range h.Addresses {
+			switch addr.AddrType {
+			case "ipv4", "ipv6":
+				ip = addr.Addr
+			case "mac":
+				mac = addr.Addr
+			}
+		}
+		if ip == "" {
+			continue
+		}
+		for _, name := range h.Hostnames.Names {
+			if name.Type == "user" || hostname == "" {
+				hostname = name.Name
+			}
+		}
+
+		host := Host{
+			IP:         ip,
+			Hostname:   hostname,
+			MACAddress: mac,
+			Status:     h.Status.State,
+			LastSeen:   result.Timestamp,
+			Ports:      make([]Port, 0),
+		}
+		result.Targets = append(result.Targets, ip)
+
+		if h.Ports == nil {
+			result.Hosts = append(result.Hosts, host)
+			continue
+		}
+
+		for _, p := range h.Ports.Ports {
+			port := Port{
+				Number:   p.PortID,
+				Protocol: p.Protocol,
+				State:    p.State.State,
+			}
+			if p.Service != nil {
+				port.Service = p.Service.Name
+				port.Version = p.Service.Version
+				if p.Service.Product != "" {
+					port.Banner = p.Service.Product
+					if p.Service.Version != "" {
+						port.Banner += " " + p.Service.Version
+					}
+				}
+			}
+			host.Ports = append(host.Ports, port)
+
+			if p.State.State == "open" {
+				svc := Service{
+					Host:       ip,
+					Port:       p.PortID,
+					Protocol:   p.Protocol,
+					Name:       port.Service,
+					Version:    p.Service.Version,
+					Product:    p.Service.Product,
+					ExtraInfo:  p.Service.ExtraInfo,
+					Confidence: p.Service.Conf,
+				}
+				result.Services = append(result.Services, svc)
+			}
+
+			// Process NSE scripts for vulnerabilities.
+			for _, script := range p.Scripts {
+				// Skip vulners script — it's a CPE database lookup, not findings.
+				if script.ID == "vulners" {
+					continue
+				}
+
+				rp.extractScriptFindings(result, ip, p.PortID, script)
+			}
+		}
+
+		result.Hosts = append(result.Hosts, host)
+	}
+
+	return result, nil
+}
+
+// extractScriptFindings processes a single NSE script element and extracts
+// vulnerability entries for confirmed or likely vulnerable findings.
+func (rp *ResultParser) extractScriptFindings(result *ScanResult, hostIP string, portNum int, script nmapScript) {
+	for _, tbl := range script.Tables {
+		state := findElemByKey(tbl.Elems, "state")
+
+		// Only include confirmed or likely vulnerabilities.
+		if state == "NOT VULNERABLE" || state == "" {
+			// For scripts without a state elem at this level, check child tables.
+			// Some scripts nest findings deeper.
+			foundChild := false
+			for _, child := range tbl.Tables {
+				childState := findElemByKey(child.Elems, "state")
+				if childState == "VULNERABLE" || childState == "LIKELY VULNERABLE" {
+					foundChild = true
+					rp.addVulnFromTable(result, hostIP, portNum, script.ID, child)
+				}
+			}
+			if !foundChild && state == "" {
+				// No state at all — informational script (e.g., http-cookie-flags, http-server-header).
+				// Skip: these are not vulnerability findings.
+			}
+			continue
+		}
+
+		rp.addVulnFromTable(result, hostIP, portNum, script.ID, tbl)
+	}
+}
+
+// addVulnFromTable creates a Vulnerability from an nmap script table entry.
+func (rp *ResultParser) addVulnFromTable(result *ScanResult, hostIP string, portNum int, scriptID string, tbl nmapTable) {
+	title := findElemByKey(tbl.Elems, "title")
+	state := findElemByKey(tbl.Elems, "state")
+	if title == "" {
+		title = tbl.Key // Use the table key (often CVE ID) as fallback title
+	}
+	if title == "" {
+		title = scriptID
+	}
+
+	severity := "medium"
+	if state == "VULNERABLE" {
+		severity = "high"
+	}
+
+	// Extract CVE from IDs table.
+	cve := ""
+	var refs []string
+	for _, child := range tbl.Tables {
+		if child.Key == "ids" {
+			for _, elem := range child.Elems {
+				if strings.HasPrefix(elem.Value, "CVE:") {
+					cve = strings.TrimPrefix(elem.Value, "CVE:")
+				}
+			}
+		}
+		if child.Key == "refs" {
+			for _, elem := range child.Elems {
+				refs = append(refs, elem.Value)
+			}
+		}
+	}
+	// Also try to extract CVE from the table key.
+	if cve == "" {
+		cveRegex := regexp.MustCompile(`(CVE-\d{4}-\d+)`)
+		if m := cveRegex.FindStringSubmatch(tbl.Key); len(m) > 1 {
+			cve = m[1]
+		}
+	}
+
+	// Extract description.
+	desc := ""
+	for _, child := range tbl.Tables {
+		if child.Key == "description" {
+			if len(child.Elems) > 0 {
+				desc = child.Elems[0].Value
+			}
+			break
+		}
+	}
+	if desc == "" {
+		desc = title
+	}
+
+	result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+		Host:        hostIP,
+		Port:        portNum,
+		Service:     scriptID,
+		CVE:         cve,
+		Title:       title,
+		Description: desc,
+		Severity:    severity,
+		Source:      "nmap-nse",
+		References:  refs,
+		Discovery:   result.Timestamp,
+	})
+}
+
+// findElemByKey finds the first elem in the list with the given key.
+func findElemByKey(elems []nmapElem, key string) string {
+	for _, e := range elems {
+		if e.Key == key {
+			return e.Value
+		}
+	}
+	return ""
+}
 // parseNiktoXMLResult parses nikto XML output into vulnerabilities.
 func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) (*ScanResult, error) {
 	var scan niktoScan

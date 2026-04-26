@@ -29,6 +29,7 @@ const (
 	ScanTypeScreenshot         ScanType = "screenshot"
 	ScanTypeNikto              ScanType = "nikto_scan"
 	ScanTypeSSLScan            ScanType = "ssl_scan"
+	ScanTypeNmapXML            ScanType = "nmap_xml"
 )
 
 // ScanResult represents the result of a network scan

@@ -997,3 +997,281 @@ func TestScanWorkspaceForResults_SSLScan(t *testing.T) {
 		t.Error("ScanWorkspaceForResults should process sslscan.txt")
 	}
 }
+
+
+func TestParseNmapXML_VulnerableAndNotVulnerable(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE nmaprun>
+<nmaprun scanner="nmap" start="1234567890" version="7.99" xmloutputversion="1.05">
+<host starttime="1234567890" endtime="1234567900"><status state="up" reason="syn-ack"/>
+<address addr="10.0.1.1" addrtype="ipv4"/>
+<address addr="AA:BB:CC:DD:EE:FF" addrtype="mac" vendor="Test"/>
+<hostnames></hostnames>
+<ports><port protocol="tcp" portid="80"><state state="open" reason="syn-ack"/>
+<service name="http" product="lighttpd"/>
+<script id="http-slowloris-check" output="\n  VULNERABLE:\n  Slowloris DOS attack\n    State: LIKELY VULNERABLE\n">
+<table key="CVE-2007-6750">
+<elem key="title">Slowloris DOS attack</elem>
+<elem key="state">LIKELY VULNERABLE</elem>
+<table key="ids"><elem>CVE:CVE-2007-6750</elem></table>
+<table key="refs"><elem>http://ha.ckers.org/slowloris/</elem></table>
+</table>
+</script>
+<script id="http-vuln-cve2011-3192" output="\n  NOT VULNERABLE:\n  Apache byterange filter DoS\n    State: NOT VULNERABLE\n">
+<table key="CVE-2011-3192">
+<elem key="title">Apache byterange filter DoS</elem>
+<elem key="state">NOT VULNERABLE</elem>
+<table key="ids"><elem>CVE:CVE-2011-3192</elem></table>
+</table>
+</script>
+<script id="rsa-vuln-roca" output="\n  NOT VULNERABLE:\n  ROCA: Vulnerable RSA generation\n    State: NOT VULNERABLE\n">
+<table key="CVE-2017-15361">
+<elem key="title">ROCA: Vulnerable RSA generation</elem>
+<elem key="state">NOT VULNERABLE</elem>
+</table>
+</script>
+</port></ports></host>
+</nmaprun>`
+
+	result := &ScanResult{
+		ID:              "test",
+		Type:            ScanTypeNmapXML,
+		Timestamp:       time.Now(),
+		Hosts:           make([]Host, 0),
+		Services:        make([]Service, 0),
+		Vulnerabilities: make([]Vulnerability, 0),
+		Metadata:        make(map[string]any),
+	}
+
+	parsed, err := parser.parseNmapXML(result, content)
+	if err != nil {
+		t.Fatalf("parseNmapXML() error = %v", err)
+	}
+
+	// Should find exactly 1 vulnerability (Slowloris), not the NOT VULNERABLE ones
+	if len(parsed.Vulnerabilities) != 1 {
+		t.Fatalf("expected 1 vulnerability, got %d: %+v", len(parsed.Vulnerabilities), parsed.Vulnerabilities)
+	}
+
+	vuln := parsed.Vulnerabilities[0]
+	if vuln.Title != "Slowloris DOS attack" {
+		t.Errorf("expected title 'Slowloris DOS attack', got %q", vuln.Title)
+	}
+	if vuln.Severity != "medium" {
+		t.Errorf("LIKELY VULNERABLE should be medium severity, got %q", vuln.Severity)
+	}
+	if vuln.CVE != "CVE-2007-6750" {
+		t.Errorf("expected CVE-2007-6750, got %q", vuln.CVE)
+	}
+	if vuln.Source != "nmap-nse" {
+		t.Errorf("expected source 'nmap-nse', got %q", vuln.Source)
+	}
+	if vuln.Host != "10.0.1.1" {
+		t.Errorf("expected host 10.0.1.1, got %q", vuln.Host)
+	}
+	if vuln.Port != 80 {
+		t.Errorf("expected port 80, got %d", vuln.Port)
+	}
+	if len(vuln.References) != 1 || vuln.References[0] != "http://ha.ckers.org/slowloris/" {
+		t.Errorf("expected 1 reference, got %v", vuln.References)
+	}
+}
+
+func TestParseNmapXML_SkipsVulnersScript(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" start="1234567890" version="7.99" xmloutputversion="1.05">
+<host starttime="1234567890" endtime="1234567900"><status state="up" reason="syn-ack"/>
+<address addr="10.0.1.1" addrtype="ipv4"/>
+<hostnames></hostnames>
+<ports><port protocol="tcp" portid="22"><state state="open" reason="syn-ack"/>
+<service name="ssh" product="OpenSSH" version="6.6.1p1"/>
+<script id="vulners" output="\n  cpe:/a:openbsd:openssh:6.6.1p1: \n    CVE-2023-38408\t9.8\n    CVE-2016-1908\t9.8\n">
+<table key="cpe:/a:openbsd:openssh:6.6.1p1">
+<table>
+<elem key="id">CVE-2023-38408</elem>
+<elem key="is_exploit">false</elem>
+<elem key="type">cve</elem>
+<elem key="cvss">9.8</elem>
+</table>
+<table>
+<elem key="id">CVE-2016-1908</elem>
+<elem key="is_exploit">false</elem>
+<elem key="type">cve</elem>
+<elem key="cvss">9.8</elem>
+</table>
+</table>
+</script>
+<script id="rsa-vuln-roca" output="\n  NOT VULNERABLE:\n">
+<table key="CVE-2017-15361">
+<elem key="title">ROCA: Vulnerable RSA generation</elem>
+<elem key="state">NOT VULNERABLE</elem>
+</table>
+</script>
+</port></ports></host>
+</nmaprun>`
+
+	result := &ScanResult{
+		ID:              "test",
+		Type:            ScanTypeNmapXML,
+		Timestamp:       time.Now(),
+		Hosts:           make([]Host, 0),
+		Services:        make([]Service, 0),
+		Vulnerabilities: make([]Vulnerability, 0),
+		Metadata:        make(map[string]any),
+	}
+
+	parsed, err := parser.parseNmapXML(result, content)
+	if err != nil {
+		t.Fatalf("parseNmapXML() error = %v", err)
+	}
+
+	// Should produce 0 vulnerabilities — vulners is skipped, rsa-vuln-roca is NOT VULNERABLE
+	if len(parsed.Vulnerabilities) != 0 {
+		t.Fatalf("expected 0 vulnerabilities (vulners skipped, NOT VULNERABLE filtered), got %d: %+v",
+			len(parsed.Vulnerabilities), parsed.Vulnerabilities)
+	}
+}
+
+func TestParseNmapXML_HostAndPortExtraction(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" start="1234567890" version="7.99" xmloutputversion="1.05">
+<host starttime="1234567890" endtime="1234567900"><status state="up" reason="syn-ack"/>
+<address addr="10.0.1.1" addrtype="ipv4"/>
+<address addr="AA:BB:CC:DD:EE:FF" addrtype="mac" vendor="TestVendor"/>
+<hostnames><hostname name="router.local" type="PTR"/></hostnames>
+<ports><port protocol="tcp" portid="22"><state state="open" reason="syn-ack"/>
+<service name="ssh" product="OpenSSH" version="8.9p1" extrainfo="protocol 2.0" conf="10"/>
+</port>
+<port protocol="tcp" portid="80"><state state="closed" reason="reset"/>
+<service name="http" product="Apache" version="2.4.52"/>
+</port></ports></host>
+<host starttime="1234567890" endtime="1234567900"><status state="up" reason="syn-ack"/>
+<address addr="10.0.1.2" addrtype="ipv4"/>
+<hostnames></hostnames>
+</host>
+</nmaprun>`
+
+	result := &ScanResult{
+		ID:              "test",
+		Type:            ScanTypeNmapXML,
+		Timestamp:       time.Now(),
+		Hosts:           make([]Host, 0),
+		Services:        make([]Service, 0),
+		Vulnerabilities: make([]Vulnerability, 0),
+		Metadata:        make(map[string]any),
+	}
+
+	parsed, err := parser.parseNmapXML(result, content)
+	if err != nil {
+		t.Fatalf("parseNmapXML() error = %v", err)
+	}
+
+	if len(parsed.Hosts) != 2 {
+		t.Fatalf("expected 2 hosts, got %d", len(parsed.Hosts))
+	}
+
+	h1 := parsed.Hosts[0]
+	if h1.IP != "10.0.1.1" {
+		t.Errorf("expected IP 10.0.1.1, got %q", h1.IP)
+	}
+	if h1.MACAddress != "AA:BB:CC:DD:EE:FF" {
+		t.Errorf("expected MAC, got %q", h1.MACAddress)
+	}
+	if h1.Hostname != "router.local" {
+		t.Errorf("expected hostname router.local, got %q", h1.Hostname)
+	}
+	if len(h1.Ports) != 2 {
+		t.Fatalf("expected 2 ports, got %d", len(h1.Ports))
+	}
+
+	// Only open ports should produce services
+	if len(parsed.Services) != 1 {
+		t.Fatalf("expected 1 service (only open port), got %d", len(parsed.Services))
+	}
+	svc := parsed.Services[0]
+	if svc.Port != 22 {
+		t.Errorf("expected service on port 22, got %d", svc.Port)
+	}
+	if svc.Product != "OpenSSH" {
+		t.Errorf("expected product OpenSSH, got %q", svc.Product)
+	}
+}
+
+func TestParseNmapXML_ConfirmedVulnerable(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" start="1234567890" version="7.99" xmloutputversion="1.05">
+<host starttime="1234567890" endtime="1234567900"><status state="up" reason="syn-ack"/>
+<address addr="10.0.1.1" addrtype="ipv4"/>
+<hostnames></hostnames>
+<ports><port protocol="tcp" portid="443"><state state="open" reason="syn-ack"/>
+<service name="https" product="nginx"/>
+<script id="ssl-heartbleed" output="\n  VULNERABLE:\n  OpenSSL Heartbleed\n    State: VULNERABLE\n">
+<table key="CVE-2014-0160">
+<elem key="title">OpenSSL Heartbleed</elem>
+<elem key="state">VULNERABLE</elem>
+<table key="ids"><elem>CVE:CVE-2014-0160</elem></table>
+<table key="description"><elem>The Heartbleed Bug is a serious vulnerability in OpenSSL...</elem></table>
+<table key="refs">
+<elem>https://cve.mitre.org/cgi-bin/cvename.cgi?name=CVE-2014-0160</elem>
+</table>
+</table>
+</script>
+</port></ports></host>
+</nmaprun>`
+
+	result := &ScanResult{
+		ID:              "test",
+		Type:            ScanTypeNmapXML,
+		Timestamp:       time.Now(),
+		Hosts:           make([]Host, 0),
+		Services:        make([]Service, 0),
+		Vulnerabilities: make([]Vulnerability, 0),
+		Metadata:        make(map[string]any),
+	}
+
+	parsed, err := parser.parseNmapXML(result, content)
+	if err != nil {
+		t.Fatalf("parseNmapXML() error = %v", err)
+	}
+
+	if len(parsed.Vulnerabilities) != 1 {
+		t.Fatalf("expected 1 vulnerability, got %d", len(parsed.Vulnerabilities))
+	}
+
+	vuln := parsed.Vulnerabilities[0]
+	if vuln.Severity != "high" {
+		t.Errorf("VULNERABLE state should be high severity, got %q", vuln.Severity)
+	}
+	if vuln.Title != "OpenSSL Heartbleed" {
+		t.Errorf("expected 'OpenSSL Heartbleed', got %q", vuln.Title)
+	}
+	if vuln.Description != "The Heartbleed Bug is a serious vulnerability in OpenSSL..." {
+		t.Errorf("unexpected description: %q", vuln.Description)
+	}
+	if vuln.CVE != "CVE-2014-0160" {
+		t.Errorf("expected CVE-2014-0160, got %q", vuln.CVE)
+	}
+}
+
+func TestDetermineScanType_NmapXML(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0"?>
+<nmaprun scanner="nmap" start="1234567890" version="7.99">
+<host><status state="up"/><address addr="10.0.0.1" addrtype="ipv4"/>
+<ports></ports></host>
+</nmaprun>`
+
+	scanType := parser.determineScanType("/some/path/vuln_results.xml", content)
+	if scanType != ScanTypeNmapXML {
+		t.Errorf("determineScanType() = %s, want %s", scanType, ScanTypeNmapXML)
+	}
+}
