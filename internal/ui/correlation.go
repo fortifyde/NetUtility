@@ -203,6 +203,7 @@ type CorrelationViewer struct {
 
 	// State
 	selectedHost         string
+	selectedRow          int    // last known row position (1-based; 0 = header); used for neighbor selection after categorization
 	screenshotCache      map[string]image.Image
 	filterCategory       string // "" = all; "windows"/"linux"/"network_device"/"unknown" = filtered
 	filterText           string // "" = no text filter; non-empty = must match hostMatchesText
@@ -328,6 +329,7 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 			cell := cv.hostsList.GetCell(row, 0)
 			if cell != nil {
 				cv.selectedHost = cell.Text
+				cv.selectedRow = row
 				cv.updateDetailsPanel()
 			}
 		}
@@ -419,10 +421,18 @@ func (cv *CorrelationViewer) updateHostsList() {
 		}
 	}
 
-	// If a previous selection existed but is no longer visible (e.g., due to
-	// category filter change), select the last row to maintain context.
-	if prevSelected != "" && !found && len(entries) > 0 {
-		reSelectRow = len(entries)
+	// If the previously selected host is no longer visible (filtered out,
+	// or just categorized and cleared), select the nearest neighbor at the
+	// previous row position so the user can continue working.
+	if !found && cv.selectedRow > 0 && len(entries) > 0 {
+		candidate := cv.selectedRow
+		if candidate > len(entries) {
+			candidate = len(entries)
+		}
+		if candidate < 1 {
+			candidate = 1
+		}
+		reSelectRow = candidate
 	}
 
 	if cv.hostsList.GetRowCount() > 1 {
@@ -620,6 +630,9 @@ func (cv *CorrelationViewer) openCategorizationModal() {
 				_ = correlation.MoveHostInHostfiles(cv.workspaceDir, ip, category)
 			}
 			cv.app.QueueUpdateDraw(func() {
+				// Clear the IP so updateHostsList selects the neighbor at the
+				// old row position instead of re-selecting the categorized host.
+				cv.selectedHost = ""
 				cv.updateHostsList()
 				cv.updateDetailsPanel()
 			})

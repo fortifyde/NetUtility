@@ -36,7 +36,7 @@ script:
     workspace_subdirs:
       - "captures"
       - "discovery"
-      - "port_and_security_scans"
+      - "scans"
       - "analysis"
       - "reports"
       - "configs"

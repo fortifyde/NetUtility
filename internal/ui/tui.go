@@ -596,7 +596,7 @@ func (t *TUI) checkCaptureDone() bool {
 	if t.workspaceDir == "" {
 		return false
 	}
-	matches, _ := filepath.Glob(filepath.Join(t.workspaceDir, "captures", "capture_*.pcap"))
+	matches, _ := filepath.Glob(filepath.Join(t.workspaceDir, "captures", "*.pcap"))
 	return len(matches) > 0
 }
 
@@ -670,7 +670,7 @@ func (t *TUI) checkPortVulnDone() bool {
 	if t.workspaceDir == "" {
 		return false
 	}
-	base := filepath.Join(t.workspaceDir, "port_and_security_scans")
+	base := filepath.Join(t.workspaceDir, "scans")
 	found := false
 	_ = filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
 		if err != nil || found {

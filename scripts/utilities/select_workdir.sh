@@ -80,7 +80,7 @@ update_netutil_config
     
 # Create workspace structure
 echo "Creating workspace structure..."
-mkdir -p "$workdir/captures" "$workdir/discovery" "$workdir/port_and_security_scans" "$workdir/analysis" "$workdir/reports" "$workdir/configs" "$workdir/logs" "$workdir/latest"
+mkdir -p "$workdir/captures" "$workdir/discovery" "$workdir/scans" "$workdir/analysis" "$workdir/reports" "$workdir/configs" "$workdir/logs" "$workdir/latest"
 fix_ownership "$workdir"
 echo "Workspace structure created"
     
