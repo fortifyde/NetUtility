@@ -52,3 +52,73 @@ display logbuffer
 
 # Stack Management
 display stack
+
+# Cryptographic Mechanisms (SSH/Telnet)
+display ssh server status
+display ssh server session
+display telnet server
+display public-key local rsa public
+
+# NTP Authentication and Time Synchronization
+display ntp-service status
+display ntp-service sessions
+display ntp-service authentication
+display clock
+
+# Login Banner
+display header
+
+# Console and VTY Line Hardening
+display user-interface
+display users
+
+# AAA Authorization and Accounting
+display aaa authorization
+display accounting
+display hwtacacs
+display radius
+
+# RBAC Roles and Local Accounts
+display role
+display password-policy
+display local-user
+
+# DHCP Snooping
+display dhcp snooping binding
+display dhcp snooping trusted
+display dhcp snooping packet statistics
+
+# IP Source Guard and Dynamic ARP Inspection
+display ip source guard
+display arp detection
+display arp detection statistics
+
+# VRRP (Redundancy)
+display vrrp
+
+# SNMP Configuration (v3)
+display snmp-agent group
+display snmp-agent usm-user
+
+# Logging and Monitoring (Remote Syslog)
+display info-center
+display logbuffer summary
+
+# IRF Stack and High Availability
+display irf
+display irf configuration
+display irf topology
+
+# Control Plane Policing / Rate Limiting
+display cpu-defend policy
+display cpu-defend statistics
+
+# sFlow (Traffic Visibility)
+display sflow
+
+# DNS and Name Resolution
+display dns server
+display ip host
+
+# Config Change Logging
+display configuration commit

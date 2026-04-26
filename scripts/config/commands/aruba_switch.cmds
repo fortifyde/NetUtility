@@ -67,3 +67,47 @@ show front-panel-security
 show time
 show sntp
 show sntp status
+
+# Cryptographic Mechanisms (SSH/Telnet)
+show ip ssh
+show ssh
+show crypto
+
+# Login Banner
+show banner
+
+# Console and VTY Line Hardening
+show console
+show telnet
+show web
+show users
+
+# AAA Authorization and Accounting
+show radius
+show tacacs
+show accounting
+
+# RBAC Roles and Local Accounts
+show privilege
+show password-policy
+
+# IP Source Guard and Dynamic ARP Inspection
+show arp-protect
+show port-access
+
+# VRRP (Redundancy)
+show vrrp
+
+# SNMP Configuration (v3)
+show snmpv3
+
+# Logging and Monitoring (Remote Syslog)
+show syslog
+
+# sFlow (Traffic Visibility)
+show sflow
+show sflow receiver
+
+# DNS and Name Resolution
+show ip dns
+show dns

@@ -78,3 +78,38 @@ show sntp authentication
 
 # Accounting
 show accounting
+
+# Cryptographic Mechanisms (SSH/Telnet)
+show ip ssh
+show ssh
+show crypto
+
+# Login Banner
+show banner
+
+# Console and VTY Line Hardening
+show console
+show telnet
+show users
+
+# DHCP Snooping Detail
+show dhcp-snooping binding
+show dhcpv6-snooping
+
+# IP Source Guard and Dynamic ARP Inspection
+show arp-protect
+show source-filter
+
+# SNMP Configuration (v3)
+show snmpv3
+
+# Logging and Monitoring (Remote Syslog)
+show syslog
+
+# sFlow (Traffic Visibility)
+show sflow
+show sflow receiver
+
+# DNS and Name Resolution
+show ip dns
+show dns

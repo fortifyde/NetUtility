@@ -55,3 +55,72 @@ show logging
 # Time and NTP
 show ntp status
 show ntp associations
+
+# Cryptographic Mechanisms (SSH/Telnet)
+show ssh server
+show ssh
+show telnet server
+show crypto key
+
+# Login Banner
+show banner
+
+# Console and VTY Line Hardening
+show console
+show users
+show session
+
+# AAA Authorization and Accounting
+show aaa authorization
+show aaa accounting
+show radius-server
+show tacacs-server
+
+# RBAC Roles and Local Accounts
+show role
+show user
+show password-complexity
+
+# DHCP Snooping
+show dhcp-snooping
+show dhcp-snooping binding
+show dhcp-snooping trusted
+
+# IP Source Guard and Dynamic ARP Inspection
+show arp inspection
+show arp inspection vlan
+show ip source-guard
+show ip-source-guard
+
+# VRRP (Redundancy)
+show vrrp
+
+# SNMP Configuration (v3)
+show snmpv3 user
+show snmp community
+show snmp host
+
+# Logging and Monitoring (Remote Syslog)
+show logging severity
+show syslog
+
+# VSX Consistency (Fabric Security)
+show vsx consistency-check
+show vsx status config-sync
+
+# Control Plane Policing
+show copp-policy
+show policy-map control-plane
+
+# sFlow (Traffic Visibility)
+show sflow
+show sflow receiver
+show sflow interface
+
+# DNS and Name Resolution
+show dns client
+show ip dns
+
+# Config Change Logging
+show configuration commit
+show configuration history
