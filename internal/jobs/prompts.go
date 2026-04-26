@@ -16,13 +16,14 @@ func StripANSI(s string) string {
 // ipPattern matches dotted-decimal sequences like "192.168".
 var ipPattern = regexp.MustCompile(`\d+\.\d+`)
 
-// keyValuePair matches "Label: value" patterns (structured output, not prompts).
-var keyValuePair = regexp.MustCompile(`^[A-Za-z_ ]+:\s*\S`)
 
 // DetectScriptPrompt checks whether a line of script output looks like
 // an interactive prompt waiting for user input. This is the shared
 // detection logic used by both the Job manager's progress scanner and
 // the UI OutputViewer so that prompt state is tracked at the Job level.
+//
+// Callers restrict this to stderr lines only — tool output (nmap, nikto,
+// sslscan) arrives on stdout and should never be treated as prompts.
 func DetectScriptPrompt(content string) bool {
 	lower := strings.ToLower(content)
 
@@ -40,6 +41,7 @@ func DetectScriptPrompt(content string) bool {
 		"type your",
 		"(default:",
 		", default:",
+		"press enter",
 	}
 	for _, p := range phrases {
 		if strings.Contains(lower, p) {
@@ -58,18 +60,15 @@ func DetectScriptPrompt(content string) bool {
 		}
 	}
 
-	// Short lines ending with ": " are often prompts, but exclude
-	// common false positives (headers, IP addresses).
+	// Lines ending with ":" or ": " are often prompts.
+	// Since we only check stderr, structured tool output (nmap, sslscan)
+	// is already filtered out. We only exclude separators and IP addresses.
 	trimmed := strings.TrimSpace(content)
-	if len(trimmed) <= 40 &&
+	if len(trimmed) <= 120 &&
 		(strings.HasSuffix(trimmed, ":") || strings.HasSuffix(trimmed, ": ")) &&
 		!strings.Contains(trimmed, "===") &&
 		!strings.Contains(trimmed, "---") &&
-		!ipPattern.MatchString(trimmed) &&
-		!strings.HasPrefix(trimmed, "+") &&
-		!strings.HasPrefix(trimmed, "|") &&
-		!strings.Contains(strings.ToUpper(trimmed), "VULNERABLE") &&
-		!keyValuePair.MatchString(trimmed) {
+		!ipPattern.MatchString(trimmed) {
 		return true
 	}
 

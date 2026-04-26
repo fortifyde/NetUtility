@@ -967,12 +967,27 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 			port, _ = strconv.Atoi(details.TargetPort)
 		}
 
+		// First pass: collect items grouped by (host, port, itemID).
+		// Items with the same nikto ID (e.g., "013587" for missing security
+		// headers) represent the same class of finding and should be
+		// consolidated into one scored entry.
+		type itemGroup struct {
+			title    string
+			severity string
+		}
+		type groupKey struct {
+			host string
+			port int
+			id   string
+		}
+		groups := make(map[groupKey][]itemGroup)
+
 		for _, item := range details.Items {
 			severity := niktoSeverity(item)
 
 			title := item.Description
 			if title == "" {
-				title = item.DescAttr // attribute form from some nikto versions
+				title = item.DescAttr
 			}
 			if title == "" {
 				title = item.Text
@@ -984,17 +999,78 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 				title = "Nikto finding"
 			}
 
-			vuln := Vulnerability{
-				Host:        ip,
-				Port:        port,
-				Title:       strings.TrimSpace(title),
-				Description: strings.TrimSpace(item.Text),
-				Severity:    severity,
-				Source:      "nikto",
-				Discovery:   result.Timestamp,
+			// Use a unique key for items without a nikto ID so they aren't
+			// incorrectly grouped with other items that also lack an ID.
+			itemID := item.ID
+			if itemID == "" {
+				itemID = "_" + strconv.Itoa(len(groups))
+			}
+			key := groupKey{host: ip, port: port, id: itemID}
+			groups[key] = append(groups[key], itemGroup{
+				title:    strings.TrimSpace(title),
+				severity: severity,
+			})
+		}
+
+		// Second pass: emit one vulnerability per group.
+		// For multi-item groups, consolidate into a single entry with count.
+		for key, items := range groups {
+			if len(items) == 1 {
+				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+					Host:        key.host,
+					Port:        key.port,
+					Title:       items[0].title,
+					Severity:    items[0].severity,
+					Source:      "nikto",
+					Discovery:   result.Timestamp,
+				})
+				continue
 			}
 
-			result.Vulnerabilities = append(result.Vulnerabilities, vuln)
+			// Extract the common prefix from titles for the group title.
+			// e.g., "Suggested security header missing: referrer-policy"
+			//   → prefix = "Suggested security header missing"
+			//   → suffixes = ["referrer-policy", "x-content-type-options", ...]
+			prefix := commonPrefix(items[0].title, items[1].title)
+			for _, it := range items[2:] {
+				prefix = commonPrefix(prefix, it.title)
+			}
+			prefix = strings.TrimRight(prefix, ": ")
+
+			// Collect the variable suffixes after the common prefix.
+			var suffixes []string
+			for _, it := range items {
+				suffix := strings.TrimPrefix(it.title, prefix)
+				suffix = strings.TrimLeft(suffix, ": ")
+				if suffix != "" {
+					suffixes = append(suffixes, suffix)
+				}
+			}
+
+			// Build consolidated title.
+			consolidated := prefix
+			if len(suffixes) > 0 {
+				consolidated = fmt.Sprintf("%s (%d): %s", prefix, len(items), strings.Join(suffixes, ", "))
+			} else {
+				consolidated = fmt.Sprintf("%s (%d instances)", prefix, len(items))
+			}
+
+			// Use the highest severity from the group.
+			sev := items[0].severity
+			for _, it := range items[1:] {
+				if severityRank(it.severity) > severityRank(sev) {
+					sev = it.severity
+				}
+			}
+
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:        key.host,
+				Port:        key.port,
+				Title:       consolidated,
+				Severity:    sev,
+				Source:      "nikto",
+				Discovery:   result.Timestamp,
+			})
 		}
 	}
 
@@ -1027,6 +1103,35 @@ func niktoSeverity(item niktoItem) string {
 	}
 
 	return "low"
+}
+
+// commonPrefix returns the common prefix of two strings.
+func commonPrefix(a, b string) string {
+	shorter := len(a)
+	if len(b) < shorter {
+		shorter = len(b)
+	}
+	i := 0
+	for i < shorter && a[i] == b[i] {
+		i++
+	}
+	return strings.TrimRight(a[:i], " ")
+}
+
+// severityRank returns a numeric rank for comparing severities.
+func severityRank(sev string) int {
+	switch strings.ToLower(sev) {
+	case "critical":
+		return 4
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	case "low":
+		return 1
+	default:
+		return 0
+	}
 }
 
 // parseSSLScanResult parses sslscan text output into vulnerabilities.
