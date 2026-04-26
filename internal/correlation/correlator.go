@@ -239,6 +239,7 @@ func (c *Correlator) correlateHost(hostIP string) {
 
 	// Collect data from all relevant scans
 	seenVulns := make(map[string]bool)
+	seenServices := make(map[string]int)
 	for _, result := range c.results {
 		if c.resultContainsHost(result, hostIP) {
 			correlation.RelatedScans = append(correlation.RelatedScans, result.ID)
@@ -304,11 +305,18 @@ func (c *Correlator) correlateHost(hostIP string) {
 				}
 			}
 
-			// Collect services
+			// Collect services (merge across multiple scan results, prefer more detail)
 			for _, service := range result.Services {
-				if service.Host == hostIP {
-					correlation.Services = append(correlation.Services, service)
+				if service.Host != hostIP {
+					continue
 				}
+				key := service.Host + "|" + strconv.Itoa(service.Port) + "|" + service.Protocol
+				if idx, exists := seenServices[key]; exists {
+					c.mergeService(&correlation.Services[idx], service)
+					continue
+				}
+				seenServices[key] = len(correlation.Services)
+				correlation.Services = append(correlation.Services, service)
 			}
 
 			// Collect vulnerabilities (deduplicate across multiple scan results)
@@ -462,6 +470,27 @@ func (c *Correlator) mergePorts(existing []Port, new []Port) []Port {
 	}
 
 	return mergedPorts
+}
+
+// mergeService merges service information, preferring more detailed data.
+// Non-empty new fields overwrite empty existing fields; non-empty
+// existing fields are preserved (first detailed answer wins).
+func (c *Correlator) mergeService(existing *Service, new Service) {
+	if new.Name != "" && existing.Name == "" {
+		existing.Name = new.Name
+	}
+	if new.Product != "" && existing.Product == "" {
+		existing.Product = new.Product
+	}
+	if new.Version != "" && existing.Version == "" {
+		existing.Version = new.Version
+	}
+	if new.ExtraInfo != "" && existing.ExtraInfo == "" {
+		existing.ExtraInfo = new.ExtraInfo
+	}
+	if new.Confidence > existing.Confidence {
+		existing.Confidence = new.Confidence
+	}
 }
 
 // sortTimeline sorts timeline events by timestamp
