@@ -509,7 +509,7 @@ func (ov *OutputViewer) addOutputLine(line executor.OutputLine) {
 
 func (ov *OutputViewer) handlePromptDetection(line executor.OutputLine) {
 	stripped := jobs.StripANSI(line.Content)
-	if line.Source == "input" {
+	if line.Source != "stderr" {
 		return
 	}
 
@@ -542,6 +542,18 @@ func (ov *OutputViewer) handlePromptDetection(line executor.OutputLine) {
 				ov.statusLine.SetText(ov.str.StatusPasswordInput)
 			}
 		})
+	}
+
+	// Auto-reset: if we were waiting for input but a new non-prompt
+	// stderr line arrived, the prompt was a false positive or was
+	// answered by background output — clear the waiting state.
+	if ov.waitingInput && !jobs.DetectScriptPrompt(stripped) && !jobs.DetectPasswordPrompt(stripped) {
+		ov.mu.Lock()
+		ov.waitingInput = false
+		ov.mu.Unlock()
+		if ov.connectedJob != nil {
+			ov.connectedJob.SetNeedsInput(false)
+		}
 	}
 }
 

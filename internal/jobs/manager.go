@@ -178,8 +178,9 @@ func (jm *JobManager) monitorJob(job *Job) {
 						}
 						continue
 					}
-					// Check for interactive prompts.
-					if !job.NeedsInput() {
+					// Check for interactive prompts (only on stderr;
+					// tool output arrives on stdout and would false-positive).
+					if !job.NeedsInput() && lines[i].Source == "stderr" {
 						stripped := StripANSI(text)
 						if DetectScriptPrompt(stripped) || DetectPasswordPrompt(stripped) {
 							job.SetNeedsInput(true)

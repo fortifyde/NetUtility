@@ -16,6 +16,9 @@ func StripANSI(s string) string {
 // ipPattern matches dotted-decimal sequences like "192.168".
 var ipPattern = regexp.MustCompile(`\d+\.\d+`)
 
+// keyValuePair matches "Label: value" patterns (structured output, not prompts).
+var keyValuePair = regexp.MustCompile(`^[A-Za-z_ ]+:\s*\S`)
+
 // DetectScriptPrompt checks whether a line of script output looks like
 // an interactive prompt waiting for user input. This is the shared
 // detection logic used by both the Job manager's progress scanner and
@@ -62,7 +65,11 @@ func DetectScriptPrompt(content string) bool {
 		(strings.HasSuffix(trimmed, ":") || strings.HasSuffix(trimmed, ": ")) &&
 		!strings.Contains(trimmed, "===") &&
 		!strings.Contains(trimmed, "---") &&
-		!ipPattern.MatchString(trimmed) {
+		!ipPattern.MatchString(trimmed) &&
+		!strings.HasPrefix(trimmed, "+") &&
+		!strings.HasPrefix(trimmed, "|") &&
+		!strings.Contains(strings.ToUpper(trimmed), "VULNERABLE") &&
+		!keyValuePair.MatchString(trimmed) {
 		return true
 	}
 
