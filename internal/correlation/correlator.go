@@ -29,6 +29,7 @@ const (
 	ScanTypeScreenshot         ScanType = "screenshot"
 	ScanTypeNikto              ScanType = "nikto_scan"
 	ScanTypeSSLScan            ScanType = "ssl_scan"
+	ScanTypeSSLScanXML         ScanType = "sslscan_xml"
 	ScanTypeNmapXML            ScanType = "nmap_xml"
 )
 

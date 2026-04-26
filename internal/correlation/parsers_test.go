@@ -970,13 +970,18 @@ func TestScanWorkspaceForResults_SSLScan(t *testing.T) {
 	tempDir := t.TempDir()
 	parser := NewResultParser(tempDir)
 
-	// Create sslscan.txt in a supplementary directory
+	// Create sslscan XML file in a supplementary directory
 	suppDir := filepath.Join(tempDir, "supplementary")
 	if err := os.MkdirAll(suppDir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	sslContent := "--- Host: 10.0.0.1 ---\nTLS 1.2 enabled\n"
-	if err := os.WriteFile(filepath.Join(suppDir, "sslscan.txt"), []byte(sslContent), 0644); err != nil {
+	sslContent := `<?xml version="1.0" encoding="UTF-8"?>
+<document title="SSLScan Results" version="2.2.2">
+ <ssltest host="10.0.0.1" port="443">
+  <protocol type="tls" version="1.2" enabled="1" />
+ </ssltest>
+</document>`
+	if err := os.WriteFile(filepath.Join(suppDir, "sslscan_10.0.0.1.xml"), []byte(sslContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -985,16 +990,16 @@ func TestScanWorkspaceForResults_SSLScan(t *testing.T) {
 		t.Fatalf("ScanWorkspaceForResults error: %v", err)
 	}
 
-	// Should process sslscan.txt
+	// Should process sslscan XML
 	found := false
 	for _, r := range results {
-		if r.Type == ScanTypeSSLScan {
+		if r.Type == ScanTypeSSLScanXML {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("ScanWorkspaceForResults should process sslscan.txt")
+		t.Error("ScanWorkspaceForResults should process sslscan XML")
 	}
 }
 

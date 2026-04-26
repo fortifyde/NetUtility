@@ -63,6 +63,8 @@ func (rp *ResultParser) ParseJobResult(scriptPath, outputContent string, timesta
 		return rp.parseSSLScanResult(result, outputContent)
 	case ScanTypeNmapXML:
 		return rp.parseNmapXML(result, outputContent)
+	case ScanTypeSSLScanXML:
+		return rp.parseSSLScanXML(result, outputContent)
 	default:
 		return rp.parseGenericOutput(result, outputContent)
 	}
@@ -87,6 +89,11 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 	if strings.Contains(contentLower, "<niktoscan") {
 		return ScanTypeNikto
 	}
+	// sslscan XML detection — check before text-based sslscan
+	if strings.Contains(contentLower, "sslscan results") && strings.Contains(contentLower, "<document") {
+		return ScanTypeSSLScanXML
+	}
+
 
 	// sslscan detection — check filename and content
 	if strings.Contains(scriptName, "sslscan") {
@@ -522,7 +529,7 @@ func (rp *ResultParser) ParseResultFile(filePath string) (*ScanResult, error) {
 
 // ScanWorkspaceForResults scans the workspace directory recursively for result files.
 // It processes nmap output files (.nmap, .xml), the ph7 categorization_details.txt,
-// and supplementary tool outputs (sslscan.txt, nikto.xml).
+// and supplementary tool XML outputs (sslscan_*.xml, nikto.xml, nmap supplementary XML).
 // Generic .txt and .log files are intentionally excluded: they contain human-readable
 // reports that mention every IP in the scan range, which would flood the host inventory
 // with hundreds of spurious "unknown" entries.
@@ -544,8 +551,9 @@ func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 		base := filepath.Base(path)
 		ext := filepath.Ext(path)
 
-		// Process nmap output files, categorization details, and specific supplementary outputs.
-		if ext != ".nmap" && ext != ".xml" && base != "categorization_details.txt" && base != "sslscan.txt" {
+		// Accept .nmap and .xml files, plus categorization_details.txt.
+		// sslscan.txt is excluded: sslscan now outputs per-host XML files instead.
+		if ext != ".nmap" && ext != ".xml" && base != "categorization_details.txt" {
 			return nil
 		}
 
@@ -1169,6 +1177,187 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 			portRegex := regexp.MustCompile(`(\d+)`)
 			if matches := portRegex.FindStringSubmatch(line); len(matches) > 1 {
 				currentPort, _ = strconv.Atoi(matches[1])
+			}
+		}
+	}
+
+	return result, nil
+}
+
+
+// --- sslscan XML types ---
+
+type sslscanDocument struct {
+	XMLName  xml.Name      `xml:"document"`
+	SSLTests []sslscanTest `xml:"ssltest"`
+}
+
+type sslscanTest struct {
+	Host      string             `xml:"host,attr"`
+	Port      int                `xml:"port,attr"`
+	SNIName   string             `xml:"sniname,attr"`
+	Protocols []sslscanProtocol  `xml:"protocol"`
+	Ciphers   []sslscanCipher    `xml:"cipher"`
+	Groups    []sslscanGroup     `xml:"group"`
+	Heartbleed []sslscanHeartbleed `xml:"heartbleed"`
+	Certs     *sslscanCerts      `xml:"certificates"`
+}
+
+type sslscanProtocol struct {
+	Type    string `xml:"type,attr"`
+	Version string `xml:"version,attr"`
+	Enabled string `xml:"enabled,attr"`
+}
+
+type sslscanCipher struct {
+	Status     string `xml:"status,attr"`
+	SSLVersion string `xml:"sslversion,attr"`
+	Bits       int    `xml:"bits,attr"`
+	Cipher     string `xml:"cipher,attr"`
+	Strength   string `xml:"strength,attr"`
+	DHEBits    int    `xml:"dhebits,attr"`
+}
+
+type sslscanGroup struct {
+	SSLVersion string `xml:"sslversion,attr"`
+	Bits       int    `xml:"bits,attr"`
+	Name       string `xml:"name,attr"`
+	Strength   string `xml:"strength,attr"`
+}
+
+type sslscanHeartbleed struct {
+	SSLVersion string `xml:"sslversion,attr"`
+	Vulnerable string `xml:"vulnerable,attr"`
+}
+
+type sslscanCerts struct {
+	Certificate sslscanCert `xml:"certificate"`
+}
+
+type sslscanCert struct {
+	SigAlgorithm string `xml:"signature-algorithm"`
+	PK           struct {
+		Type string `xml:"type,attr"`
+		Bits int    `xml:"bits,attr"`
+	} `xml:"pk"`
+	Subject    string `xml:"subject"`
+	Altnames   string `xml:"altnames"`
+	Issuer     string `xml:"issuer"`
+	SelfSigned string `xml:"self-signed"`
+	Expired    string `xml:"expired"`
+	NotBefore  string `xml:"not-valid-before"`
+	NotAfter   string `xml:"not-valid-after"`
+}
+
+// parseSSLScanXML parses sslscan XML output into vulnerabilities.
+func (rp *ResultParser) parseSSLScanXML(result *ScanResult, content string) (*ScanResult, error) {
+	var doc sslscanDocument
+	if err := xml.Unmarshal([]byte(content), &doc); err != nil {
+		return rp.parseGenericOutput(result, content)
+	}
+
+	for _, test := range doc.SSLTests {
+		ip := test.Host
+		if ip == "" {
+			continue
+		}
+
+		result.Hosts = append(result.Hosts, Host{
+			IP:       ip,
+			Status:   "up",
+			LastSeen: result.Timestamp,
+			Ports:    make([]Port, 0),
+		})
+		result.Targets = append(result.Targets, ip)
+
+		port := test.Port
+
+		// SSLv2/SSLv3 — critical
+		for _, proto := range test.Protocols {
+			if proto.Enabled != "1" {
+				continue
+			}
+			if proto.Type == "ssl" && (proto.Version == "2" || proto.Version == "3") {
+				name := "SSLv3"
+				if proto.Version == "2" {
+					name = "SSLv2"
+				}
+				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+					Host:        ip,
+					Port:        port,
+					Title:       fmt.Sprintf("%s enabled", name),
+					Severity:    "critical",
+					Source:      "sslscan",
+					Discovery:   result.Timestamp,
+				})
+			}
+			// TLS 1.0/1.1 — medium
+			if proto.Type == "tls" && (proto.Version == "1.0" || proto.Version == "1.1") {
+				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+					Host:        ip,
+					Port:        port,
+					Title:       "Deprecated TLS version enabled",
+					Description: fmt.Sprintf("TLS %s is enabled", proto.Version),
+					Severity:    "medium",
+					Source:      "sslscan",
+					Discovery:   result.Timestamp,
+				})
+			}
+		}
+
+		// Heartbleed
+		for _, hb := range test.Heartbleed {
+			if hb.Vulnerable == "1" {
+				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+					Host:        ip,
+					Port:        port,
+					Title:       "OpenSSL Heartbleed",
+					Severity:    "high",
+					Source:      "sslscan",
+					Discovery:   result.Timestamp,
+				})
+				break // only report once per host
+			}
+		}
+
+		// Weak DH groups (deduplicate by bit size)
+		seenDHE := make(map[int]bool)
+		for _, cipher := range test.Ciphers {
+			if cipher.DHEBits > 0 && cipher.DHEBits <= 1024 && !seenDHE[cipher.DHEBits] {
+				seenDHE[cipher.DHEBits] = true
+				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+					Host:        ip,
+					Port:        port,
+					Title:       fmt.Sprintf("Weak DH key exchange group (%d bits)", cipher.DHEBits),
+					Severity:    "medium",
+					Source:      "sslscan",
+					Discovery:   result.Timestamp,
+				})
+			}
+		}
+
+		// Certificate issues
+		if test.Certs != nil {
+			cert := test.Certs.Certificate
+			if cert.SelfSigned == "true" {
+				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+					Host:        ip,
+					Port:        port,
+					Title:       "Self-signed SSL certificate",
+					Severity:    "medium",
+					Source:      "sslscan",
+					Discovery:   result.Timestamp,
+				})
+			}
+			if cert.Expired == "true" {
+				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+					Host:        ip,
+					Port:        port,
+					Title:       "Expired SSL certificate",
+					Severity:    "high",
+					Source:      "sslscan",
+					Discovery:   result.Timestamp,
+				})
 			}
 		}
 	}
