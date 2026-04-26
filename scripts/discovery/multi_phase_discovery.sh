@@ -1532,7 +1532,7 @@ perform_ipv6_discovery() {
     # Ping all-nodes multicast
     echo "Pinging all-nodes multicast ($IPV6_ALL_NODES):" >> "$IPV6_REPORT_FILE"
     ping6 -c 3 -I "$interface" "$IPV6_ALL_NODES" 2>/dev/null | \
-        grep "bytes from" | awk '{print \$4}' | cut -d':' -f1 | sort -u > "$TEMP_DIR/all_nodes.txt"
+        grep "bytes from" | awk '{print $4}' | cut -d':' -f1 | sort -u > "$TEMP_DIR/all_nodes.txt"
     if [ -s "$TEMP_DIR/all_nodes.txt" ]; then
         echo "Responses from all-nodes multicast:" >> "$IPV6_REPORT_FILE"
         sed 's/^/ /' "$TEMP_DIR/all_nodes.txt" >> "$IPV6_REPORT_FILE"
@@ -1546,7 +1546,7 @@ perform_ipv6_discovery() {
     # Ping all-routers multicast
     echo "Pinging all-routers multicast ($IPV6_ALL_ROUTERS):" >> "$IPV6_REPORT_FILE"
     ping6 -c 3 -I "$interface" "$IPV6_ALL_ROUTERS" 2>/dev/null | \
-        grep "bytes from" | awk '{print \$4}' | cut -d':' -f1 | sort -u > "$TEMP_DIR/all_routers.txt"
+        grep "bytes from" | awk '{print $4}' | cut -d':' -f1 | sort -u > "$TEMP_DIR/all_routers.txt"
     if [ -s "$TEMP_DIR/all_routers.txt" ]; then
         echo "Responses from all-routers multicast:" >> "$IPV6_REPORT_FILE"
         sed 's/^/ /' "$TEMP_DIR/all_routers.txt" >> "$IPV6_REPORT_FILE"
@@ -1560,7 +1560,7 @@ perform_ipv6_discovery() {
     # Ping DHCPv6 multicast
     echo "Pinging DHCPv6 multicast ($IPV6_ALL_DHCP):" >> "$IPV6_REPORT_FILE"
     ping6 -c 3 -I "$interface" "$IPV6_ALL_DHCP" 2>/dev/null | \
-        grep "bytes from" | awk '{print \$4}' | cut -d':' -f1 | sort -u > "$TEMP_DIR/dhcpv6.txt"
+        grep "bytes from" | awk '{print $4}' | cut -d':' -f1 | sort -u > "$TEMP_DIR/dhcpv6.txt"
     if [ -s "$TEMP_DIR/dhcpv6.txt" ]; then
         echo "Responses from DHCPv6 multicast:" >> "$IPV6_REPORT_FILE"
         sed 's/^/ /' "$TEMP_DIR/dhcpv6.txt" >> "$IPV6_REPORT_FILE"
@@ -1579,7 +1579,7 @@ perform_ipv6_discovery() {
     echo >> "$IPV6_REPORT_FILE"
 
     ip -6 neighbor show dev "$interface" | \
-        grep -v "FAILED" | awk '{print \$1}' > "$TEMP_DIR/neighbors.txt"
+        grep -v "FAILED" | awk '{print $1}' > "$TEMP_DIR/neighbors.txt"
     if [ -s "$TEMP_DIR/neighbors.txt" ]; then
         cat "$TEMP_DIR/neighbors.txt" >> "$IPV6_HOSTS_FILE"
         cp "$TEMP_DIR/neighbors.txt" "$IPV6_EVIDENCE_DIR/neighbor_analysis/neighbor_cache.txt"
@@ -1592,7 +1592,7 @@ perform_ipv6_discovery() {
         timeout 10 rdisc6 "$interface" 2>/dev/null | \
             grep -E "Soliciting|Advertisement from" >> "$IPV6_REPORT_FILE"
         timeout 10 rdisc6 "$interface" 2>/dev/null | \
-            grep "Advertisement from" | awk '{print \$3}' | sort -u > "$TEMP_DIR/routers.txt"
+            grep "Advertisement from" | awk '{print $3}' | sort -u > "$TEMP_DIR/routers.txt"
         if [ -s "$TEMP_DIR/routers.txt" ]; then
             cat "$TEMP_DIR/routers.txt" >> "$IPV6_HOSTS_FILE"
             cp "$TEMP_DIR/routers.txt" "$IPV6_EVIDENCE_DIR/router_discovery/discovered_routers.txt"
@@ -1605,7 +1605,7 @@ perform_ipv6_discovery() {
         ip -6 neighbor show dev "$interface" | \
             grep "router" | sed 's/^/ /' >> "$IPV6_REPORT_FILE"
         ip -6 neighbor show dev "$interface" | \
-            grep "router" | awk '{print \$1}' > "$TEMP_DIR/routers.txt"
+            grep "router" | awk '{print $1}' > "$TEMP_DIR/routers.txt"
         if [ -s "$TEMP_DIR/routers.txt" ]; then
             cat "$TEMP_DIR/routers.txt" >> "$IPV6_HOSTS_FILE"
             cp "$TEMP_DIR/routers.txt" "$IPV6_EVIDENCE_DIR/router_discovery/neighbor_routers.txt"
@@ -1616,7 +1616,7 @@ perform_ipv6_discovery() {
     # Phase 4: Address Scanning (link-local probing)
     local link_local_prefix
     link_local_prefix=$(ip -6 addr show "$interface" | grep "fe80" | \
-        head -1 | awk '{print \$2}' | cut -d'/' -f1 | cut -d':' -f1-4)
+        head -1 | awk '{print $2}' | cut -d'/' -f1 | cut -d':' -f1-4)
     if [ -n "$link_local_prefix" ] && command -v ping6 >/dev/null 2>&1; then
         echo "--- PHASE 4: ADDRESS SCANNING ---" >> "$IPV6_REPORT_FILE"
         echo "Scanning link-local addresses with prefix $link_local_prefix:" >> "$IPV6_REPORT_FILE"
