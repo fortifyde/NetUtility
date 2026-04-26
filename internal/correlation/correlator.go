@@ -238,6 +238,7 @@ func (c *Correlator) correlateHost(hostIP string) {
 	}
 
 	// Collect data from all relevant scans
+	seenVulns := make(map[string]bool)
 	for _, result := range c.results {
 		if c.resultContainsHost(result, hostIP) {
 			correlation.RelatedScans = append(correlation.RelatedScans, result.ID)
@@ -310,11 +311,17 @@ func (c *Correlator) correlateHost(hostIP string) {
 				}
 			}
 
-			// Collect vulnerabilities
+			// Collect vulnerabilities (deduplicate across multiple scan results)
 			for _, vuln := range result.Vulnerabilities {
-				if vuln.Host == hostIP {
-					correlation.Vulnerabilities = append(correlation.Vulnerabilities, vuln)
+				if vuln.Host != hostIP {
+					continue
 				}
+				key := vuln.Host + "|" + vuln.Title + "|" + vuln.Source + "|" + strconv.Itoa(vuln.Port)
+				if seenVulns[key] {
+					continue
+				}
+				seenVulns[key] = true
+				correlation.Vulnerabilities = append(correlation.Vulnerabilities, vuln)
 			}
 		}
 	}
