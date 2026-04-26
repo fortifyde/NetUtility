@@ -84,7 +84,7 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 	}
 
 	// Nikto XML detection — check content before generic name patterns
-	if strings.Contains(contentLower, "<niktoscan>") {
+	if strings.Contains(contentLower, "<niktoscan") {
 		return ScanTypeNikto
 	}
 
@@ -573,10 +573,17 @@ func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 
 // --- Nikto XML types for parsing ---
 
-// niktoScan is the top-level XML structure.
+// niktoScan is the top-level XML structure (singular <niktoscan>).
 type niktoScan struct {
 	XMLName     xml.Name           `xml:"niktoscan"`
 	ScanDetails []niktoScanDetails `xml:"scandetails"`
+}
+
+// niktoScans is a wrapper for the plural root <niktoscans> that some
+// nikto output formats use when multiple scans are present.
+type niktoScans struct {
+	XMLName xml.Name    `xml:"niktoscans"`
+	Scans   []niktoScan `xml:"niktoscan"`
 }
 
 // niktoScanDetails holds per-target scan details.
@@ -589,11 +596,12 @@ type niktoScanDetails struct {
 
 // niktoItem represents a single finding.
 type niktoItem struct {
-	Method      string `xml:"method,attr"`
-	URL         string `xml:"url,attr"`
-	Description string `xml:"description,attr"`
-	ID          string `xml:"id,attr"`
-	Text        string `xml:",chardata"`
+	Method          string `xml:"method,attr"`
+	URL              string `xml:"url,attr"`
+	DescAttr        string `xml:"description,attr"` // attribute form (test data)
+	Description     string `xml:"description"`       // CDATA element content (real nikto output)
+	ID              string `xml:"id,attr"`
+	Text            string `xml:",chardata"`
 }
 
 // --- Nmap XML types for parsing ---
@@ -877,15 +885,57 @@ func findElemByKey(elems []nmapElem, key string) string {
 	}
 	return ""
 }
+// splitXMLDocuments splits content that contains multiple concatenated XML
+// documents (e.g., nikto appending per-host results) into individual documents.
+func splitXMLDocuments(content string) []string {
+	var docs []string
+	idx := 0
+	for {
+		next := strings.Index(content[idx:], "<?xml")
+		if next < 0 {
+			break
+		}
+		start := idx + next
+		end := strings.Index(content[start+5:], "<?xml")
+		if end < 0 {
+			docs = append(docs, content[start:])
+			break
+		}
+		docs = append(docs, content[start:start+5+end])
+		idx = start + 5 + end
+	}
+	return docs
+}
+
 // parseNiktoXMLResult parses nikto XML output into vulnerabilities.
+// Nikto appends per-host XML to the same file, producing concatenated XML
+// documents. We split on <?xml boundaries and parse each document separately.
 func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) (*ScanResult, error) {
-	var scan niktoScan
-	if err := xml.Unmarshal([]byte(content), &scan); err != nil {
+	var allDetails []niktoScanDetails
+
+	for _, doc := range splitXMLDocuments(content) {
+		// Try plural wrapper first (<niktoscans><niktoscan>...).
+		var scans niktoScans
+		if err := xml.Unmarshal([]byte(doc), &scans); err == nil && len(scans.Scans) > 0 {
+			for _, s := range scans.Scans {
+				allDetails = append(allDetails, s.ScanDetails...)
+			}
+			continue
+		}
+		// Try singular root (<niktoscan>...).
+		var single niktoScan
+		if err := xml.Unmarshal([]byte(doc), &single); err != nil {
+			continue
+		}
+		allDetails = append(allDetails, single.ScanDetails...)
+	}
+
+	if len(allDetails) == 0 {
 		return rp.parseGenericOutput(result, content)
 	}
 
 	seenHosts := make(map[string]bool)
-	for _, details := range scan.ScanDetails {
+	for _, details := range allDetails {
 		ip := details.TargetIP
 		if ip == "" {
 			continue
@@ -913,6 +963,9 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 			severity := niktoSeverity(item)
 
 			title := item.Description
+			if title == "" {
+				title = item.DescAttr // attribute form from some nikto versions
+			}
 			if title == "" {
 				title = item.Text
 			}
@@ -944,6 +997,9 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 // structured description attribute, which is nikto's canonical finding summary.
 func niktoSeverity(item niktoItem) string {
 	text := strings.ToLower(item.Description)
+	if text == "" {
+		text = strings.ToLower(item.DescAttr)
+	}
 
 	highKW := []string{"vulnerable", "unrestricted", "credentials", "default password",
 		"default credential", "admin panel", "backdoor", "shell",
@@ -973,7 +1029,7 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 	var currentIP string
 	var currentPort int
 	seenHosts := make(map[string]bool)
-
+	seenDH := make(map[string]bool) // "host:bits" dedup for weak DH findings
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 
@@ -1005,26 +1061,26 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 		lineLower := strings.ToLower(line)
 
 		// Detect SSLv2/SSLv3 — critical
-		if strings.Contains(lineLower, "sslv2") || strings.Contains(lineLower, "sslv3") {
-			if strings.Contains(lineLower, "enabled") {
-				proto := "SSLv3"
-				if strings.Contains(lineLower, "sslv2") {
-					proto = "SSLv2"
-				}
-				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-					Host:        currentIP,
-					Port:        currentPort,
-					Title:       fmt.Sprintf("%s enabled", proto),
-					Description: line,
-					Severity:    "critical",
-					Source:      "sslscan",
-					Discovery:   result.Timestamp,
-				})
+		if (strings.Contains(lineLower, "sslv2") || strings.Contains(lineLower, "sslv3")) &&
+			strings.Contains(lineLower, "enabled") {
+			proto := "SSLv3"
+			if strings.Contains(lineLower, "sslv2") {
+				proto = "SSLv2"
 			}
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:        currentIP,
+				Port:        currentPort,
+				Title:       fmt.Sprintf("%s enabled", proto),
+				Description: line,
+				Severity:    "critical",
+				Source:      "sslscan",
+				Discovery:   result.Timestamp,
+			})
 		}
 
 		// Detect TLS 1.0/1.1 — medium
-		if (strings.Contains(lineLower, "tls 1.0") || strings.Contains(lineLower, "tls 1.1")) &&
+		if (strings.Contains(lineLower, "tlsv1.0") || strings.Contains(lineLower, "tlsv1.1") ||
+			strings.Contains(lineLower, "tls 1.0") || strings.Contains(lineLower, "tls 1.1")) &&
 			strings.Contains(lineLower, "enabled") {
 			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
 				Host:        currentIP,
@@ -1054,6 +1110,29 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 			}
 		}
 
+		// Detect weak DH groups (1024 bits or less) — deduplicate per host.
+		if currentIP != "" && strings.Contains(line, "DHE") && strings.Contains(line, "bits") {
+			bitRegex := regexp.MustCompile(`DHE\s+(\d+)\s+bits`)
+			if matches := bitRegex.FindStringSubmatch(line); len(matches) > 1 {
+				bits, _ := strconv.Atoi(matches[1])
+				if bits <= 1024 {
+					key := fmt.Sprintf("%s:%d", currentIP, bits)
+					if !seenDH[key] {
+						seenDH[key] = true
+						result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+							Host:        currentIP,
+							Port:        currentPort,
+							Title:       fmt.Sprintf("Weak DH key exchange group (%d bits)", bits),
+							Description: line,
+							Severity:    "medium",
+							Source:      "sslscan",
+							Discovery:   result.Timestamp,
+						})
+					}
+				}
+			}
+		}
+
 		// Detect certificate issues — medium
 		certIssues := []string{"self-signed", "expired", "weak key"}
 		for _, issue := range certIssues {
@@ -1069,6 +1148,20 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 				})
 				break
 			}
+		}
+		
+		// Detect self-signed certificate from issuer line
+		if currentIP != "" && strings.Contains(lineLower, "issuer") &&
+			strings.Contains(lineLower, "self-signed") {
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:        currentIP,
+				Port:        currentPort,
+				Title:       "Self-signed SSL certificate",
+				Description: line,
+				Severity:    "medium",
+				Source:      "sslscan",
+				Discovery:   result.Timestamp,
+			})
 		}
 
 		// Detect port from sslscan output
