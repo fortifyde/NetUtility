@@ -1,7 +1,10 @@
 # NetUtility
 
 <div align="center">
-[![Build](https://github.com/fortifyde/NetUtility/actions/workflows/ci.yml/badge.svg)](https://github.com/fortifyde/NetUtility/actions/workflows/ci.yml) ![Go](https://img.shields.io/github/go-mod/go-version/fortifyde/NetUtility) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+<a href="https://github.com/fortifyde/NetUtility/actions/workflows/ci.yml"><img src="https://github.com/fortifyde/NetUtility/actions/workflows/ci.yml/badge.svg" alt="Build"></a>
+<img src="https://img.shields.io/github/go-mod/go-version/fortifyde/NetUtility" alt="Go">
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 
 </div>
 
