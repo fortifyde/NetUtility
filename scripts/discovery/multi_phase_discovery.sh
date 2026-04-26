@@ -2,7 +2,7 @@
 
 # Enhanced Multi-phase Network Discovery Workflow
 # Comprehensive network discovery
-# Phase 1: Enhanced Network Discovery (topology, infrastructure, DNS, segmentation, ARP)
+# Phase 1: Enhanced Network Discovery (ARP scan, infrastructure identification)
 # Phase 2: Comprehensive Host Discovery (ICMP, TCP bypass, UDP probes, masscan, early classification)
 # Phase 3: DNS lookup → Phase 4: Windows Discovery → Phase 5: Progressive Port Scan
 # Phase 6: Service Enumeration → Phase 7: Host Categorization → Phase 8: Evidence Processing
@@ -161,7 +161,7 @@ dns_preflight_check() {
             dns_configured=true
             ;;
         *)
-            echo "Skipping DNS configuration. Phase 1.4 and Phase 3 DNS lookups will be skipped." >&2
+            echo "Skipping DNS configuration. Phase 3 DNS lookups will be skipped." >&2
             dns_configured=false
             ;;
     esac
@@ -1119,102 +1119,7 @@ create_enriched_categorized_hosts() {
     log_info "Created enriched categorized file: $enriched_file"
 }
 
-# Network topology discovery functions
-discover_network_topology() {
-    target_networks="$1"
-    output_file="$2"
 
-    echo "  Performing network topology discovery..." >> "$REPORT_FILE"
-    
-    # Gateway discovery for each network
-    for network in $target_networks; do
-        if [ -n "$network" ]; then
-            echo "    Analyzing network: $network" >> "$REPORT_FILE"
-            
-            # Compute first and last usable host addresses for this subnet
-            gateway_candidates=$(awk -v cidr="$network" 'BEGIN {
-                split(cidr, parts, "/")
-                split(parts[1], oct, ".")
-                net_int = oct[1] * 16777216 + oct[2] * 65536 + oct[3] * 256 + oct[4]
-                prefix = int(parts[2])
-                if (prefix == 32) {
-                    exit
-                } else if (prefix == 31) {
-                    first_int = net_int
-                    last_int  = net_int + 1
-                } else {
-                    first_int = net_int + 1
-                    last_int  = net_int + 2 ^ (32 - prefix) - 2
-                }
-                printf "%d.%d.%d.%d\n", int(first_int/16777216)%256, int(first_int/65536)%256, int(first_int/256)%256, first_int%256
-                if (last_int != first_int)
-                    printf "%d.%d.%d.%d\n", int(last_int/16777216)%256, int(last_int/65536)%256, int(last_int/256)%256, last_int%256
-            }')
-
-            # Test first and last usable hosts as gateway candidates
-            for gateway_ip in $gateway_candidates; do
-                if ping -c 1 -W 1 "$gateway_ip" >/dev/null 2>&1; then
-                    echo "      Gateway detected: $gateway_ip" >> "$REPORT_FILE"
-                    echo "$gateway_ip" >> "$output_file"
-
-                    # Try to get gateway MAC from Phase 1.1 arp-scan results
-                    arp_full="$PHASE1_DIR/raw_scans/arp_scan_full.txt"
-                    if [ -f "$arp_full" ]; then
-                        gateway_mac=$(grep "^$gateway_ip" "$arp_full" | awk '{print $2}' | head -1)
-                        if [ -n "$gateway_mac" ]; then
-                            echo "        MAC: $gateway_mac" >> "$REPORT_FILE"
-                        fi
-                    fi
-                fi
-            done
-        fi
-    done
-}
-
-# Reverse DNS enumeration
-perform_reverse_dns_enumeration() {
-    network="$1"
-    output_file="$2"
-
-    if [ "$dns_configured" != "true" ]; then
-        echo "  Skipping reverse DNS enumeration (no nameserver configured)" >> "$REPORT_FILE"
-        return
-    fi
-
-    echo "  Performing reverse DNS enumeration..." >> "$REPORT_FILE"
-    
-    network_base=$(echo "$network" | cut -d'/' -f1 | cut -d'.' -f1-3)
-    reverse_dns_found=0
-    
-    # Sample reverse DNS lookups to identify naming patterns
-    for i in 1 10 50 100 254; do
-        test_ip="${network_base}.$i"
-        if command -v dig >/dev/null 2>&1; then
-            reverse_result=$(dig -x "$test_ip" +short 2>/dev/null | head -1)
-        elif command -v nslookup >/dev/null 2>&1; then
-            reverse_result=$(nslookup "$test_ip" 2>/dev/null | grep "name =" | cut -d'=' -f2 | tr -d ' ' | head -1)
-        else
-            continue
-        fi
-        
-        if [ -n "$reverse_result" ] && [ "$reverse_result" != "$test_ip" ]; then
-            # Verify host is reachable before adding
-            if ping -c 1 -W 1 "$test_ip" >/dev/null 2>&1; then
-                echo "      Reverse DNS: $test_ip -> $reverse_result (verified alive)" >> "$REPORT_FILE"
-                echo "$test_ip" >> "$output_file"
-                reverse_dns_found=$((reverse_dns_found + 1))
-            else
-                echo "      Reverse DNS: $test_ip -> $reverse_result (not reachable, skipped)" >> "$REPORT_FILE"
-            fi
-        fi
-    done
-    
-    if [ $reverse_dns_found -gt 0 ]; then
-        echo "    Found $reverse_dns_found hosts with reverse DNS entries" >> "$REPORT_FILE"
-    else
-        echo "    No reverse DNS entries detected in sample" >> "$REPORT_FILE"
-    fi
-}
 
 # Network device identification via SNMP
 identify_network_devices() {
@@ -1894,52 +1799,6 @@ perform_early_device_classification() {
     fi
 }
 
-# Network segmentation analysis
-analyze_network_segmentation() {
-    target_networks="$1"
-    output_file="$2"
-
-    echo "  Analyzing network segmentation and reachability..." >> "$REPORT_FILE"
-
-    # Routing analysis
-    echo "    Analyzing routing information..." >> "$REPORT_FILE"
-    
-    # Check routing table for insights into network segmentation
-    if command -v ip >/dev/null 2>&1; then
-        routes_count=$(ip route show | grep -v "linkdown" | wc -l)
-        echo "      Active routes: $routes_count" >> "$REPORT_FILE"
-        
-        # Show key routing information
-        ip route show | grep -E "default via|192\.168\.|10\.|172\." | head -5 | while read -r route; do
-            echo "        $route" >> "$REPORT_FILE"
-        done
-    fi
-    
-    # Network boundary detection via traceroute sampling
-    if command -v traceroute >/dev/null 2>&1 && [ -n "$target_networks" ]; then
-        echo "    Sampling network boundaries..." >> "$REPORT_FILE"
-        
-        # Pick a sample network for boundary testing
-        sample_network=$(echo "$target_networks" | awk '{print $1}')
-        if [ -n "$sample_network" ]; then
-            sample_ip=$(echo "$sample_network" | cut -d'/' -f1 | cut -d'.' -f1-3).10
-            
-            echo "      Tracing path to $sample_ip..." >> "$REPORT_FILE"
-            traceroute_output=$(traceroute -m 5 -w 2 "$sample_ip" 2>/dev/null | head -5)
-            
-            if [ -n "$traceroute_output" ]; then
-                hops=$(echo "$traceroute_output" | grep -c "^[[:space:]]*[0-9]")
-                echo "        Network hops to target: $hops" >> "$REPORT_FILE"
-                
-                # Look for potential network boundaries (different subnets in path)
-                echo "$traceroute_output" | grep -oE "([0-9]{1,3}\.){3}[0-9]{1,3}" | \
-                head -3 | while read -r hop_ip; do
-                    echo "          Hop: $hop_ip" >> "$REPORT_FILE"
-                done
-            fi
-        fi
-    fi
-}
 
 # Enhanced fping function with better reliability and error handling
 enhanced_fping_sweep() {
@@ -2789,7 +2648,6 @@ fi
 
 # Initialize host discovery files
 : > "$PHASE1_DIR/arp_hosts.txt"
-: > "$PHASE1_DIR/topology_hosts.txt"
 : > "$PHASE1_DIR/infrastructure_hosts.txt"
 mkdir -p "$PHASE1_DIR/raw_scans"
 
@@ -2821,55 +2679,31 @@ else
     : > "$PHASE1_DIR/arp_hosts.txt"
 fi
 
-# Sub-phase 1.2: Network Topology Discovery (reads from 1.1 arp-scan results)
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.2: Network topology discovery" "$COLOR_RESET"
-echo "  Sub-phase 1.2: Network topology discovery" >> "$REPORT_FILE"
-discover_network_topology "$target_networks" "$PHASE1_DIR/topology_hosts.txt"
-
-# Sub-phase 1.3: Infrastructure Device Identification
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.3: Infrastructure identification" "$COLOR_RESET"
-echo "  Sub-phase 1.3: Network infrastructure identification" >> "$REPORT_FILE"
+# Sub-phase 1.2: Infrastructure Device Identification
+printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.2: Infrastructure identification" "$COLOR_RESET"
+echo "  Sub-phase 1.2: Network infrastructure identification" >> "$REPORT_FILE"
 identify_network_devices "$target_networks" "$PHASE1_DIR/infrastructure_hosts.txt"
 
-# Sub-phase 1.4: Reverse DNS Pattern Analysis (skipped if no nameserver configured)
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.4: Reverse DNS enumeration" "$COLOR_RESET"
-echo "  Sub-phase 1.4: Reverse DNS enumeration" >> "$REPORT_FILE"
-perform_reverse_dns_enumeration "$network_range" "$PHASE1_DIR/topology_hosts.txt"
-
-# Sub-phase 1.5: Network Segmentation Analysis
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.5: Network segmentation analysis" "$COLOR_RESET"
-echo "  Sub-phase 1.5: Network segmentation analysis" >> "$REPORT_FILE"
-: > "$PHASE1_DIR/segmentation_analysis.txt"
-analyze_network_segmentation "$target_networks" "$PHASE1_DIR/segmentation_analysis.txt"
-segmentation_findings=$(wc -l < "$PHASE1_DIR/segmentation_analysis.txt")
-echo "  Sub-phase 1.5 complete: $segmentation_findings segmentation findings" >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
 
 # Consolidate all Phase 1 discoveries
-cat "$PHASE1_DIR/arp_hosts.txt" "$PHASE1_DIR/topology_hosts.txt" "$PHASE1_DIR/infrastructure_hosts.txt" | \
+cat "$PHASE1_DIR/arp_hosts.txt" "$PHASE1_DIR/infrastructure_hosts.txt" | \
     sort -u > "$PHASE1_DIR/phase1_all_hosts.txt"
 
 arp_count=$(wc -l < "$PHASE1_DIR/arp_hosts.txt")
-topology_count=$(wc -l < "$PHASE1_DIR/topology_hosts.txt")
 infrastructure_count=$(wc -l < "$PHASE1_DIR/infrastructure_hosts.txt")
 phase1_total=$(wc -l < "$PHASE1_DIR/phase1_all_hosts.txt")
 
 echo >> "$REPORT_FILE"
 echo "Phase 1 Enhanced Network Discovery Summary:" >> "$REPORT_FILE"
 echo "  Layer 2 ARP hosts: $arp_count" >> "$REPORT_FILE"
-echo "  Topology/DNS hosts: $topology_count" >> "$REPORT_FILE"
 echo "  Infrastructure devices: $infrastructure_count" >> "$REPORT_FILE"
-echo "  Segmentation findings: $segmentation_findings" >> "$REPORT_FILE"
 echo "  Total unique hosts: $phase1_total" >> "$REPORT_FILE"
 echo >> "$REPORT_FILE"
 echo "  Sub-phases completed:" >> "$REPORT_FILE"
 echo "    ✓ Layer 2 ARP discovery" >> "$REPORT_FILE"
-echo "    ✓ Network topology and boundary analysis" >> "$REPORT_FILE"
 echo "    ✓ Infrastructure device identification" >> "$REPORT_FILE"
-echo "    ✓ Reverse DNS pattern analysis" >> "$REPORT_FILE"
-echo "    ✓ Network segmentation analysis" >> "$REPORT_FILE"
 
-log_network_operation "Enhanced Phase 1 discovery" "$network_range" "Found $phase1_total hosts ($arp_count ARP, $topology_count topology, $infrastructure_count infrastructure, $segmentation_findings segmentation)"
+log_network_operation "Enhanced Phase 1 discovery" "$network_range" "Found $phase1_total hosts ($arp_count ARP, $infrastructure_count infrastructure)"
 echo >> "$REPORT_FILE"
 
 mark_phase_done 1
@@ -3583,8 +3417,8 @@ echo >> "$REPORT_FILE"
 
 echo "Enhanced discovery phases completed:" >> "$REPORT_FILE"
 echo "  ✓ Phase 1: Enhanced Network Discovery" >> "$REPORT_FILE"
-echo "      - Topology analysis, infrastructure ID, DNS patterns, segmentation analysis, ARP scan" >> "$REPORT_FILE"
-echo "      - Total hosts: $phase1_total (ARP:$arp_count, topology:$topology_count, infrastructure:$infrastructure_count)" >> "$REPORT_FILE"
+echo "      - ARP scan, infrastructure identification" >> "$REPORT_FILE"
+echo "      - Total hosts: $phase1_total (ARP:$arp_count, infrastructure:$infrastructure_count)" >> "$REPORT_FILE"
 echo "  ✓ Phase 2: Comprehensive Host Discovery" >> "$REPORT_FILE"
 echo "      - ICMP, TCP bypass, UDP probes, masscan, early OS/device classification" >> "$REPORT_FILE"
 echo "      - Total hosts: $all_hosts_count (ICMP:$ping_count, TCP:$tcp_count, UDP:$udp_count, masscan:$masscan_count)" >> "$REPORT_FILE"
