@@ -757,14 +757,16 @@ func (rp *ResultParser) parseNmapXML(result *ScanResult, content string) (*ScanR
 
 			if p.State.State == "open" {
 				svc := Service{
-					Host:       ip,
-					Port:       p.PortID,
-					Protocol:   p.Protocol,
-					Name:       port.Service,
-					Version:    p.Service.Version,
-					Product:    p.Service.Product,
-					ExtraInfo:  p.Service.ExtraInfo,
-					Confidence: p.Service.Conf,
+					Host:     ip,
+					Port:     p.PortID,
+					Protocol: p.Protocol,
+					Name:     port.Service,
+				}
+				if p.Service != nil {
+					svc.Version = p.Service.Version
+					svc.Product = p.Service.Product
+					svc.ExtraInfo = p.Service.ExtraInfo
+					svc.Confidence = p.Service.Conf
 				}
 				result.Services = append(result.Services, svc)
 			}
