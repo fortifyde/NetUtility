@@ -88,6 +88,15 @@ ph7_collect_evidence() {
         [ -n "$_p7_nmap_os" ] && printf 'nmap_os_string:%s\n' "$_p7_nmap_os" >> "$_p7_ev_file"
     fi
 
+    # --- nmap OS string fallback (Phase 6 inventory scan, used in lightweight mode) ---
+    if [ -z "$_p7_nmap_os" ] && [ -f "$PHASE6_DIR/raw_scans/nmap_inventory.nmap" ]; then
+        _p7_nmap_os=$(extract_host_data "$_p7_ip" "$PHASE6_DIR/raw_scans/nmap_inventory.nmap" \
+            | grep -E "^(Running|OS details):" \
+            | head -1 \
+            | sed 's/^[^:]*:[[:space:]]*//')
+        [ -n "$_p7_nmap_os" ] && printf 'nmap_os_string:%s\n' "$_p7_nmap_os" >> "$_p7_ev_file"
+    fi
+
     # --- HTTP title (Phase 6 web enum, nmap -oN format) ---
     if [ -f "$PHASE6_DIR/raw_scans/nmap_web_enum.nmap" ]; then
         _p7_http_title=$(extract_host_data "$_p7_ip" "$PHASE6_DIR/raw_scans/nmap_web_enum.nmap" \
@@ -579,4 +588,69 @@ EOF
     printf '  FINAL: %s | %s | %s | %s | %s\n' \
         "$_p7_category" "$_p7_vendor" "$_p7_confidence" "$_p7_score" "$_p7_evidence" >> "$_p7_debug_file"
     printf '%s|%s|%s|%s|%s\n' "$_p7_category" "$_p7_vendor" "$_p7_confidence" "$_p7_score" "$_p7_evidence"
+}
+
+
+# ph7_subcategory determines a fine-grained subcategory within a primary category.
+# Usage: ph7_subcategory <ip> <category>
+# Prints a subcategory string (e.g. "server", "workstation", "domain_controller") or empty.
+# Reads nmap_os_string and port_open_tcp:* from the evidence file.
+ph7_subcategory() {
+    _p7s_ip="$1"
+    _p7s_category="$2"
+    _p7s_ev_file="$PHASE7_DIR/evidence/${_p7s_ip}.ev"
+
+    if [ ! -f "$_p7s_ev_file" ]; then
+        return
+    fi
+
+    case "$_p7s_category" in
+        windows)
+            _p7s_os=$(grep '^nmap_os_string:' "$_p7s_ev_file" | cut -d: -f2-)
+
+            # Server detection: OS string contains "Server"
+            if echo "$_p7s_os" | grep -q 'Server'; then
+                # Check for domain controller ports (overrides server to domain_controller)
+                if grep -q '^port_open_tcp:389$' "$_p7s_ev_file" || \
+                   grep -q '^port_open_tcp:636$' "$_p7s_ev_file" || \
+                   grep -q '^port_open_tcp:3268$' "$_p7s_ev_file" || \
+                   grep -q '^port_open_tcp:3269$' "$_p7s_ev_file"; then
+                    printf 'domain_controller'
+                # Check for SQL Server port
+                elif grep -q '^port_open_tcp:1433$' "$_p7s_ev_file"; then
+                    printf 'sql_server'
+                else
+                    printf 'server'
+                fi
+                return
+            fi
+
+            # Workstation detection: OS string contains client identifiers
+            if [ -n "$_p7s_os" ]; then
+                case "$_p7s_os" in
+                    *Windows*10*|*Windows*11*|*Windows*7*|*Windows*8*|*Windows*XP*)
+                        printf 'workstation'
+                        return
+                        ;;
+                    *Vista*|*Professional*|*Workstation*)
+                        printf 'workstation'
+                        return
+                        ;;
+                esac
+            fi
+
+            # Port-based fallback for hosts without clear OS
+            if grep -q '^port_open_tcp:389$' "$_p7s_ev_file" || \
+               grep -q '^port_open_tcp:636$' "$_p7s_ev_file" || \
+               grep -q '^port_open_tcp:3268$' "$_p7s_ev_file" || \
+               grep -q '^port_open_tcp:3269$' "$_p7s_ev_file"; then
+                printf 'domain_controller'
+                return
+            fi
+            if grep -q '^port_open_tcp:1433$' "$_p7s_ev_file"; then
+                printf 'sql_server'
+                return
+            fi
+            ;;
+    esac
 }

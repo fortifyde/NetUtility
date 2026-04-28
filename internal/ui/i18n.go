@@ -76,11 +76,13 @@ type Strings struct {
 	FmtExecutionOptions  string // Sprintf(fmt, taskName)
 
 	// ── Category display names ────────────────────────────────────────────────
-	CatHostConfig       string
+	CatNetworkSetup     string
 	CatSystemUtilities  string
 	CatNetworkDiscovery string
+	CatCaptureAnalysis  string
 	CatPortScanning     string
-	CatAdvancedTools    string
+	CatReconnaissance   string
+	CatConfigGathering  string
 
 	// ── Hardcoded fallback task names & descriptions ──────────────────────────
 	TaskSelectWorkDir              string
@@ -257,6 +259,10 @@ type Strings struct {
 	CatModalLinux              string
 	CatModalNetDevice          string
 	FmtCatModalTitle           string // Sprintf(fmt, ip)
+	// ── Topology viewer ────────────────────────────────────────────────────
+	FmtTopoResult string // Sprintf(fmt, htmlPath)
+	TopoNoData    string
+
 
 	// ── Main view panels ────────────────────────────────────────────────────
 	PaneTitleAssessment        string
@@ -428,11 +434,13 @@ Mouse:
 	FmtExecutionOptions:  "Maximum concurrent jobs reached.\n\nHow would you like to execute '%s'?",
 
 	// Category display names
-	CatHostConfig:       "Host Configuration",
+	CatNetworkSetup:     "Network Setup",
 	CatSystemUtilities:  "System Utilities",
 	CatNetworkDiscovery: "Network Discovery",
+	CatCaptureAnalysis:  "Capture Analysis",
 	CatPortScanning:     "Port Scanning",
-	CatAdvancedTools:    "Advanced Tools",
+	CatReconnaissance:   "Reconnaissance",
+	CatConfigGathering:  "Config Gathering",
 
 	// Hardcoded task names
 	TaskSelectWorkDir:              "Select Working Directory",
@@ -624,8 +632,9 @@ Script Control:
 	FmtCorrControlsText: `[yellow]Navigation                    Actions[::-]
 [white]Enter[::-]  View host details       [white]s[::-]  View screenshot
 [white]/[::-]      Search hosts            [white]p[::-]  Create Hostfile Package
+[white]Space[::-]  Categorize host         [white]t[::-]  Generate Network Topology
+[white]q[::-]      Close
 %s
-[white]Space[::-]  Categorize host         [white]q[::-]  Close
 
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`,
 	CorrResetSearch:            "[yellow]f[::-]      Reset search",
@@ -655,6 +664,10 @@ Script Control:
 	CatModalLinux:              "Linux",
 	CatModalNetDevice:          "Network Device",
 	FmtCatModalTitle:           "Categorize %s",
+
+	// Topology viewer
+	FmtTopoResult: "Topology viewer generated:\n\n%s",
+	TopoNoData:    "No correlation data available.\nRun discovery scans first.",
 
 	// Main view panels
 	PaneTitleAssessment:        "Assessment",
@@ -773,11 +786,13 @@ Erweiterte Funktionen:
 	FmtExecutionOptions:  "Maximale Anzahl gleichzeitiger Jobs erreicht.\n\nWie soll '%s' ausgeführt werden?",
 
 	// Category display names
-	CatHostConfig:       "Host-Konfiguration",
+	CatNetworkSetup:     "Netzwerk-Einrichtung",
 	CatSystemUtilities:  "Werkzeuge",
 	CatNetworkDiscovery: "Discovery",
+	CatCaptureAnalysis:  "Analyse",
 	CatPortScanning:     "Port-Scans",
-	CatAdvancedTools:    "Advanced",
+	CatReconnaissance:   "Aufklärung",
+	CatConfigGathering:  "Konfiguration",
 
 	// Hardcoded task names
 	TaskSelectWorkDir:              "Arbeitsverzeichnis wählen",
@@ -961,8 +976,9 @@ Skriptsteuerung:
 	FmtCorrControlsText: `[yellow]Navigation                     Aktionen[::-]
 [white]Enter[::-]  Host-Details anzeigen   [white]s[::-]  Screenshot anzeigen
 [white]/[::-]      Hosts suchen            [white]p[::-]  Hostfile-Paket erstellen
+[white]Space[::-]  Host kategorisieren     [white]t[::-]  Netzwerktopologie erstellen
+[white]q[::-]      Schließen
 %s
-[white]Space[::-]  Host kategorisieren     [white]q[::-]  Schließen
 
 [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Hauptmenü`,
 	CorrResetSearch:            "[yellow]f[::-]      Suche zurücksetzen",
@@ -992,6 +1008,10 @@ Skriptsteuerung:
 	CatModalLinux:              "Linux",
 	CatModalNetDevice:          "Netzwerkgerät",
 	FmtCatModalTitle:           "Host kategorisieren: %s",
+
+	// Topology viewer
+	FmtTopoResult: "Topologie-Viewer erstellt:\n\n%s",
+	TopoNoData:    "Keine Korrelationsdaten vorhanden.\nZuerst Discovery-Scans ausführen.",
 
 	// Main view panels
 	PaneTitleAssessment:        "Assessment",

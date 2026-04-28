@@ -304,8 +304,8 @@ func TestGetAllCategories(t *testing.T) {
 	registry.buildIndices()
 	allCategories := registry.GetAllCategories()
 
-	// Should return categories in the predefined order
-	expectedOrder := []string{"host-config", "utilities", "discovery", "scanning"}
+	// Should return categories in the predefined workflow order
+	expectedOrder := []string{"host-config", "discovery", "scanning", "utilities"}
 	if len(allCategories) != len(expectedOrder) {
 		t.Errorf("len(allCategories) = %d, want %d", len(allCategories), len(expectedOrder))
 	}
@@ -315,8 +315,7 @@ func TestGetAllCategories(t *testing.T) {
 			t.Errorf("Category at index %d = %s, want %s", i, allCategories[i], expected)
 		}
 	}
-}
-
+	}
 func TestGetAllCategoriesWithUnknown(t *testing.T) {
 	registry := NewScriptRegistry("/test")
 

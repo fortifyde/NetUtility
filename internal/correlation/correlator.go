@@ -31,6 +31,12 @@ const (
 	ScanTypeSSLScan            ScanType = "ssl_scan"
 	ScanTypeSSLScanXML         ScanType = "sslscan_xml"
 	ScanTypeNmapXML            ScanType = "nmap_xml"
+	ScanTypeLLDP               ScanType = "lldp_cdp"
+	ScanTypeSNMP               ScanType = "snmp"
+	ScanTypeExploitSearch      ScanType = "exploit_search"
+	ScanTypeFingerprint        ScanType = "fingerprint"
+	ScanTypeARP                ScanType = "arp"
+	ScanTypeTestSSL            ScanType = "testssl"
 )
 
 // ScanResult represents the result of a network scan
@@ -116,18 +122,35 @@ type Vulnerability struct {
 	Discovery   time.Time `json:"discovery"`
 }
 
+// ComplianceFinding represents a single security compliance check result for a network device.
+type ComplianceFinding struct {
+	Check    string `json:"check"`
+	Severity string `json:"severity"` // "critical", "warning", "ok"
+	Detail   string `json:"detail"`
+}
+
+// PhysicalLink represents a confirmed physical port connection to a switch, derived from MAC table data.
+type PhysicalLink struct {
+	SwitchIP  string `json:"switch_ip"`
+	Interface string `json:"interface"`
+	VLAN      int    `json:"vlan"`
+}
+
 // CorrelationResult represents correlated findings across multiple scans
 type CorrelationResult struct {
-	Host            string          `json:"host"`
-	HostInfo        *Host           `json:"host_info"`
-	RelatedScans    []string        `json:"related_scans"`
-	Services        []Service       `json:"services"`
-	Vulnerabilities []Vulnerability `json:"vulnerabilities"`
-	Timeline        []TimelineEvent `json:"timeline"`
-	RiskScore       int             `json:"risk_score"`
-	RiskDetails     RiskBreakdown   `json:"risk_details"`
-	Recommendations []string        `json:"recommendations"`
-	Metadata        map[string]any  `json:"metadata"`
+	Host               string              `json:"host"`
+	HostInfo           *Host               `json:"host_info"`
+	RelatedScans       []string            `json:"related_scans"`
+	Services           []Service           `json:"services"`
+	Vulnerabilities    []Vulnerability     `json:"vulnerabilities"`
+	Timeline           []TimelineEvent     `json:"timeline"`
+	RiskScore          int                 `json:"risk_score"`
+	RiskDetails        RiskBreakdown       `json:"risk_details"`
+	Recommendations    []string            `json:"recommendations"`
+	Metadata           map[string]any      `json:"metadata"`
+	ComplianceFindings []ComplianceFinding `json:"compliance_findings,omitempty"`
+	ComplianceSeverity string              `json:"compliance_severity,omitempty"` // "critical", "warning", "ok", or ""
+	PhysicalLinks      []PhysicalLink      `json:"physical_links,omitempty"`
 }
 
 // TimelineEvent represents an event in the scan timeline
@@ -182,6 +205,30 @@ func (c *Correlator) AddScanResult(result *ScanResult) error {
 	// Trigger correlation for affected hosts
 	affectedHosts := c.extractHostsFromResult(result)
 	for _, host := range affectedHosts {
+		c.correlateHost(host)
+	}
+
+	return c.saveResults()
+}
+
+// BatchAddScanResults adds multiple scan results and triggers a single
+// correlation pass across all affected hosts, then saves once. This avoids
+// redundant per-result rebuilds when loading many results at startup.
+func (c *Correlator) BatchAddScanResults(results []*ScanResult) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// Collect all hosts that need re-correlation
+	hostSet := make(map[string]bool)
+	for _, result := range results {
+		c.results[result.ID] = result
+		for _, host := range c.extractHostsFromResult(result) {
+			hostSet[host] = true
+		}
+	}
+
+	// Single correlation pass for all affected hosts
+	for host := range hostSet {
 		c.correlateHost(host)
 	}
 
@@ -345,6 +392,9 @@ func (c *Correlator) correlateHost(hostIP string) {
 	// Generate recommendations
 	correlation.Recommendations = c.generateRecommendations(correlation)
 
+	// Infer host subtype from OS match, device type, and service ports
+	c.inferHostSubtype(correlation)
+
 	c.correlations[hostIP] = correlation
 	c.applyManualOverrides()
 }
@@ -408,9 +458,25 @@ func (c *Correlator) mergeHostInfo(existing *Host, new *Host) *Host {
 	if new.MACAddress != "" && existing.MACAddress == "" {
 		existing.MACAddress = new.MACAddress
 	}
+	// Merge OS data — prefer higher-accuracy source (nmap -O sets os_match_accuracy)
 	if new.OS != "" {
-		existing.OS = new.OS
-		existing.OSDetails = new.OSDetails
+		existingAccuracy := 0
+		newAccuracy := 0
+		if existing.Attributes != nil {
+			if v, ok := existing.Attributes["os_match_accuracy"]; ok {
+				existingAccuracy, _ = strconv.Atoi(v)
+			}
+		}
+		if new.Attributes != nil {
+			if v, ok := new.Attributes["os_match_accuracy"]; ok {
+				newAccuracy, _ = strconv.Atoi(v)
+			}
+		}
+		// Overwrite if new source has equal or higher accuracy
+		if existing.OS == "" || newAccuracy >= existingAccuracy {
+			existing.OS = new.OS
+			existing.OSDetails = new.OSDetails
+		}
 	}
 	if new.Status != "" {
 		existing.Status = new.Status
@@ -506,12 +572,12 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 	factors := make([]RiskFactorDetail, 0)
 
 	// --- Vulnerability factor (max 500) ---
-	// sslscan findings are handled separately in the SSL factor below.
+	// sslscan and testssl findings are handled separately in the SSL factor below.
 	vulnScore := 0
 	criticalCount := 0
 	highCount := 0
 	for _, vuln := range correlation.Vulnerabilities {
-		if vuln.Source == "sslscan" {
+		if vuln.Source == "sslscan" || vuln.Source == "testssl" {
 			continue
 		}
 		var pts int
@@ -553,7 +619,7 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 	// --- SSL/TLS factor (max 200) ---
 	slScore := 0
 	for _, vuln := range correlation.Vulnerabilities {
-		if vuln.Source != "sslscan" {
+		if vuln.Source != "sslscan" && vuln.Source != "testssl" {
 			continue
 		}
 		var pts int
@@ -573,7 +639,7 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 				Title:    vuln.Title,
 				Score:    pts,
 				Severity: sev,
-				Source:   "sslscan",
+				Source:   vuln.Source,
 			})
 		}
 	}
@@ -689,14 +755,12 @@ func (c *Correlator) generateRecommendations(correlation *CorrelationResult) []s
 		sev := strings.ToLower(vuln.Severity)
 		switch sev {
 		case "critical":
-			if vuln.Source == "sslscan" {
-				sslCritical++
+			if vuln.Source == "sslscan" || vuln.Source == "testssl" {
 			} else {
 				criticalCount++
 			}
 		case "high":
-			if vuln.Source == "sslscan" {
-				sslHigh++
+			if vuln.Source == "sslscan" || vuln.Source == "testssl" {
 			} else {
 				highCount++
 			}
@@ -751,6 +815,140 @@ func (c *Correlator) generateRecommendations(correlation *CorrelationResult) []s
 	}
 
 	return recommendations
+}
+
+// inferHostSubtype determines a secondary classification within a host's
+// primary category. Uses os_match, device_type, vendor, sys_description,
+// and port/service data from all merged scans.
+func (c *Correlator) inferHostSubtype(correlation *CorrelationResult) {
+	if correlation.HostInfo == nil || correlation.HostInfo.Attributes == nil {
+		return
+	}
+	attrs := correlation.HostInfo.Attributes
+	cat := attrs["category"]
+	if cat == "" {
+		cat = "unknown"
+	}
+
+	// Don't overwrite an explicitly set subtype
+	if sub, ok := attrs["host_subtype"]; ok && sub != "" {
+		return
+	}
+
+	osMatch := attrs["os_match"]
+	osVal := correlation.HostInfo.OS
+	vendor := strings.ToLower(attrs["vendor"])
+	sysDesc := strings.ToLower(attrs["sys_description"])
+
+	var subtype string
+
+	switch cat {
+	case "windows":
+		// Use os_match first (from nmap -O), then fall back to OS field
+		osLower := strings.ToLower(osMatch)
+		if osLower == "" {
+			osLower = strings.ToLower(osVal)
+		}
+		if strings.Contains(osLower, "server") {
+			subtype = "server"
+		} else if strings.Contains(osLower, "windows 10") ||
+			strings.Contains(osLower, "windows 11") ||
+			strings.Contains(osLower, "professional") ||
+			strings.Contains(osLower, "windows 7") ||
+			strings.Contains(osLower, "windows 8") ||
+			strings.Contains(osLower, "windows xp") ||
+			strings.Contains(osLower, "vista") ||
+			strings.Contains(osLower, "workstation") {
+			subtype = "workstation"
+		}
+		// Domain controller: has LDAP ports
+		if subtype == "" {
+			hasLDAP := false
+			for _, p := range correlation.HostInfo.Ports {
+				if (p.Number == 389 || p.Number == 636 || p.Number == 3268 || p.Number == 3269) && p.State == "open" {
+					hasLDAP = true
+					break
+				}
+			}
+			if hasLDAP {
+				subtype = "domain controller"
+			}
+		}
+		// SQL Server: has port 1433
+		if subtype == "" {
+			for _, p := range correlation.HostInfo.Ports {
+				if p.Number == 1433 && p.State == "open" {
+					subtype = "sql server"
+					break
+				}
+			}
+		}
+
+	case "network_device":
+		// Check vendor first — SNMP data is authoritative
+		if vendor == "printer" || strings.Contains(sysDesc, "printer") ||
+			strings.Contains(sysDesc, "laser") || strings.Contains(sysDesc, "inkjet") {
+			subtype = "printer"
+		}
+		// Check sys_description for known device types
+		if subtype == "" {
+			if strings.Contains(sysDesc, "switch") || strings.Contains(sysDesc, "nexus") {
+				subtype = "switch"
+			} else if strings.Contains(sysDesc, "asa") {
+				subtype = "firewall"
+			} else if strings.Contains(sysDesc, "router") {
+				subtype = "router"
+			} else if strings.Contains(sysDesc, "storage") || strings.Contains(sysDesc, "netapp") {
+				subtype = "storage"
+			} else if strings.Contains(vendor, "ubiquiti") {
+				// Ubiquiti devices with port 80/443 are typically switches/routers
+				subtype = "switch"
+			}
+		}
+		// OS-based inference for network devices
+		if subtype == "" && osVal != "" {
+			osLower := strings.ToLower(osVal)
+			if strings.Contains(osLower, "cisco") && (strings.Contains(osLower, "asa") || strings.Contains(osLower, "adaptive")) {
+				subtype = "firewall"
+			} else if strings.Contains(osLower, "cisco") && strings.Contains(osLower, "nexus") {
+				subtype = "switch"
+			} else if strings.Contains(osLower, "cisco") && strings.Contains(osLower, "router") {
+				subtype = "router"
+			} else if strings.Contains(osLower, "netapp") {
+				subtype = "storage"
+			} else if strings.Contains(osLower, "brocade") {
+				subtype = "switch"
+			} else if strings.Contains(osLower, "aruba") {
+				subtype = "switch"
+			}
+		}
+		// Port-based fallback only if nothing else worked
+		if subtype == "" {
+			for _, p := range correlation.HostInfo.Ports {
+				if p.Number == 9100 && p.State == "open" {
+					subtype = "printer"
+					break
+				}
+			}
+		}
+
+	case "linux":
+		osLower := strings.ToLower(osMatch)
+		if osLower == "" {
+			osLower = strings.ToLower(osVal)
+		}
+		if strings.Contains(osLower, "openwrt") || strings.Contains(osLower, "mikrotik") {
+			subtype = "router"
+		} else if strings.Contains(osLower, "netapp") {
+			subtype = "storage"
+		} else if strings.Contains(osLower, "embedded") {
+			subtype = "embedded"
+		}
+	}
+
+	if subtype != "" {
+		attrs["host_subtype"] = subtype
+	}
 }
 
 // GetCorrelationForHost returns correlation results for a specific host

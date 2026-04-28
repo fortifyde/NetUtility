@@ -314,6 +314,9 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 			case 'p':
 				cv.generatePackage()
 				return nil
+			case 't':
+				cv.generateTopology()
+				return nil
 			}
 		}
 		return event
@@ -708,6 +711,65 @@ func (cv *CorrelationViewer) generatePackage() {
 			cv.app.SetFocus(modal)
 		})
 	}()
+}
+
+// generateTopology generates the interactive HTML topology viewer and opens it in a browser.
+func (cv *CorrelationViewer) generateTopology() {
+	correlations := cv.correlator.GetAllCorrelations()
+	if len(correlations) == 0 {
+		modal := tview.NewModal().
+			SetText(cv.str.TopoNoData).
+			AddButtons([]string{"OK"}).
+			SetDoneFunc(func(_ int, _ string) {
+				cv.pages.RemovePage("topology-result")
+				cv.app.SetFocus(cv.hostsList)
+			})
+		cv.pages.AddPage("topology-result", modal, true, true)
+		cv.app.SetFocus(modal)
+		return
+	}
+
+	go func() {
+		tg := correlation.NewTopologyGenerator(cv.workspaceDir)
+		htmlPath, err := tg.GenerateHTMLViewer(correlations)
+		if err != nil {
+			cv.showTopologyError(err)
+			return
+		}
+
+		// Try to open in browser
+		cv.app.Suspend(func() {
+			cmd := exec.Command("xdg-open", htmlPath)
+			_ = cmd.Run()
+		})
+
+		cv.app.QueueUpdateDraw(func() {
+			modal := tview.NewModal().
+				SetText(fmt.Sprintf(cv.str.FmtTopoResult, htmlPath)).
+				AddButtons([]string{"OK"}).
+				SetDoneFunc(func(_ int, _ string) {
+					cv.pages.RemovePage("topology-result")
+					cv.app.SetFocus(cv.hostsList)
+				})
+			cv.pages.AddPage("topology-result", modal, true, true)
+			cv.app.SetFocus(modal)
+		})
+	}()
+}
+
+// showTopologyError displays a topology generation error in a modal.
+func (cv *CorrelationViewer) showTopologyError(err error) {
+	cv.app.QueueUpdateDraw(func() {
+		modal := tview.NewModal().
+			SetText(fmt.Sprintf("Failed to generate topology:\n%v", err)).
+			AddButtons([]string{"OK"}).
+			SetDoneFunc(func(_ int, _ string) {
+				cv.pages.RemovePage("topology-result")
+				cv.app.SetFocus(cv.hostsList)
+			})
+		cv.pages.AddPage("topology-result", modal, true, true)
+		cv.app.SetFocus(modal)
+	})
 }
 
 func (cv *CorrelationViewer) refresh() {

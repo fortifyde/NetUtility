@@ -1382,6 +1382,11 @@ perform_masscan_discovery() {
     done
 }
 
+# Normalize IPv6: strip zone ID suffix (%eth0 etc.) and lowercase hex digits.
+normalize_ipv6() {
+    sed 's/%[a-zA-Z0-9]*$//' | tr 'A-F' 'a-f'
+}
+
 # IPv6 Network Discovery
 perform_ipv6_discovery() {
     local interface="$1"
@@ -1407,11 +1412,6 @@ perform_ipv6_discovery() {
     local IPV6_HOSTS_FILE="$IPV6_EVIDENCE_DIR/discovered_ipv6_hosts.txt"
     local IPV6_REPORT_FILE="$IPV6_EVIDENCE_DIR/ipv6_discovery_report.txt"
 
-
-    # Normalize IPv6: strip zone ID, lowercase
-    normalize_ipv6() {
-        sed 's/%[a-zA-Z0-9]*$//' | tr 'A-F' 'a-f'
-    }
 
     # Initialize report
     echo "=== IPv6 Network Discovery Report ===" > "$IPV6_REPORT_FILE"
@@ -3189,6 +3189,17 @@ while read -r host; do
         case "$category" in
             windows)
                 echo "$host" >> "$HOSTFILES_DIR/windows_hosts.txt"
+
+                # Determine Windows subcategory and write to subcategory files
+                _subcat=$(ph7_subcategory "$host" "windows")
+                case "$_subcat" in
+                    server|domain_controller|sql_server)
+                        echo "$host" >> "$HOSTFILES_DIR/windows_servers.txt"
+                        ;;
+                    workstation)
+                        echo "$host" >> "$HOSTFILES_DIR/windows_clients.txt"
+                        ;;
+                esac
                 ;;
             linux)
                 echo "$host" >> "$HOSTFILES_DIR/linux_hosts.txt"
@@ -3260,6 +3271,9 @@ create_enriched_categorized_hosts "windows" "$HOSTFILES_DIR/windows_hosts.txt"
 create_enriched_categorized_hosts "linux" "$HOSTFILES_DIR/linux_hosts.txt"
 create_enriched_categorized_hosts "network_devices" "$HOSTFILES_DIR/network_devices.txt"
 create_enriched_categorized_hosts "unknown" "$HOSTFILES_DIR/unknown.txt"
+# Enriched subcategory files (only if the plain files exist)
+[ -f "$HOSTFILES_DIR/windows_servers.txt" ] && create_enriched_categorized_hosts "windows_servers" "$HOSTFILES_DIR/windows_servers.txt"
+[ -f "$HOSTFILES_DIR/windows_clients.txt" ] && create_enriched_categorized_hosts "windows_clients" "$HOSTFILES_DIR/windows_clients.txt"
 echo "  Enriched categorized host files created" >> "$REPORT_FILE"
 if [ -d "$PHASE7_DIR/categorization_debug" ]; then
     cp -r "$PHASE7_DIR/categorization_debug" "$HOSTFILES_DIR/categorization_debug"
@@ -3318,6 +3332,7 @@ echo "  Creating evidence manifest..." >> "$REPORT_FILE"
     echo ""
     echo "hostfiles/ (categorized hosts, flat)"
     echo "  ├── windows_hosts.txt  linux_hosts.txt  network_devices.txt  unknown.txt"
+    echo "  ├── windows_servers.txt  windows_clients.txt (Windows subcategories)"
     echo "  ├── all_discovered_hosts.txt (master host list)"
     echo "  ├── <vendor>.txt (cisco, hp_aruba, fortinet, etc.)"
     echo "  └── categorization_debug/ (per-host scoring trace)"

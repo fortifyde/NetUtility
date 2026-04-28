@@ -46,40 +46,38 @@ func (tg *TopologyGenerator) GenerateHTMLViewer(correlations map[string]*Correla
 		return "", fmt.Errorf("no correlation results to visualize")
 	}
 
+	if ce := NewConfigEnricher(tg.workspaceDir); ce.HasConfigs() {
+		_ = ce.Enrich(correlations)
+	}
+
 	vlanGroups := tg.groupByVLAN(correlations)
 	vlanOrder := sortedKeys(vlanGroups)
 
 	type hostJSON struct {
-		IP              string            `json:"ip"`
-		Hostname        string            `json:"hostname"`
-		MAC             string            `json:"mac"`
-		OS              string            `json:"os"`
-		Category        string            `json:"category"`
-		Vendor          string            `json:"vendor"`
-		VLANID          string            `json:"vlan_id"`
-		VLANName        string            `json:"vlan_name"`
-		DeviceType      string            `json:"device_type"`
-		Ports           []Port            `json:"ports"`
-		Attributes      map[string]string `json:"attributes"`
-		RiskScore       int               `json:"risk_score"`
-		RiskDetails     RiskBreakdown     `json:"risk_details"`
-		Vulnerabilities []Vulnerability   `json:"vulnerabilities"`
-		Recommendations []string          `json:"recommendations"`
-		IsLocal         bool              `json:"is_local"`
+		IP                 string              `json:"ip"`
+		Hostname           string              `json:"hostname"`
+		MAC                string              `json:"mac"`
+		OS                 string              `json:"os"`
+		Category           string              `json:"category"`
+		Vendor             string              `json:"vendor"`
+		VLANID             string              `json:"vlan_id"`
+		VLANName           string              `json:"vlan_name"`
+		DeviceType         string              `json:"device_type"`
+		Ports              []Port              `json:"ports"`
+		Attributes         map[string]string   `json:"attributes"`
+		RiskScore          int                 `json:"risk_score"`
+		RiskDetails        RiskBreakdown       `json:"risk_details"`
+		Vulnerabilities    []Vulnerability     `json:"vulnerabilities"`
+		Recommendations    []string            `json:"recommendations"`
+		IsLocal            bool                `json:"is_local"`
+		ComplianceFindings []ComplianceFinding `json:"compliance_findings"`
+		ComplianceSeverity string              `json:"compliance_severity"`
 	}
 	type vlanJSON struct {
 		ID      string     `json:"id"`
 		Name    string     `json:"name"`
 		Hosts   []hostJSON `json:"hosts"`
 		AvgRisk int        `json:"avg_risk"`
-	}
-
-	scannerSubnet := ""
-	for _, corr := range correlations {
-		if corr.HostInfo != nil && corr.HostInfo.IP != "" {
-			scannerSubnet = subnetFromIP(corr.HostInfo.IP)
-			break
-		}
 	}
 
 	var vlans []vlanJSON
@@ -106,12 +104,14 @@ func (tg *TopologyGenerator) GenerateHTMLViewer(correlations map[string]*Correla
 				hj.VLANName = corr.HostInfo.Attributes["vlan_name"]
 				hj.DeviceType = corr.HostInfo.Attributes["device_type"]
 				hj.Attributes = corr.HostInfo.Attributes
-				hj.IsLocal = subnetFromIP(corr.HostInfo.IP) == scannerSubnet || len(vlanOrder) > 1
+				hj.IsLocal = corr.HostInfo.MACAddress != ""
 			}
 			hj.RiskScore = corr.RiskScore
 			hj.RiskDetails = corr.RiskDetails
 			hj.Vulnerabilities = corr.Vulnerabilities
 			hj.Recommendations = corr.Recommendations
+			hj.ComplianceFindings = corr.ComplianceFindings
+			hj.ComplianceSeverity = corr.ComplianceSeverity
 			totalRisk += corr.RiskScore
 			hostList = append(hostList, hj)
 		}
@@ -173,6 +173,14 @@ func vlanForHost(corr *CorrelationResult) string {
 }
 
 func subnetFromIP(ip string) string {
+	if strings.Contains(ip, ":") {
+		// IPv6: use first 3 groups as a /48-equivalent prefix
+		parts := strings.Split(ip, ":")
+		if len(parts) >= 3 {
+			return parts[0] + ":" + parts[1] + ":" + parts[2] + "::/48"
+		}
+		return "default"
+	}
 	parts := strings.Split(ip, ".")
 	if len(parts) >= 3 {
 		return parts[0] + "." + parts[1] + "." + parts[2] + ".0/24"
@@ -234,6 +242,19 @@ func (tg *TopologyGenerator) inferConnections(correlations map[string]*Correlati
 		connections = append(connections, connectionJSON{Source: src, Target: tgt, Type: typ, Label: label})
 	}
 
+	// Emit confirmed physical edges from MAC table cross-correlation.
+	// Track which hosts already have a physical link so they are excluded from inferred topology.
+	hostsWithPhysical := make(map[string]bool)
+	for ip, corr := range correlations {
+		for _, pl := range corr.PhysicalLinks {
+			if pl.SwitchIP == ip {
+				continue
+			}
+			addConn(pl.SwitchIP, ip, "physical", pl.Interface)
+			hostsWithPhysical[ip] = true
+		}
+	}
+
 	// Find gateway/routers — devices that serve multiple VLANs or have router device_type
 	gateways := make(map[string][]string) // gateway IP -> VLANs it appears in or serves
 	for ip, corr := range correlations {
@@ -243,51 +264,31 @@ func (tg *TopologyGenerator) inferConnections(correlations map[string]*Correlati
 		}
 	}
 
-	// For multi-VLAN scenarios, connect gateways to all VLANs
-	if len(vlanGroups) > 1 {
-		for gwIP, gwVLANs := range gateways {
-			for _, vlan := range sortedKeys(vlanGroups) {
-				// Connect gateway to the first host in each VLAN
-				hosts := vlanGroups[vlan]
-				if len(hosts) == 0 {
-					continue
-				}
-				target := safeHost(hosts[0])
-				if target == gwIP {
-					// Pick another host if first is the gateway itself
-					if len(hosts) > 1 {
-						target = safeHost(hosts[1])
-					} else {
-						continue
-					}
-				}
-				// Check if this VLAN is already the gateway's own
-				ownVLAN := false
-				for _, gv := range gwVLANs {
-					if gv == vlan {
-						ownVLAN = true
-						break
-					}
-				}
-				label := "VLAN " + gwVLANs[0] + " <-> VLAN " + vlan
-				if ownVLAN {
-					label = "gateway " + gwIP
-				}
-				addConn(gwIP, target, "gateway", label)
-			}
-		}
-	}
-
-	// Connect hosts within the same VLAN to a representative (first host)
+	// Connect hosts within the same VLAN in a star topology.
+	// Hosts that already have a confirmed physical link are skipped.
+	// Use a gateway as the hub if one is present in the VLAN; otherwise use the first host.
 	for vlan, hosts := range vlanGroups {
 		if len(hosts) <= 1 {
 			continue
 		}
 		rep := safeHost(hosts[0])
-		for _, h := range hosts[1:] {
+		repIsGateway := false
+		for _, h := range hosts {
 			ip := safeHost(h)
-			if ip != rep {
-				addConn(rep, ip, "same_vlan", "VLAN "+vlan)
+			if _, isGW := gateways[ip]; isGW {
+				rep = ip
+				repIsGateway = true
+				break
+			}
+		}
+		edgeType := "same_vlan"
+		if repIsGateway {
+			edgeType = "gateway"
+		}
+		for _, h := range hosts {
+			ip := safeHost(h)
+			if ip != rep && !hostsWithPhysical[ip] {
+				addConn(rep, ip, edgeType, "VLAN "+vlan)
 			}
 		}
 	}

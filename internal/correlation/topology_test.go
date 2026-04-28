@@ -232,15 +232,15 @@ func TestGenerateHTMLViewer_IsLocal(t *testing.T) {
 	dir := t.TempDir()
 	tg := NewTopologyGenerator(dir)
 
-	// Single VLAN scenario — only hosts on same subnet are local
+	// Hosts with MACs were ARP-resolved (local); host without MAC is routed (remote).
 	correlations := map[string]*CorrelationResult{
 		"10.0.0.1": {
-			Host: "10.0.0.1",
-			HostInfo: &Host{IP: "10.0.0.1", Attributes: map[string]string{"vlan_id": "100"}},
+			Host:     "10.0.0.1",
+			HostInfo: &Host{IP: "10.0.0.1", MACAddress: "aa:bb:cc:dd:ee:01", Attributes: map[string]string{"vlan_id": "100"}},
 		},
 		"10.0.0.2": {
-			Host: "10.0.0.2",
-			HostInfo: &Host{IP: "10.0.0.2", Attributes: map[string]string{"vlan_id": "100"}},
+			Host:     "10.0.0.2",
+			HostInfo: &Host{IP: "10.0.0.2", MACAddress: "aa:bb:cc:dd:ee:02", Attributes: map[string]string{"vlan_id": "100"}},
 		},
 	}
 
@@ -255,24 +255,25 @@ func TestGenerateHTMLViewer_IsLocal(t *testing.T) {
 	}
 	content := string(data)
 
-	// Both hosts are on same subnet, single VLAN, so both should be is_local:true
-	if !strings.Contains(content, `"is_local":true`) {
-		t.Error("expected is_local:true for hosts on same segment")
+	localCount := strings.Count(content, `"is_local":true`)
+	if localCount != 2 {
+		t.Errorf("expected 2 is_local:true for hosts with MACs, got %d", localCount)
 	}
 }
 
-func TestGenerateHTMLViewer_MultiVLANAllLocal(t *testing.T) {
+func TestGenerateHTMLViewer_MultiVLANLocalRemote(t *testing.T) {
 	dir := t.TempDir()
 	tg := NewTopologyGenerator(dir)
 
-	// Multi-VLAN scenario — all hosts are considered local (trunk connection)
+	// MAC present → ARP-resolved (L2 adjacent, local).
+	// No MAC → routed (remote).
 	correlations := map[string]*CorrelationResult{
 		"10.0.0.1": {
-			Host: "10.0.0.1",
-			HostInfo: &Host{IP: "10.0.0.1", Attributes: map[string]string{"vlan_id": "100"}},
+			Host:     "10.0.0.1",
+			HostInfo: &Host{IP: "10.0.0.1", MACAddress: "aa:bb:cc:dd:ee:01", Attributes: map[string]string{"vlan_id": "100"}},
 		},
 		"10.0.1.1": {
-			Host: "10.0.1.1",
+			Host:     "10.0.1.1",
 			HostInfo: &Host{IP: "10.0.1.1", Attributes: map[string]string{"vlan_id": "200"}},
 		},
 	}
@@ -288,10 +289,13 @@ func TestGenerateHTMLViewer_MultiVLANAllLocal(t *testing.T) {
 	}
 	content := string(data)
 
-	// Multi-VLAN means trunk, so all hosts should be local
 	localCount := strings.Count(content, `"is_local":true`)
-	if localCount != 2 {
-		t.Errorf("expected 2 is_local:true for multi-VLAN trunk, got %d", localCount)
+	if localCount != 1 {
+		t.Errorf("expected 1 is_local:true (host with MAC), got %d", localCount)
+	}
+	remoteCount := strings.Count(content, `"is_local":false`)
+	if remoteCount != 1 {
+		t.Errorf("expected 1 is_local:false (host without MAC), got %d", remoteCount)
 	}
 }
 

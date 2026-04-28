@@ -1,0 +1,96 @@
+script:
+  name: "LLDP/CDP Neighbor Discovery"
+  description: "Discover Layer-2 network neighbors via LLDP and CDP protocol capture"
+  name_de: "LLDP/CDP Nachbarschaftserkennung"
+  description_de: "Erkennung von Netzwerknaechbarn auf Layer-2 via LLDP und CDP Protokollmitschnitt"
+  category: "discovery"
+  subcategory: "discovery"
+
+  file: "lldp_cdp_discovery.sh"
+  requires_root: true
+  estimated_duration: "2-5 minutes"
+
+  cli_shortcuts:
+    - "lldp"
+    - "cdp"
+    - "neighbors"
+  keywords:
+    - "lldp"
+    - "cdp"
+    - "neighbor"
+    - "topology"
+    - "layer2"
+    - "discovery"
+    - "switch"
+    - "router"
+    - "link"
+
+  parameters:
+    - name: "interface"
+      type: "interface"
+      description: "Network interface for LLDP/CDP capture"
+      required: true
+    - name: "duration"
+      type: "choice"
+      description: "Capture duration for LLDP/CDP frames"
+      required: true
+      default: "2"
+      validation:
+        choices:
+          - value: "1"
+            description: "90 seconds - Quick (1 LLDP interval)"
+          - value: "2"
+            description: "180 seconds - Standard (2 intervals)"
+          - value: "3"
+            description: "300 seconds - Comprehensive (5 minutes)"
+          - value: "4"
+            description: "Custom duration"
+
+  dependencies:
+    tools:
+      - name: "tshark"
+        package: "tshark"
+        check_command: "which tshark"
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+      - name: "lldpctl"
+        package: "lldpd"
+        check_command: "which lldpctl"
+        optional: true
+        description: "Fallback when tshark captures no LLDP frames"
+    scripts:
+      - "../common/utils.sh"
+      - "../common/colors.sh"
+      - "../common/logging.sh"
+
+  output:
+    creates_files: true
+    file_patterns:
+      - "lldp_cdp_capture.pcap"
+      - "lldp_neighbors.txt"
+      - "cdp_neighbors.txt"
+      - "lldp_cdp_results.xml"
+      - "neighbors_combined.txt"
+    workspace_subdirs:
+      - "discovery/lldp_cdp"
+
+  tags:
+    - "lldp"
+    - "cdp"
+    - "topology"
+    - "layer2"
+    - "neighbor"
+    - "discovery"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+
+  examples:
+    - description: "Discover LLDP/CDP neighbors"
+      command: "netutil lldp"
+    - description: "Neighbor discovery on specific interface"
+      command: "netutil neighbors"
+
+  version: "1.0"
+  last_updated: "2025-04-25"

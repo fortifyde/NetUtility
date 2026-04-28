@@ -22,10 +22,14 @@ var allCategoryFilenames = []string{
 	"linux_hosts.txt",
 	"network_devices.txt",
 	"unknown.txt",
+	"windows_servers.txt",
+	"windows_clients.txt",
 	"windows_hosts_enriched.txt",
 	"linux_hosts_enriched.txt",
 	"network_devices_enriched.txt",
 	"unknown_enriched.txt",
+	"windows_servers_enriched.txt",
+	"windows_clients_enriched.txt",
 }
 
 // MoveHostInHostfiles removes ip from all category files in every session

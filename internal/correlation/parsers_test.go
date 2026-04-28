@@ -1208,6 +1208,100 @@ func TestParseNmapXML_HostAndPortExtraction(t *testing.T) {
 	}
 }
 
+func TestParseNmapXML_OSDetection(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" start="1234567890" version="7.99" xmloutputversion="1.05">
+<host starttime="1234567890" endtime="1234567900"><status state="up" reason="syn-ack"/>
+<address addr="10.0.0.50" addrtype="ipv4"/>
+<hostnames><hostname name="dc01.corp.local" type="PTR"/></hostnames>
+<os><osmatch name="Windows Server 2019" accuracy="98">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows"/>
+</osmatch>
+<osmatch name="Windows Server 2016" accuracy="90">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows"/>
+</osmatch>
+</os>
+<ports><port protocol="tcp" portid="445"><state state="open" reason="syn-ack"/>
+<service name="microsoft-ds" product="Windows Server 2019 microsoft-ds" conf="10"/>
+</port></ports></host>
+<host starttime="1234567890" endtime="1234567900"><status state="up" reason="syn-ack"/>
+<address addr="10.0.0.100" addrtype="ipv4"/>
+<hostnames><hostname name="desktop01.corp.local" type="PTR"/></hostnames>
+<os><osmatch name="Windows 10 2004" accuracy="95">
+<osclass type="general purpose" vendor="Microsoft" osfamily="Windows"/>
+</osmatch>
+</os>
+<ports><port protocol="tcp" portid="445"><state state="open" reason="syn-ack"/>
+<service name="microsoft-ds" conf="10"/>
+</port></ports></host>
+<host starttime="1234567890" endtime="1234567900"><status state="up" reason="syn-ack"/>
+<address addr="10.0.0.1" addrtype="ipv4"/>
+<hostnames></hostnames>
+</host>
+</nmaprun>`
+
+	result := &ScanResult{
+		ID:              "test",
+		Type:            ScanTypeNmapXML,
+		Timestamp:       time.Now(),
+		Hosts:           make([]Host, 0),
+		Services:        make([]Service, 0),
+		Vulnerabilities: make([]Vulnerability, 0),
+		Metadata:        make(map[string]any),
+	}
+
+	parsed, err := parser.parseNmapXML(result, content)
+	if err != nil {
+		t.Fatalf("parseNmapXML() error = %v", err)
+	}
+
+	if len(parsed.Hosts) != 3 {
+		t.Fatalf("expected 3 hosts, got %d", len(parsed.Hosts))
+	}
+
+	// Host with Windows Server 2019
+	h1 := parsed.Hosts[0]
+	if h1.IP != "10.0.0.50" {
+		t.Fatalf("first host IP = %q, want 10.0.0.50", h1.IP)
+	}
+	if h1.OS != "Windows Server 2019" {
+		t.Errorf("OS = %q, want Windows Server 2019", h1.OS)
+	}
+	if h1.OSDetails != "Windows Server 2019" {
+		t.Errorf("OSDetails = %q, want Windows Server 2019", h1.OSDetails)
+	}
+	if h1.Attributes["os_match"] != "Windows Server 2019" {
+		t.Errorf("os_match = %q, want Windows Server 2019", h1.Attributes["os_match"])
+	}
+	if h1.Attributes["os_match_accuracy"] != "98" {
+		t.Errorf("os_match_accuracy = %q, want 98", h1.Attributes["os_match_accuracy"])
+	}
+	if h1.Attributes["device_type"] != "general purpose" {
+		t.Errorf("device_type = %q, want general purpose", h1.Attributes["device_type"])
+	}
+
+	// Host with Windows 10
+	h2 := parsed.Hosts[1]
+	if h2.OS != "Windows 10 2004" {
+		t.Errorf("OS = %q, want Windows 10 2004", h2.OS)
+	}
+	if h2.Attributes["os_match"] != "Windows 10 2004" {
+		t.Errorf("os_match = %q, want Windows 10 2004", h2.Attributes["os_match"])
+	}
+
+	// Host without OS detection
+	h3 := parsed.Hosts[2]
+	if h3.OS != "" {
+		t.Errorf("OS = %q, want empty", h3.OS)
+	}
+	if h3.Attributes["os_match"] != "" {
+		t.Errorf("os_match = %q, want empty", h3.Attributes["os_match"])
+	}
+}
+
+
 func TestParseNmapXML_ConfirmedVulnerable(t *testing.T) {
 	parser := NewResultParser("")
 
@@ -1278,5 +1372,508 @@ func TestDetermineScanType_NmapXML(t *testing.T) {
 	scanType := parser.determineScanType("/some/path/vuln_results.xml", content)
 	if scanType != ScanTypeNmapXML {
 		t.Errorf("determineScanType() = %s, want %s", scanType, ScanTypeNmapXML)
+	}
+}
+
+
+// ============================================================================
+// LLDP/CDP Parser Tests
+// ============================================================================
+
+func TestDetermineScanType_LLDPCDP(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0"?>
+<lldp_cdp_results>
+  <neighbor protocol="lldp">
+    <hostname>switch-01</hostname>
+  </neighbor>
+</lldp_cdp_results>`
+
+	scanType := parser.determineScanType("/some/path/lldp_cdp_results.xml", content)
+	if scanType != ScanTypeLLDP {
+		t.Errorf("determineScanType() = %s, want %s", scanType, ScanTypeLLDP)
+	}
+}
+
+func TestParseLLDPCDPResult_Basic(t *testing.T) {
+	parser := NewResultParser("")
+	now := time.Now()
+
+	content := `<?xml version="1.0"?>
+<lldp_cdp_results>
+  <neighbor protocol="lldp">
+    <hostname>switch-01</hostname>
+    <management_ip>10.0.0.1</management_ip>
+    <remote_port>GigabitEthernet0/1</remote_port>
+    <capabilities>bridge router</capabilities>
+    <vlan_id>100</vlan_id>
+    <local_interface>eth0</local_interface>
+    <system_description>Cisco IOS Software, C2960</system_description>
+  </neighbor>
+  <neighbor protocol="cdp">
+    <hostname>ap-01</hostname>
+    <management_ip>10.0.0.50</management_ip>
+    <platform>Cisco AIR-AP3802I</platform>
+    <remote_port>GigabitEthernet0/2</remote_port>
+  </neighbor>
+</lldp_cdp_results>`
+
+	parsed, err := parser.ParseJobResult("lldp_cdp_results.xml", content, now)
+	if err != nil {
+		t.Fatalf("ParseJobResult error: %v", err)
+	}
+
+	if len(parsed.Hosts) != 2 {
+		t.Fatalf("expected 2 hosts, got %d", len(parsed.Hosts))
+	}
+
+	// First neighbor (LLDP)
+	h1 := parsed.Hosts[0]
+	if h1.IP != "10.0.0.1" {
+		t.Errorf("host 1 IP = %s, want 10.0.0.1", h1.IP)
+	}
+	if h1.Hostname != "switch-01" {
+		t.Errorf("host 1 Hostname = %s, want switch-01", h1.Hostname)
+	}
+	if h1.Attributes["discovery_protocol"] != "lldp" {
+		t.Errorf("host 1 discovery_protocol = %s", h1.Attributes["discovery_protocol"])
+	}
+	if h1.Attributes["vlan_id"] != "100" {
+		t.Errorf("host 1 vlan_id = %s", h1.Attributes["vlan_id"])
+	}
+	if h1.OSDetails != "Cisco IOS Software, C2960" {
+		t.Errorf("host 1 OSDetails = %s", h1.OSDetails)
+	}
+
+	// Second neighbor (CDP)
+	h2 := parsed.Hosts[1]
+	if h2.IP != "10.0.0.50" {
+		t.Errorf("host 2 IP = %s, want 10.0.0.50", h2.IP)
+	}
+	if h2.Hostname != "ap-01" {
+		t.Errorf("host 2 Hostname = %s, want ap-01", h2.Hostname)
+	}
+	if h2.Attributes["platform"] != "Cisco AIR-AP3802I" {
+		t.Errorf("host 2 platform = %s", h2.Attributes["platform"])
+	}
+}
+
+func TestParseLLDPCDPResult_Empty(t *testing.T) {
+	parser := NewResultParser("")
+	now := time.Now()
+
+	content := `<?xml version="1.0"?>
+<lldp_cdp_results>
+</lldp_cdp_results>`
+
+	result := &ScanResult{ID: "test", Type: ScanTypeLLDP, Timestamp: now, Hosts: []Host{}, Services: []Service{}, Vulnerabilities: []Vulnerability{}}
+	parsed, err := parser.parseLLDPCDPResult(result, content)
+	if err != nil {
+		t.Fatalf("parseLLDPCDPResult error: %v", err)
+	}
+	if len(parsed.Hosts) != 0 {
+		t.Errorf("expected 0 hosts, got %d", len(parsed.Hosts))
+	}
+}
+
+// ============================================================================
+// SNMP Parser Tests
+// ============================================================================
+
+func TestDetermineScanType_SNMP(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0"?>
+<snmp_results>
+  <device ip="10.0.0.1"/>
+</snmp_results>`
+
+	scanType := parser.determineScanType("/path/snmp_device_info.xml", content)
+	if scanType != ScanTypeSNMP {
+		t.Errorf("determineScanType() = %s, want %s", scanType, ScanTypeSNMP)
+	}
+}
+
+func TestParseSNMPResult_Basic(t *testing.T) {
+	parser := NewResultParser("")
+	now := time.Now()
+
+	content := `<?xml version="1.0"?>
+<snmp_results>
+  <device ip="10.0.0.1">
+    <sys_description>Cisco IOS Software, C3750</sys_description>
+    <sys_uptime>42 days</sys_uptime>
+    <hostname>core-switch</hostname>
+    <interfaces>
+      <interface>
+        <name>GigabitEthernet0/1</name>
+        <status>up</status>
+        <speed>1000000000</speed>
+      </interface>
+    </interfaces>
+    <arp_entries>
+      <entry mac="aa:bb:cc:dd:ee:01" ip="10.0.0.100" interface="Gi0/1"/>
+    </arp_entries>
+    <vlans>
+      <vlan id="100" name="users"/>
+      <vlan id="200" name="servers"/>
+    </vlans>
+    <routes>
+      <route dest="0.0.0.0/0" gateway="10.0.0.254" interface="Gi0/1"/>
+    </routes>
+  </device>
+</snmp_results>`
+
+	parsed, err := parser.ParseJobResult("snmp_device_info.xml", content, now)
+	if err != nil {
+		t.Fatalf("ParseJobResult error: %v", err)
+	}
+
+	if len(parsed.Hosts) < 2 {
+		t.Fatalf("expected at least 2 hosts (device + arp), got %d", len(parsed.Hosts))
+	}
+
+	// Device host
+	h1 := parsed.Hosts[0]
+	if h1.IP != "10.0.0.1" {
+		t.Errorf("device IP = %s, want 10.0.0.1", h1.IP)
+	}
+	if h1.Hostname != "core-switch" {
+		t.Errorf("device Hostname = %s, want core-switch", h1.Hostname)
+	}
+	if h1.OSDetails != "Cisco IOS Software, C3750" {
+		t.Errorf("device OSDetails = %s", h1.OSDetails)
+	}
+	if h1.Attributes["sys_uptime"] != "42 days" {
+		t.Errorf("device uptime = %s", h1.Attributes["sys_uptime"])
+	}
+	if !strings.Contains(h1.Attributes["vlans"], "100") {
+		t.Errorf("device vlans = %s, expected to contain 100", h1.Attributes["vlans"])
+	}
+
+	// ARP entry host
+	if len(parsed.Hosts) >= 2 {
+		h2 := parsed.Hosts[1]
+		if h2.IP != "10.0.0.100" {
+			t.Errorf("ARP entry IP = %s, want 10.0.0.100", h2.IP)
+		}
+		if h2.MACAddress != "AA:BB:CC:DD:EE:01" {
+			t.Errorf("ARP MAC = %s, want AA:BB:CC:DD:EE:01", h2.MACAddress)
+		}
+	}
+}
+
+// ============================================================================
+// Exploit Search Parser Tests
+// ============================================================================
+
+func TestDetermineScanType_ExploitSearch(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0"?>
+<exploit_results>
+  <host ip="10.0.0.1"/>
+</exploit_results>`
+
+	scanType := parser.determineScanType("/path/exploit_results.xml", content)
+	if scanType != ScanTypeExploitSearch {
+		t.Errorf("determineScanType() = %s, want %s", scanType, ScanTypeExploitSearch)
+	}
+}
+
+func TestParseExploitSearchResult_Basic(t *testing.T) {
+	parser := NewResultParser("")
+	now := time.Now()
+
+	content := `<?xml version="1.0"?>
+<exploit_results>
+  <host ip="10.0.0.1">
+    <service port="80" product="Apache" version="2.4.49">
+      <exploit title="Path Traversal" type="remote" platform="linux" path="/exploits/50383.py"/>
+      <exploit title="HTTP Request Splitting" type="remote" platform="linux" path="/exploits/50384.py"/>
+    </service>
+    <service port="22" product="OpenSSH" version="8.2">
+      <exploit title="SSH Key Exchange Overflow" type="remote" platform="linux" path="/exploits/48053.py"/>
+    </service>
+  </host>
+</exploit_results>`
+
+	parsed, err := parser.ParseJobResult("exploit_results.xml", content, now)
+	if err != nil {
+		t.Fatalf("ParseJobResult error: %v", err)
+	}
+
+	if len(parsed.Hosts) != 1 {
+		t.Fatalf("expected 1 host, got %d", len(parsed.Hosts))
+	}
+	if parsed.Hosts[0].IP != "10.0.0.1" {
+		t.Errorf("host IP = %s, want 10.0.0.1", parsed.Hosts[0].IP)
+	}
+
+	if len(parsed.Vulnerabilities) != 3 {
+		t.Fatalf("expected 3 vulnerabilities, got %d", len(parsed.Vulnerabilities))
+	}
+
+	v1 := parsed.Vulnerabilities[0]
+	if v1.Title != "Path Traversal" {
+		t.Errorf("vuln 1 title = %s, want Path Traversal", v1.Title)
+	}
+	if v1.Port != 80 {
+		t.Errorf("vuln 1 port = %d, want 80", v1.Port)
+	}
+	if v1.Severity != "high" {
+		t.Errorf("vuln 1 severity = %s, want high", v1.Severity)
+	}
+	if v1.Source != "searchsploit" {
+		t.Errorf("vuln 1 source = %s, want searchsploit", v1.Source)
+	}
+}
+
+// ============================================================================
+// Passive Fingerprint Parser Tests
+// ============================================================================
+
+func TestDetermineScanType_Fingerprint(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0"?>
+<fingerprint_results>
+  <host ip="10.0.0.1"/>
+</fingerprint_results>`
+
+	scanType := parser.determineScanType("/path/fingerprint_results.xml", content)
+	if scanType != ScanTypeFingerprint {
+		t.Errorf("determineScanType() = %s, want %s", scanType, ScanTypeFingerprint)
+	}
+}
+
+func TestParseFingerprintResult_Basic(t *testing.T) {
+	parser := NewResultParser("")
+	now := time.Now()
+
+	content := `<?xml version="1.0"?>
+<fingerprint_results>
+  <host ip="10.0.0.1" mac="00:1a:a1:22:33:44">
+    <os_guess>Cisco IOS</os_guess>
+    <device_type>switch</device_type>
+    <confidence>high</confidence>
+    <evidence>
+      <source name="p0f">syn@CISCO</source>
+      <source name="oui">Cisco Systems</source>
+      <source name="ports">161/udp,22/tcp,80/tcp</source>
+    </evidence>
+  </host>
+</fingerprint_results>`
+
+	parsed, err := parser.ParseJobResult("fingerprint_results.xml", content, now)
+	if err != nil {
+		t.Fatalf("ParseJobResult error: %v", err)
+	}
+
+	if len(parsed.Hosts) != 1 {
+		t.Fatalf("expected 1 host, got %d", len(parsed.Hosts))
+	}
+
+	h := parsed.Hosts[0]
+	if h.IP != "10.0.0.1" {
+		t.Errorf("host IP = %s, want 10.0.0.1", h.IP)
+	}
+	if h.MACAddress != "00:1A:A1:22:33:44" {
+		t.Errorf("host MAC = %s, want 00:1A:A1:22:33:44", h.MACAddress)
+	}
+	if h.OS != "Cisco IOS" {
+		t.Errorf("host OS = %s, want Cisco IOS", h.OS)
+	}
+	if h.Attributes["device_type"] != "switch" {
+		t.Errorf("device_type = %s, want switch", h.Attributes["device_type"])
+	}
+	if h.Attributes["fingerprint_confidence"] != "high" {
+		t.Errorf("confidence = %s", h.Attributes["fingerprint_confidence"])
+	}
+	if h.Attributes["evidence_p0f"] != "syn@CISCO" {
+		t.Errorf("evidence_p0f = %s", h.Attributes["evidence_p0f"])
+	}
+}
+
+// ============================================================================
+// ARP Parser Tests
+// ============================================================================
+
+func TestDetermineScanType_ARP(t *testing.T) {
+	parser := NewResultParser("")
+
+	content := `<?xml version="1.0"?>
+<arp_results>
+  <entry ip="10.0.0.1" mac="AA:BB:CC:DD:EE:FF"/>
+</arp_results>`
+
+	scanType := parser.determineScanType("/path/arp_results.xml", content)
+	if scanType != ScanTypeARP {
+		t.Errorf("determineScanType() = %s, want %s", scanType, ScanTypeARP)
+	}
+}
+
+func TestParseARPResult_Basic(t *testing.T) {
+	parser := NewResultParser("")
+	now := time.Now()
+
+	content := `<?xml version="1.0"?>
+<arp_results>
+  <entry ip="192.168.1.1" mac="aa:bb:cc:dd:ee:ff" interface="eth0" state="REACHABLE"/>
+  <entry ip="192.168.1.2" mac="11:22:33:44:55:66" interface="eth0" state="STALE"/>
+  <entry ip="192.168.1.3" mac="" interface="eth0" state="FAILED"/>
+</arp_results>`
+
+	parsed, err := parser.ParseJobResult("arp_results.xml", content, now)
+	if err != nil {
+		t.Fatalf("ParseJobResult error: %v", err)
+	}
+
+	// Should have 2 hosts (entry 3 has empty MAC, should still be included since IP is present)
+	if len(parsed.Hosts) != 3 {
+		t.Fatalf("expected 3 hosts, got %d", len(parsed.Hosts))
+	}
+
+	h1 := parsed.Hosts[0]
+	if h1.IP != "192.168.1.1" {
+		t.Errorf("host 1 IP = %s", h1.IP)
+	}
+	if h1.MACAddress != "AA:BB:CC:DD:EE:FF" {
+		t.Errorf("host 1 MAC = %s, want AA:BB:CC:DD:EE:FF", h1.MACAddress)
+	}
+	if h1.Attributes["interface"] != "eth0" {
+		t.Errorf("host 1 interface = %s", h1.Attributes["interface"])
+	}
+	if h1.Attributes["arp_state"] != "REACHABLE" {
+		t.Errorf("host 1 state = %s", h1.Attributes["arp_state"])
+	}
+
+	h2 := parsed.Hosts[1]
+	if h2.IP != "192.168.1.2" {
+		t.Errorf("host 2 IP = %s", h2.IP)
+	}
+}
+
+func TestParseARPResult_Empty(t *testing.T) {
+	parser := NewResultParser("")
+	now := time.Now()
+
+	content := `<?xml version="1.0"?>
+<arp_results>
+</arp_results>`
+
+	result := &ScanResult{ID: "test", Type: ScanTypeARP, Timestamp: now, Hosts: []Host{}, Services: []Service{}, Vulnerabilities: []Vulnerability{}}
+	parsed, err := parser.parseARPResult(result, content)
+	if err != nil {
+		t.Fatalf("parseARPResult error: %v", err)
+	}
+	if len(parsed.Hosts) != 0 {
+		t.Errorf("expected 0 hosts, got %d", len(parsed.Hosts))
+	}
+}
+
+// ============================================================================
+// testssl.sh Parser Tests
+// ============================================================================
+
+func TestDetermineScanType_TestSSL(t *testing.T) {
+	parser := NewResultParser("")
+
+	// Real testssl -oj format: flat JSON array with id, ip, port, severity, finding fields
+	content := `[{"id":"SSLv3","ip":"10.0.0.1:443","port":"443","severity":"CRITICAL","finding":"offered"}]`
+
+	scanType := parser.determineScanType("/path/testssl.json", content)
+	if scanType != ScanTypeTestSSL {
+		t.Errorf("determineScanType() = %s, want %s", scanType, ScanTypeTestSSL)
+	}
+}
+
+func TestParseTestSSLResult_Basic(t *testing.T) {
+	parser := NewResultParser("")
+	now := time.Now()
+
+	// Real testssl -oj flat JSON array format
+	content := `[
+		{"id":"SSLv3","ip":"10.0.0.1:443","port":"443","severity":"CRITICAL","finding":"offered (NOT ok)"},
+		{"id":"heartbleed","ip":"10.0.0.1:443","port":"443","severity":"HIGH","finding":"VULNERABLE","cve":"CVE-2014-0160"},
+		{"id":"cert_selfSigned","ip":"10.0.0.1:443","port":"443","severity":"WARN","finding":"self-signed certificate"},
+		{"id":"cipher_EXP-RC4-MD5","ip":"10.0.0.1:443","port":"443","severity":"HIGH","finding":"offered (NOT ok) -- 40-bit weak cipher"}
+	]`
+
+	parsed, err := parser.ParseJobResult("testssl.json", content, now)
+	if err != nil {
+		t.Fatalf("ParseJobResult error: %v", err)
+	}
+
+	if len(parsed.Hosts) != 1 {
+		t.Fatalf("expected 1 host, got %d", len(parsed.Hosts))
+	}
+	if parsed.Hosts[0].IP != "10.0.0.1" {
+		t.Errorf("host IP = %s, want 10.0.0.1", parsed.Hosts[0].IP)
+	}
+
+	// Should have SSLv3 (critical), heartbleed (high), cert warning (low), weak cipher (high)
+	if len(parsed.Vulnerabilities) < 3 {
+		t.Errorf("expected at least 3 vulnerabilities, got %d", len(parsed.Vulnerabilities))
+	}
+
+	// Check for SSLv3
+	var foundSSLv3 bool
+	for _, v := range parsed.Vulnerabilities {
+		if strings.Contains(v.Title, "SSLv3") {
+			foundSSLv3 = true
+			if v.Severity != "critical" {
+				t.Errorf("SSLv3 severity = %s, want critical", v.Severity)
+			}
+		}
+	}
+	if !foundSSLv3 {
+		t.Error("expected SSLv3 vulnerability not found")
+	}
+
+	// Check for self-signed cert (severity WARN → "low")
+	var foundSelfSigned bool
+	for _, v := range parsed.Vulnerabilities {
+		if strings.Contains(v.Title, "cert_selfSigned") {
+			foundSelfSigned = true
+		}
+	}
+	if !foundSelfSigned {
+		t.Error("expected self-signed certificate vulnerability not found")
+	}
+
+	// Check for weak cipher
+	var foundWeakCipher bool
+	for _, v := range parsed.Vulnerabilities {
+		if strings.Contains(v.Title, "cipher_EXP-RC4-MD5") || strings.Contains(v.Title, "40-bit") {
+			foundWeakCipher = true
+			if v.Severity != "high" {
+				t.Errorf("weak cipher severity = %s, want high", v.Severity)
+			}
+		}
+	}
+	if !foundWeakCipher {
+		t.Error("expected weak cipher vulnerability not found")
+	}
+}
+
+func TestParseTestSSLResult_MultipleHosts(t *testing.T) {
+	parser := NewResultParser("")
+	now := time.Now()
+
+	// Real testssl -oj format: flat JSON array covering two different hosts
+	content := `[
+		{"id":"SSLv3","ip":"10.0.0.1:443","port":"443","severity":"CRITICAL","finding":"offered"},
+		{"id":"TLS1","ip":"10.0.0.2:8443","port":"8443","severity":"LOW","finding":"offered"}
+	]`
+
+	parsed, err := parser.ParseJobResult("testssl.json", content, now)
+	if err != nil {
+		t.Fatalf("ParseJobResult error: %v", err)
+	}
+
+	if len(parsed.Hosts) != 2 {
+		t.Fatalf("expected 2 hosts, got %d", len(parsed.Hosts))
 	}
 }

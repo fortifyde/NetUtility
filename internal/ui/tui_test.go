@@ -11,11 +11,13 @@ func TestFormatCategoryName(t *testing.T) {
 		key  string
 		want string
 	}{
-		{"advanced", "Advanced Tools"},
+		{"recon", "Reconnaissance"},
 		{"scanning", "Port Scanning"},
-		{"host-config", "Host Configuration"},
+		{"host-config", "Network Setup"},
 		{"utilities", "System Utilities"},
 		{"discovery", "Network Discovery"},
+		{"analysis", "Capture Analysis"},
+		{"config-gathering", "Config Gathering"},
 		{"unknown-key", "Unknown-key"},
 	}
 	for _, tt := range tests {
@@ -34,7 +36,7 @@ func TestMergeInterfaceTasks(t *testing.T) {
 
 	input := []Category{
 		{
-			Name:  "Host Configuration",
+			Name:  "Network Setup",
 			Tasks: []Task{ifaceTask, vlanTask, otherTask},
 		},
 		{
@@ -47,7 +49,7 @@ func TestMergeInterfaceTasks(t *testing.T) {
 
 	hostCat := result[0]
 	if len(hostCat.Tasks) != 2 {
-		t.Fatalf("expected 2 tasks in Host Configuration, got %d", len(hostCat.Tasks))
+		t.Fatalf("expected 2 tasks in Network Setup, got %d", len(hostCat.Tasks))
 	}
 
 	composite := hostCat.Tasks[0]
@@ -85,7 +87,7 @@ func TestMergeInterfaceTasksPartialMatch(t *testing.T) {
 	// Only the iface task present, no VLAN task — should be a no-op
 	input := []Category{
 		{
-			Name: "Host Configuration",
+		Name: "Network Setup",
 			Tasks: []Task{
 				{Name: "Manage Network Interfaces", CanonicalName: "Manage Network Interfaces", Script: "/scripts/network_interfaces.sh"},
 				{Name: "Configure IP Addresses", CanonicalName: "Configure IP Addresses", Script: "/scripts/configure_ip.sh"},
@@ -105,7 +107,7 @@ func TestMergeInterfaceTasksNoOp(t *testing.T) {
 	// Category without the interface tasks — should pass through unchanged
 	input := []Category{
 		{
-			Name:  "Host Configuration",
+			Name:  "Network Setup",
 			Tasks: []Task{{Name: "Configure IP Addresses", CanonicalName: "Configure IP Addresses", Script: "/scripts/configure_ip.sh"}},
 		},
 	}

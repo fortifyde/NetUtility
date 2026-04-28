@@ -1,9 +1,11 @@
 package correlation
 
 import (
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io/fs"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -65,6 +67,18 @@ func (rp *ResultParser) ParseJobResult(scriptPath, outputContent string, timesta
 		return rp.parseNmapXML(result, outputContent)
 	case ScanTypeSSLScanXML:
 		return rp.parseSSLScanXML(result, outputContent)
+	case ScanTypeLLDP:
+		return rp.parseLLDPCDPResult(result, outputContent)
+	case ScanTypeSNMP:
+		return rp.parseSNMPResult(result, outputContent)
+	case ScanTypeExploitSearch:
+		return rp.parseExploitSearchResult(result, outputContent)
+	case ScanTypeFingerprint:
+		return rp.parseFingerprintResult(result, outputContent)
+	case ScanTypeARP:
+		return rp.parseARPResult(result, outputContent)
+	case ScanTypeTestSSL:
+		return rp.parseTestSSLResult(result, outputContent)
 	default:
 		return rp.parseGenericOutput(result, outputContent)
 	}
@@ -93,8 +107,40 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 	if strings.Contains(contentLower, "sslscan results") && strings.Contains(contentLower, "<document") {
 		return ScanTypeSSLScanXML
 	}
+	// LLDP/CDP XML detection
+	if strings.Contains(contentLower, "<lldp_cdp_results") {
+		return ScanTypeLLDP
+	}
 
+	// SNMP results XML detection
+	if strings.Contains(contentLower, "<snmp_results") {
+		return ScanTypeSNMP
+	}
 
+	// Exploit search XML detection
+	if strings.Contains(contentLower, "<exploit_results") {
+		return ScanTypeExploitSearch
+	}
+
+	// Passive fingerprint XML detection
+	if strings.Contains(contentLower, "<fingerprint_results") {
+		return ScanTypeFingerprint
+	}
+
+	// ARP results XML detection
+	if strings.Contains(contentLower, "<arp_results") {
+		return ScanTypeARP
+	}
+	// testssl.sh JSON detection — real -oj output is a flat JSON array of findings
+	// each with "id", "ip", "port", "severity", "finding" fields.
+	if strings.HasPrefix(strings.TrimSpace(outputContent), "[") &&
+		strings.Contains(contentLower, "\"severity\"") &&
+		strings.Contains(contentLower, "\"finding\"") &&
+		(strings.Contains(scriptName, "testssl") || strings.Contains(contentLower, "\"id\"")) {
+		return ScanTypeTestSSL
+	}
+
+	// SSLscan text detection (must be after XML check)
 	// sslscan detection — check filename and content
 	if strings.Contains(scriptName, "sslscan") {
 		return ScanTypeSSLScan
@@ -551,9 +597,10 @@ func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 		base := filepath.Base(path)
 		ext := filepath.Ext(path)
 
-		// Accept .nmap and .xml files, plus categorization_details.txt.
+		// Accept .nmap, .xml, and .json files, plus categorization_details.txt.
 		// sslscan.txt is excluded: sslscan now outputs per-host XML files instead.
-		if ext != ".nmap" && ext != ".xml" && base != "categorization_details.txt" {
+		// .json files are accepted for testssl.sh output.
+		if ext != ".nmap" && ext != ".xml" && ext != ".json" && base != "categorization_details.txt" {
 			return nil
 		}
 
@@ -625,6 +672,23 @@ type nmapHost struct {
 	Addresses []nmapAddress `xml:"address"`
 	Hostnames nmapHostnames `xml:"hostnames"`
 	Ports     *nmapPorts    `xml:"ports"`
+	OS        *nmapOS        `xml:"os"`
+}
+
+type nmapOS struct {
+	Matches []nmapOSMatch `xml:"osmatch"`
+}
+
+type nmapOSMatch struct {
+	Name     string           `xml:"name,attr"`
+	Accuracy string           `xml:"accuracy,attr"`
+	Classes  []nmapOSClass   `xml:"osclass"`
+}
+
+type nmapOSClass struct {
+	Type     string `xml:"type,attr"`
+	Vendor   string `xml:"vendor,attr"`
+	OSFamily string `xml:"osfamily,attr"`
 }
 
 type nmapStatus struct {
@@ -729,8 +793,28 @@ func (rp *ResultParser) parseNmapXML(result *ScanResult, content string) (*ScanR
 			Status:     h.Status.State,
 			LastSeen:   result.Timestamp,
 			Ports:      make([]Port, 0),
+			Attributes: make(map[string]string),
 		}
 		result.Targets = append(result.Targets, ip)
+
+		// Extract OS detection from nmap -O scan (osmatch).
+		// Store the best match as host OS and os_match attribute.
+		if h.OS != nil && len(h.OS.Matches) > 0 {
+			best := h.OS.Matches[0]
+			host.OS = best.Name
+			host.OSDetails = best.Name
+			host.Attributes["os_match"] = best.Name
+			if best.Accuracy != "" {
+				host.Attributes["os_match_accuracy"] = best.Accuracy
+			}
+			// Extract device type from osclass if available
+			for _, cls := range best.Classes {
+				if cls.Type != "" {
+					host.Attributes["device_type"] = cls.Type
+					break
+				}
+			}
+		}
 
 		if h.Ports == nil {
 			result.Hosts = append(result.Hosts, host)
@@ -1467,6 +1551,510 @@ func (rp *ResultParser) parseSSLScanXML(result *ScanResult, content string) (*Sc
 				})
 			}
 		}
+	}
+
+	return result, nil
+}
+
+// --- LLDP/CDP XML types ---
+
+// lldpCDPResults is the top-level XML structure for LLDP/CDP neighbor discovery.
+type lldpCDPResults struct {
+	XMLName    xml.Name       `xml:"lldp_cdp_results"`
+	Neighbors []lldpCDPNbr    `xml:"neighbor"`
+}
+
+type lldpCDPNbr struct {
+	Protocol          string `xml:"protocol,attr"`
+	Hostname          string `xml:"hostname"`
+	ManagementIP      string `xml:"management_ip"`
+	RemotePort        string `xml:"remote_port"`
+	RemotePortDesc    string `xml:"remote_port_desc"`
+	SystemDescription string `xml:"system_description"`
+	Capabilities      string `xml:"capabilities"`
+	VLANID            string `xml:"vlan_id"`
+	VLANName          string `xml:"vlan_name"`
+	Platform          string `xml:"platform"`
+	SoftwareVersion   string `xml:"software_version"`
+	LocalInterface    string `xml:"local_interface"`
+}
+
+// parseLLDPCDPResult parses LLDP/CDP XML output into scan results.
+func (rp *ResultParser) parseLLDPCDPResult(result *ScanResult, content string) (*ScanResult, error) {
+	var doc lldpCDPResults
+	if err := xml.Unmarshal([]byte(content), &doc); err != nil {
+		return rp.parseGenericOutput(result, content)
+	}
+
+	seenHosts := make(map[string]bool)
+	for _, nbr := range doc.Neighbors {
+		ip := nbr.ManagementIP
+		if ip == "" {
+			// Try to extract IP from hostname if it looks like an IP
+			if net.ParseIP(nbr.Hostname) != nil {
+				ip = nbr.Hostname
+			}
+		}
+		if ip == "" && nbr.Hostname == "" {
+			continue
+		}
+
+		host := Host{
+			Status:     "neighbor",
+			LastSeen:   result.Timestamp,
+			Ports:      make([]Port, 0),
+			Attributes: make(map[string]string),
+		}
+		if ip != "" {
+			host.IP = ip
+		}
+		if nbr.Hostname != "" && net.ParseIP(nbr.Hostname) == nil {
+			host.Hostname = nbr.Hostname
+		}
+
+		if nbr.Protocol != "" {
+			host.Attributes["discovery_protocol"] = nbr.Protocol
+		}
+		if nbr.LocalInterface != "" {
+			host.Attributes["local_interface"] = nbr.LocalInterface
+		}
+		if nbr.RemotePort != "" {
+			host.Attributes["remote_port"] = nbr.RemotePort
+		}
+		if nbr.Capabilities != "" {
+			host.Attributes["capabilities"] = nbr.Capabilities
+		}
+		if nbr.VLANID != "" {
+			host.Attributes["vlan_id"] = nbr.VLANID
+		}
+		if nbr.VLANName != "" {
+			host.Attributes["vlan_name"] = nbr.VLANName
+		}
+		if nbr.Platform != "" {
+			host.Attributes["platform"] = nbr.Platform
+			host.OS = nbr.Platform
+		}
+		if nbr.SystemDescription != "" {
+			host.Attributes["system_description"] = nbr.SystemDescription
+			host.OSDetails = nbr.SystemDescription
+		}
+
+		if !seenHosts[ip] {
+			seenHosts[ip] = true
+			result.Hosts = append(result.Hosts, host)
+			if ip != "" {
+				result.Targets = append(result.Targets, ip)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// --- SNMP XML types ---
+
+// snmpResults is the top-level XML structure for SNMP interrogation output.
+type snmpResults struct {
+	XMLName xml.Name    `xml:"snmp_results"`
+	Devices []snmpDevice `xml:"device"`
+}
+
+type snmpDevice struct {
+	IP              string          `xml:"ip,attr"`
+	SysDescription  string          `xml:"sys_description"`
+	SysUptime       string          `xml:"sys_uptime"`
+	Hostname        string          `xml:"hostname"`
+	Interfaces      []snmpInterface `xml:"interfaces>interface"`
+	ARPEntries      []snmpARPEntry  `xml:"arp_entries>entry"`
+	VLANs           []snmpVLAN      `xml:"vlans>vlan"`
+	Routes          []snmpRoute     `xml:"routes>route"`
+}
+
+type snmpInterface struct {
+	Name   string `xml:"name"`
+	Status string `xml:"status"`
+	Speed  string `xml:"speed"`
+}
+
+type snmpARPEntry struct {
+	MAC       string `xml:"mac,attr"`
+	IP        string `xml:"ip,attr"`
+	Interface string `xml:"interface,attr"`
+}
+
+type snmpVLAN struct {
+	ID   string `xml:"id,attr"`
+	Name string `xml:"name,attr"`
+}
+
+type snmpRoute struct {
+	Dest      string `xml:"dest,attr"`
+	Gateway   string `xml:"gateway,attr"`
+	Interface string `xml:"interface,attr"`
+}
+
+// parseSNMPResult parses SNMP interrogation XML output into scan results.
+func (rp *ResultParser) parseSNMPResult(result *ScanResult, content string) (*ScanResult, error) {
+	var doc snmpResults
+	if err := xml.Unmarshal([]byte(content), &doc); err != nil {
+		return rp.parseGenericOutput(result, content)
+	}
+
+	for _, dev := range doc.Devices {
+		if dev.IP == "" {
+			continue
+		}
+
+		host := Host{
+			IP:         dev.IP,
+			Hostname:   dev.Hostname,
+			Status:     "up",
+			LastSeen:   result.Timestamp,
+			Ports:      make([]Port, 0),
+			Attributes: make(map[string]string),
+		}
+
+		if dev.SysDescription != "" {
+			host.OSDetails = dev.SysDescription
+			host.Attributes["sys_description"] = dev.SysDescription
+		}
+		if dev.SysUptime != "" {
+			host.Attributes["sys_uptime"] = dev.SysUptime
+		}
+
+		// Collect interface info as attributes
+		var ifNames []string
+		for _, iface := range dev.Interfaces {
+			ifNames = append(ifNames, fmt.Sprintf("%s (%s)", iface.Name, iface.Status))
+		}
+		if len(ifNames) > 0 {
+			host.Attributes["interfaces"] = strings.Join(ifNames, ", ")
+		}
+
+		// Collect VLAN info
+		var vlans []string
+		for _, v := range dev.VLANs {
+			vlans = append(vlans, fmt.Sprintf("%s (%s)", v.ID, v.Name))
+		}
+		if len(vlans) > 0 {
+			host.Attributes["vlans"] = strings.Join(vlans, ", ")
+		}
+
+		// Collect routing info
+		var routes []string
+		for _, r := range dev.Routes {
+			routes = append(routes, fmt.Sprintf("%s via %s", r.Dest, r.Gateway))
+		}
+		if len(routes) > 0 {
+			host.Attributes["routes"] = strings.Join(routes, ", ")
+		}
+
+		result.Hosts = append(result.Hosts, host)
+		result.Targets = append(result.Targets, dev.IP)
+
+		// ARP entries become additional host entries
+		for _, entry := range dev.ARPEntries {
+			if entry.IP != "" && entry.MAC != "" {
+				arpHost := Host{
+					IP:         entry.IP,
+					MACAddress: strings.ToUpper(entry.MAC),
+					Status:     "arp_entry",
+					LastSeen:   result.Timestamp,
+					Ports:      make([]Port, 0),
+					Attributes: make(map[string]string),
+				}
+				arpHost.Attributes["source"] = "snmp_arp"
+				arpHost.Attributes["interface"] = entry.Interface
+				result.Hosts = append(result.Hosts, arpHost)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// --- Exploit Search XML types ---
+
+// exploitResults is the top-level XML structure for searchsploit output.
+type exploitResults struct {
+	XMLName xml.Name      `xml:"exploit_results"`
+	Hosts   []exploitHost `xml:"host"`
+}
+
+type exploitHost struct {
+	IP       string          `xml:"ip,attr"`
+	Services []exploitSvc    `xml:"service"`
+}
+
+type exploitSvc struct {
+	Port     int              `xml:"port,attr"`
+	Product  string           `xml:"product,attr"`
+	Version  string           `xml:"version,attr"`
+	Exploits []exploitEntry   `xml:"exploit"`
+}
+
+type exploitEntry struct {
+	Title    string `xml:"title,attr"`
+	Type     string `xml:"type,attr"`
+	Platform string `xml:"platform,attr"`
+	Path     string `xml:"path,attr"`
+}
+
+// parseExploitSearchResult parses searchsploit XML output into vulnerabilities.
+func (rp *ResultParser) parseExploitSearchResult(result *ScanResult, content string) (*ScanResult, error) {
+	var doc exploitResults
+	if err := xml.Unmarshal([]byte(content), &doc); err != nil {
+		return rp.parseGenericOutput(result, content)
+	}
+
+	seenHosts := make(map[string]bool)
+	for _, h := range doc.Hosts {
+		if h.IP == "" {
+			continue
+		}
+
+		if !seenHosts[h.IP] {
+			seenHosts[h.IP] = true
+			result.Hosts = append(result.Hosts, Host{
+				IP:       h.IP,
+				Status:   "up",
+				LastSeen: result.Timestamp,
+				Ports:    make([]Port, 0),
+			})
+			result.Targets = append(result.Targets, h.IP)
+		}
+
+		for _, svc := range h.Services {
+			for _, expl := range svc.Exploits {
+				exploitSeverity := "high"
+				switch strings.ToLower(expl.Type) {
+				case "dos", "local":
+					exploitSeverity = "medium"
+				}
+				vuln := Vulnerability{
+					Host:        h.IP,
+					Port:        svc.Port,
+					Title:       expl.Title,
+					Description: fmt.Sprintf("%s %s exploit: %s", svc.Product, svc.Version, expl.Title),
+					Severity:    exploitSeverity,
+					Source:      "searchsploit",
+					Discovery:   result.Timestamp,
+				}
+				if expl.Type != "" {
+					vuln.References = append(vuln.References, fmt.Sprintf("type: %s", expl.Type))
+				}
+				if expl.Platform != "" {
+					vuln.References = append(vuln.References, fmt.Sprintf("platform: %s", expl.Platform))
+				}
+				if expl.Path != "" {
+					vuln.References = append(vuln.References, expl.Path)
+				}
+				result.Vulnerabilities = append(result.Vulnerabilities, vuln)
+			}
+		}
+	}
+
+	return result, nil
+}
+
+// --- Passive Fingerprint XML types ---
+
+// fingerprintResults is the top-level XML structure for passive fingerprinting.
+type fingerprintResults struct {
+	XMLName xml.Name           `xml:"fingerprint_results"`
+	Hosts   []fingerprintHost  `xml:"host"`
+}
+
+type fingerprintHost struct {
+	IP         string              `xml:"ip,attr"`
+	MAC        string              `xml:"mac,attr"`
+	OSGuess    string              `xml:"os_guess"`
+	DeviceType string              `xml:"device_type"`
+	Confidence string              `xml:"confidence"`
+	Evidence   []fingerprintSource `xml:"evidence>source"`
+}
+
+type fingerprintSource struct {
+	Name  string `xml:"name,attr"`
+	Value string `xml:",chardata"`
+}
+
+// parseFingerprintResult parses passive fingerprinting XML output.
+func (rp *ResultParser) parseFingerprintResult(result *ScanResult, content string) (*ScanResult, error) {
+	var doc fingerprintResults
+	if err := xml.Unmarshal([]byte(content), &doc); err != nil {
+		return rp.parseGenericOutput(result, content)
+	}
+
+	for _, fh := range doc.Hosts {
+		if fh.IP == "" {
+			continue
+		}
+
+		host := Host{
+			IP:         fh.IP,
+			MACAddress: strings.ToUpper(fh.MAC),
+			Status:     "fingerprinted",
+			LastSeen:   result.Timestamp,
+			Ports:      make([]Port, 0),
+			Attributes: make(map[string]string),
+		}
+
+		if fh.OSGuess != "" {
+			host.OS = fh.OSGuess
+		}
+		if fh.DeviceType != "" {
+			host.Attributes["device_type"] = fh.DeviceType
+		}
+		if fh.Confidence != "" {
+			host.Attributes["fingerprint_confidence"] = fh.Confidence
+		}
+
+		// Store evidence sources
+		for _, ev := range fh.Evidence {
+			host.Attributes["evidence_"+ev.Name] = ev.Value
+		}
+
+		result.Hosts = append(result.Hosts, host)
+		result.Targets = append(result.Targets, fh.IP)
+	}
+
+	return result, nil
+}
+
+// --- ARP Results XML types ---
+
+// arpResults is the top-level XML structure for ARP table ingestion.
+type arpResults struct {
+	XMLName  xml.Name    `xml:"arp_results"`
+	Metadata arpMeta     `xml:"metadata"`
+	Entries  []arpEntry  `xml:"entry"`
+}
+
+type arpMeta struct {
+	Timestamp string `xml:"timestamp"`
+	Interface string `xml:"interface"`
+}
+
+type arpEntry struct {
+	IP        string `xml:"ip,attr"`
+	MAC       string `xml:"mac,attr"`
+	Interface string `xml:"interface,attr"`
+	State     string `xml:"state,attr"`
+}
+
+// parseARPResult parses ARP table XML output into scan results.
+func (rp *ResultParser) parseARPResult(result *ScanResult, content string) (*ScanResult, error) {
+	var doc arpResults
+	if err := xml.Unmarshal([]byte(content), &doc); err != nil {
+		return rp.parseGenericOutput(result, content)
+	}
+
+	for _, entry := range doc.Entries {
+		if entry.IP == "" {
+			continue
+		}
+
+		host := Host{
+			IP:         entry.IP,
+			MACAddress: strings.ToUpper(entry.MAC),
+			Status:     "arp_entry",
+			LastSeen:   result.Timestamp,
+			Ports:      make([]Port, 0),
+			Attributes: make(map[string]string),
+		}
+		if entry.Interface != "" {
+			host.Attributes["interface"] = entry.Interface
+		}
+		if entry.State != "" {
+			host.Attributes["arp_state"] = entry.State
+		}
+
+		result.Hosts = append(result.Hosts, host)
+		result.Targets = append(result.Targets, entry.IP)
+	}
+
+	return result, nil
+}
+
+// --- testssl.sh JSON types ---
+
+// testsslFinding represents one entry in testssl.sh -oj flat JSON array output.
+// Each finding has an id, target ip:port, severity, and human-readable finding text.
+type testsslFinding struct {
+	ID       string `json:"id"`
+	IP       string `json:"ip"` // may be "host:port" or just IP
+	Port     string `json:"port"`
+	Severity string `json:"severity"`
+	Finding  string `json:"finding"`
+	CVE      string `json:"cve"`
+	CWE      string `json:"cwe"`
+}
+
+// parseTestSSLResult parses testssl.sh -oj JSON array output into vulnerabilities.
+// testssl -oj writes a flat JSON array where each element is one finding.
+func (rp *ResultParser) parseTestSSLResult(result *ScanResult, content string) (*ScanResult, error) {
+	var findings []testsslFinding
+	if err := json.Unmarshal([]byte(strings.TrimSpace(content)), &findings); err != nil {
+		return rp.parseGenericOutput(result, content)
+	}
+
+	seenHosts := make(map[string]bool)
+	for _, f := range findings {
+		// The ip field may be "host:port" (IPv4) or "[::1]:port" (IPv6); extract just the IP.
+		ip := f.IP
+		if idx := strings.LastIndex(ip, ":"); idx >= 0 && !strings.HasPrefix(ip, "[") {
+			ip = ip[:idx]
+		} else if strings.HasPrefix(ip, "[") {
+			// Strip brackets from IPv6 literal
+			ip = strings.TrimPrefix(ip, "[")
+			if idx := strings.Index(ip, "]"); idx >= 0 {
+				ip = ip[:idx]
+			}
+		}
+		if ip == "" {
+			continue
+		}
+
+		port := 0
+		if f.Port != "" {
+			port, _ = strconv.Atoi(f.Port)
+		}
+
+		if !seenHosts[ip] {
+			seenHosts[ip] = true
+			result.Hosts = append(result.Hosts, Host{
+				IP:       ip,
+				Status:   "up",
+				LastSeen: result.Timestamp,
+				Ports:    make([]Port, 0),
+			})
+			result.Targets = append(result.Targets, ip)
+		}
+
+		// Skip purely informational findings
+		sev := strings.ToLower(strings.TrimSpace(f.Severity))
+		if sev == "" || sev == "info" || sev == "ok" || sev == "not tested" {
+			continue
+		}
+		if sev == "warn" {
+			sev = "low"
+		}
+
+		vuln := Vulnerability{
+			Host:        ip,
+			Port:        port,
+			Title:       f.ID + ": " + f.Finding,
+			Description: f.Finding,
+			Severity:    sev,
+			Service:     f.ID,
+			Source:      "testssl",
+			Discovery:   result.Timestamp,
+		}
+		if f.CVE != "" {
+			vuln.CVE = f.CVE
+		}
+		result.Vulnerabilities = append(result.Vulnerabilities, vuln)
 	}
 
 	return result, nil

@@ -3,7 +3,7 @@ script:
   description: "Analyze MAC addresses from network capture to identify device vendors, detect anomalies, and perform security analysis including MAC randomization and multicast/broadcast detection"
   name_de: "MAC-Adressanalyse"
   description_de: "MAC-Adressen aus Netzwerkmitschnitt analysieren zur Gerätehersteller-Identifikation, Anomalie-Erkennung und Sicherheitsanalyse inklusive MAC-Randomisierung und Multicast/Broadcast-Erkennung"
-  category: "discovery"
+  category: "analysis"
   subcategory: "analysis"
 
   file: "mac_analysis.sh"

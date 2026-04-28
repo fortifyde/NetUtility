@@ -82,6 +82,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .node.gateway circle { stroke-dasharray: none; }
 .link { stroke-opacity: 0.4; }
 .link.gateway { stroke-dasharray: 6,3; }
+.link.physical { stroke-opacity: 0.7; stroke-width: 2; }
+.link-label { font-size: 9px; fill: #64B5F6; pointer-events: none; }
+.compliance-ring { fill: none; pointer-events: none; }
+.compliance-section h3 { color: #e94560; margin: 14px 0 8px 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+.compliance-item { font-size: 12px; margin: 3px 0; }
 .vlan-hull { fill-opacity: 0.06; stroke-opacity: 0.3; stroke-width: 1.5; }
 .vlan-label { font-size: 13px; fill: #888; font-weight: bold; }
 .node.remote circle { stroke-dasharray: 4,2; }
@@ -126,21 +131,12 @@ const CAT_LABELS = {
   unknown: 'Unknown'
 };
 
-// Sub-type inference: derives a secondary label from device_type, ports, or OS.
-// Shown as secondary text on nodes and as "Type" in the detail panel.
+// Sub-type label computed by the Go correlator from os_match, vendor,
+// sys_description, and port data. Displayed as secondary text on nodes.
 function hostSubtype(h) {
+  if (h.attributes && h.attributes.host_subtype) return h.attributes.host_subtype;
   var dt = (h.device_type || '').toLowerCase();
-  if (dt && dt !== h.category && dt !== 'unknown') return dt;
-  if (h.category === 'windows') {
-    var os = (h.os || '').toLowerCase();
-    if (os.indexOf('server') >= 0) return 'server';
-    if (os.indexOf('professional') >= 0 || os.indexOf('windows 10') >= 0 || os.indexOf('windows 11') >= 0) return 'workstation';
-  }
-  if (h.category === 'network_device') {
-    var ports = h.ports || [];
-    if (ports.some(function(p){ return p.number === 9100; })) return 'printer';
-    if (dt === 'switch' || dt === 'router' || dt === 'firewall' || dt === 'gateway' || dt === 'access_point') return dt;
-  }
+  if (dt && dt !== h.category && dt !== 'unknown' && dt !== 'general purpose' && dt !== 'specialized' && dt !== 'other') return dt;
   return '';
 }
 
@@ -165,7 +161,8 @@ const state = {
   searchText: '',
   serviceFilter: '',
   riskThreshold: 0,
-  selectedHost: null
+  selectedHost: null,
+  showSameVlanEdges: false
 };
 
 // ─── Build flat host list ─────────────────────────────────────
@@ -269,13 +266,16 @@ function renderGraph(vlanId) {
   var nodeMap = {};
   nodes.forEach(function(n) { nodeMap[n.id] = n; });
 
-  // Build links from CONNECTIONS filtered to visible nodes
+  // Build links from CONNECTIONS filtered to visible nodes.
+  // Hide same_vlan edges by default; users can toggle them on via the checkbox.
+  var showSameVlan = state.showSameVlanEdges;
   var links = [];
   (CONNECTIONS || []).forEach(function(c) {
-    if (nodeMap[c.source] && nodeMap[c.target]) {
-      links.push({ source: c.source, target: c.target, type: c.type, label: c.label });
-    }
+    if (!nodeMap[c.source] || !nodeMap[c.target]) return;
+    if (c.type === 'same_vlan' && !showSameVlan) return;
+    links.push({ source: c.source, target: c.target, type: c.type, label: c.label });
   });
+
 
   // VLAN color mapping
   var vlanColorMap = {};
@@ -391,8 +391,24 @@ function renderGraph(vlanId) {
     .data(links)
     .enter().append('line')
     .attr('class', function(d) { return 'link ' + d.type; })
-    .attr('stroke', function(d) { return d.type === 'gateway' ? '#e94560' : '#444'; })
-    .attr('stroke-width', function(d) { return d.type === 'gateway' ? 2 : 1; });
+    .attr('stroke', function(d) {
+      if (d.type === 'gateway') return '#e94560';
+      if (d.type === 'physical') return '#64B5F6';
+      return '#444';
+    })
+    .attr('stroke-width', function(d) {
+      if (d.type === 'gateway') return 2;
+      if (d.type === 'physical') return 2;
+      return 1;
+    });
+
+  // Physical link interface labels
+  var linkLabels = g.append('g').selectAll('text')
+    .data(links.filter(function(d) { return d.type === 'physical' && d.label; }))
+    .enter().append('text')
+    .attr('class', 'link-label')
+    .attr('text-anchor', 'middle')
+    .text(function(d) { return d.label; });
 
   // Nodes
   var node = g.append('g').selectAll('g')
@@ -426,6 +442,16 @@ function renderGraph(vlanId) {
       return d.isGateway ? '#fff' : (CAT_COLORS[d.host.category] || CAT_COLORS.unknown);
     })
     .attr('stroke-width', function(d) { return d.isGateway ? 3 : 2; });
+
+  // Compliance ring — coloured outer ring on network device nodes with compliance data
+  var COMPLIANCE_RING_COLORS = { critical: '#b71c1c', warning: '#FF9800', ok: '#4CAF50' };
+  node.filter(function(d) {
+    return d.host.compliance_severity && COMPLIANCE_RING_COLORS[d.host.compliance_severity];
+  }).append('circle')
+    .attr('class', 'compliance-ring')
+    .attr('r', function(d) { return d.radius + 5; })
+    .attr('stroke', function(d) { return COMPLIANCE_RING_COLORS[d.host.compliance_severity]; })
+    .attr('stroke-width', 3);
 
   // Gateway indicator
   node.filter(function(d){ return d.isGateway; })
@@ -473,18 +499,36 @@ function renderGraph(vlanId) {
   // ── Force simulation with adaptive parameters ──
   if (state.simulation) state.simulation.stop();
 
+  // In the overview the VLAN clustering forces handle positioning; the global
+  // center pull is kept very weak so it doesn't fight cluster separation.
+  var centerStrength = isSingleVLAN ? 0.05 : 0.01;
+
   state.simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(linkDist))
+    .force('link', d3.forceLink(links).id(function(d) { return d.id; })
+      .distance(linkDist)
+      // Physical edges cross VLAN boundaries. They are resolved by forceLink so
+      // source/target become node objects (needed for rendering), but strength=0
+      // means they exert no spring force and cannot pull clusters together.
+      .strength(function(l) { return (l.type === 'physical' && !isSingleVLAN) ? 0 : 0.7; }))
     .force('charge', d3.forceManyBody().strength(chargeStrength))
     .force('center', d3.forceCenter(svgW / 2, svgH / 2))
     .force('collision', d3.forceCollide().radius(function(d) { return d.radius + collisionPad; }))
-    .force('x', d3.forceX(svgW / 2).strength(0.03))
-    .force('y', d3.forceY(svgH / 2).strength(0.03));
+    .force('x', d3.forceX(svgW / 2).strength(centerStrength))
+    .force('y', d3.forceY(svgH / 2).strength(centerStrength));
 
-  // VLAN clustering force (only for multi-VLAN overview)
+  // VLAN clustering force (only for multi-VLAN overview).
+  // Strength 0.3 keeps clusters well-separated; higher values produce a more
+  // rigid radial layout at the cost of less organic node spreading within a VLAN.
   if (uniqueVLANs.length > 1 && !isSingleVLAN) {
     var vlanCenters = {};
-    var clusterR = Math.min(svgW, svgH) * 0.3;
+    // Cluster radius: ensure at least 220px of arc between adjacent cluster centres
+    // so VLAN hulls cannot overlap regardless of node count. Also keep a minimum
+    // fraction of the viewport so small networks still spread out.
+    var minArcSep = 220;
+    var angularSep = uniqueVLANs.length > 1 ? (2 * Math.PI / uniqueVLANs.length) : Math.PI;
+    var minRByArc = minArcSep / (2 * Math.sin(angularSep / 2));
+    var minRByViewport = Math.min(svgW, svgH) * 0.35;
+    var clusterR = Math.max(minRByArc, minRByViewport);
     uniqueVLANs.forEach(function(vid, i) {
       var angle = (2 * Math.PI * i) / uniqueVLANs.length - Math.PI / 2;
       vlanCenters[vid] = { x: svgW / 2 + clusterR * Math.cos(angle), y: svgH / 2 + clusterR * Math.sin(angle) };
@@ -492,10 +536,10 @@ function renderGraph(vlanId) {
     state.simulation
       .force('vlanX', d3.forceX(function(d) {
         return vlanCenters[d.host._vlanId] ? vlanCenters[d.host._vlanId].x : svgW / 2;
-      }).strength(0.12))
+      }).strength(0.5))
       .force('vlanY', d3.forceY(function(d) {
         return vlanCenters[d.host._vlanId] ? vlanCenters[d.host._vlanId].y : svgH / 2;
-      }).strength(0.12));
+      }).strength(0.5));
   }
 
   state.simulation.on('tick', function() {
@@ -504,6 +548,9 @@ function renderGraph(vlanId) {
       .attr('y1', function(d) { return d.source.y; })
       .attr('x2', function(d) { return d.target.x; })
       .attr('y2', function(d) { return d.target.y; });
+    linkLabels
+      .attr('x', function(d) { return (d.source.x + d.target.x) / 2; })
+      .attr('y', function(d) { return (d.source.y + d.target.y) / 2 - 4; });
     node.attr('transform', function(d) { return 'translate(' + d.x + ',' + d.y + ')'; });
     drawHulls();
   });
@@ -610,6 +657,27 @@ function showDetail(h) {
     });
   }
 
+  // Security Compliance (network devices only — populated from gathered configs)
+  var compFindings = h.compliance_findings || [];
+  if (compFindings.length > 0) {
+    var sevColor = { critical: '#b71c1c', warning: '#FF9800', ok: '#4CAF50' };
+    var sevBadge = { critical: 'CRITICAL', warning: 'WARN', ok: 'PASS' };
+    html += '<div class="compliance-section"><h3>Security Compliance</h3>';
+    compFindings.forEach(function(f) {
+      var sev = (f.severity || 'ok').toLowerCase();
+      var icon = (sev === 'ok') ? '✓' : '✗';
+      var color = sevColor[sev] || '#888';
+      html += '<div class="compliance-item" style="color:' + color + '">';
+      html += '<span style="margin-right:6px">' + icon + '</span>';
+      html += '<span>' + escHtml(f.check) + '</span>';
+      if (f.detail && sev !== 'ok') {
+        html += '<div style="font-size:11px;color:#888;margin-left:20px">' + escHtml(f.detail) + '</div>';
+      }
+      html += '</div>';
+    });
+    html += '</div>';
+  }
+
   content.innerHTML = html;
   panel.classList.add('open');
 }
@@ -672,6 +740,19 @@ function buildToolbar() {
   riskSel.onchange = function() { state.riskThreshold = parseInt(riskSel.value) || 0; renderGraph(state.currentTab === 'overview' ? null : state.currentTab); };
   riskLabel.appendChild(riskSel);
   toolbar.appendChild(riskLabel);
+
+  // Same-VLAN edge toggle
+  var edgeLbl = document.createElement('label');
+  var edgeCb = document.createElement('input');
+  edgeCb.type = 'checkbox';
+  edgeCb.checked = state.showSameVlanEdges;
+  edgeCb.onchange = function() {
+    state.showSameVlanEdges = edgeCb.checked;
+    renderGraph(null);
+  };
+  edgeLbl.appendChild(edgeCb);
+  edgeLbl.appendChild(document.createTextNode(' Show connections'));
+  toolbar.appendChild(edgeLbl);
 
   // Category filters (only the 3 real categories + unknown)
   ['network_device', 'windows', 'linux', 'unknown'].forEach(function(cat) {
@@ -753,6 +834,25 @@ function buildLegend() {
   linkItem.appendChild(linkLine);
   linkItem.appendChild(document.createTextNode(' Gateway link'));
   legend.appendChild(linkItem);
+
+  var physItem = document.createElement('div');
+  physItem.className = 'legend-item';
+  var physLine = document.createElement('span');
+  physLine.style.cssText = 'display:inline-block;width:24px;height:0;border-top:2px solid #64B5F6';
+  physItem.appendChild(physLine);
+  physItem.appendChild(document.createTextNode(' Physical port link'));
+  legend.appendChild(physItem);
+
+  // Compliance ring indicators
+  [['critical','#b71c1c','Critical issues'],['warning','#FF9800','Warnings'],['ok','#4CAF50','Compliant']].forEach(function(row) {
+    var item = document.createElement('div');
+    item.className = 'legend-item';
+    var ring = document.createElement('span');
+    ring.style.cssText = 'display:inline-block;width:12px;height:12px;border-radius:50%;border:3px solid ' + row[1] + ';background:transparent';
+    item.appendChild(ring);
+    item.appendChild(document.createTextNode(' Compliance: ' + row[2]));
+    legend.appendChild(item);
+  });
 }
 
 // ─── Init ─────────────────────────────────────────────────────

@@ -1,0 +1,70 @@
+script:
+  name: "Passive OS Fingerprinting"
+  description: "Passively fingerprint OS and device types from pcap captures using p0f, MAC OUI vendor lookup, and port pattern analysis"
+  name_de: "Passive OS-Fingerprinting"
+  description_de: "Passive OS- und Gerätetyperkennung aus PCAP-Mitschnitten mittels p0f, MAC-OUI-Vendor-Lookup und Portmuster-Analyse"
+  category: "analysis"
+  subcategory: "fingerprint"
+
+  file: "passive_fingerprint.sh"
+  requires_root: false
+  estimated_duration: "0-5 minutes"
+
+  cli_shortcuts:
+    - "fingerprint"
+    - "p0f"
+  keywords:
+    - "fingerprint"
+    - "os"
+    - "p0f"
+    - "passive"
+    - "mac"
+    - "oui"
+    - "device"
+    - "classify"
+
+  parameters:
+    - name: "pcap_file"
+      type: "file_path"
+      description: "Capture file (.pcap) to analyze. Auto-searched in workspace captures/ and scans/ directories"
+      required: false
+
+  dependencies:
+    tools:
+      - name: "p0f"
+        package: "p0f"
+        check_command: "which p0f"
+      - name: "tshark"
+        package: "tshark"
+        check_command: "which tshark"
+
+  output:
+    creates_files: true
+    file_patterns:
+      - "fingerprint_*/*/p0f_output.txt"
+      - "fingerprint_*/*/fingerprint_results.xml"
+      - "fingerprint_*/*/fingerprint_summary.txt"
+    workspace_subdirs:
+      - "discovery/fingerprint"
+
+  tags:
+    - "fingerprint"
+    - "os"
+    - "passive"
+    - "p0f"
+    - "mac"
+    - "oui"
+    - "device"
+    - "classify"
+  risk_level: "low"
+  network_access: false
+  modifies_system: false
+
+  examples:
+    - description: "Run passive fingerprinting on available captures"
+      command: "netutil fingerprint"
+    - description: "Run with p0f shortcut"
+      command: "netutil p0f"
+
+  version: "1.0"
+  last_updated: "2025-04-25"

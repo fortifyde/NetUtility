@@ -3,7 +3,7 @@ script:
   description: "Capture screenshots of available web services using gowitness"
   name_de: "Webdienste Gatherer"
   description_de: "Screenshots von verfügbaren Webdiensten mit gowitness erfassen"
-  category: "advanced"
+  category: "recon"
   subcategory: "web"
 
   file: "web_screenshot.sh"

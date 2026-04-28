@@ -1,0 +1,97 @@
+script:
+  name: "SNMP Device Interrogation"
+  description: "Interrogate SNMP-enabled devices for system info, interfaces, ARP tables, VLANs, and routes"
+  name_de: "SNMP-Geräteabfrage"
+  description_de: "SNMP-fähige Geräte nach Systeminfos, Schnittstellen, ARP-Tabellen, VLANs und Routen abfragen"
+  category: "recon"
+  subcategory: "snmp"
+
+  file: "snmp_interrogate.sh"
+  requires_root: false
+  estimated_duration: "1-10 minutes"
+
+  cli_shortcuts:
+    - "snmp"
+  keywords:
+    - "snmp"
+    - "community"
+    - "device"
+    - "interrogate"
+    - "switch"
+    - "router"
+    - "oid"
+    - "mib"
+
+  parameters:
+    - name: "target_source"
+      type: "choice"
+      description: "Target selection method"
+      required: false
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Single IP address"
+          - value: "2"
+            description: "IP range (CIDR)"
+          - value: "3"
+            description: "Host file"
+          - value: "4"
+            description: "Auto-detect from network ranges"
+          - value: "5"
+            description: "Recent targets"
+    - name: "community_mode"
+      type: "choice"
+      description: "SNMP community string configuration"
+      required: false
+      default: "1"
+      validation:
+        choices:
+          - value: "1"
+            description: "Use default (public)"
+          - value: "2"
+            description: "Custom community string"
+          - value: "3"
+            description: "Default + custom strings"
+
+  dependencies:
+    tools:
+      - name: "snmpwalk"
+        package: "net-snmp"
+        check_command: "which snmpwalk"
+    scripts:
+      - "../common/colors.sh"
+      - "../common/logging.sh"
+      - "../common/utils.sh"
+      - "../common/validation.sh"
+
+  output:
+    creates_files: true
+    file_patterns:
+      - "scans/snmp/*/snmp_walk_output.txt"
+      - "scans/snmp/*/snmp_device_info.xml"
+      - "scans/snmp/*/snmp_summary.txt"
+    workspace_subdirs:
+      - "scans/snmp"
+
+  tags:
+    - "snmp"
+    - "device"
+    - "interrogate"
+    - "network"
+    - "switch"
+    - "router"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+
+  examples:
+    - description: "Interrogate a single device with default community"
+      command: "netutil snmp (select single IP, default community)"
+    - description: "Interrogate with custom community strings"
+      command: "netutil snmp (select target, option 3 for custom strings)"
+    - description: "Interrogate multiple devices from file"
+      command: "netutil snmp (select host file)"
+
+  version: "1.0"
+  last_updated: "2025-04-25"

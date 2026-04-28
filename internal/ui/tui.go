@@ -171,15 +171,19 @@ func wrapText(text string, width int) []string {
 func (t *TUI) formatCategoryName(category string) string {
 	switch category {
 	case "host-config":
-		return t.str.CatHostConfig
-	case "utilities":
-		return t.str.CatSystemUtilities
+		return t.str.CatNetworkSetup
 	case "discovery":
 		return t.str.CatNetworkDiscovery
+	case "analysis":
+		return t.str.CatCaptureAnalysis
 	case "scanning":
 		return t.str.CatPortScanning
-	case "advanced":
-		return t.str.CatAdvancedTools
+	case "recon":
+		return t.str.CatReconnaissance
+	case "config-gathering":
+		return t.str.CatConfigGathering
+	case "utilities":
+		return t.str.CatSystemUtilities
 	default:
 		if len(category) > 0 {
 			return strings.ToUpper(category[:1]) + category[1:]
@@ -196,7 +200,7 @@ func (t *TUI) getHardcodedCategories() []Category {
 	}
 	return []Category{
 		{
-			Name: t.str.CatHostConfig,
+			Name: t.str.CatNetworkSetup,
 			Tasks: []Task{
 				{Name: t.str.TaskSelectWorkDir, Description: t.str.TaskSelectWorkDirDesc, Script: s("system", "select_workdir.sh")},
 				{
@@ -231,13 +235,13 @@ func (t *TUI) getHardcodedCategories() []Category {
 			},
 		},
 		{
-			Name: t.str.CatAdvancedTools,
+			Name: t.str.CatReconnaissance,
 			Tasks: []Task{
 				{Name: t.str.TaskIntegratedWorkflow, Description: t.str.TaskIntegratedWorkflowDesc, Script: s("network", "integrated_workflow.sh")},
 			},
 		},
 		{
-			Name: t.str.CatAdvancedTools,
+			Name: t.str.CatConfigGathering,
 			Tasks: []Task{
 				{Name: t.str.TaskDeviceConfigGathering, Description: t.str.TaskDeviceConfigGatheringDesc, Script: s("config", "device_config.sh")},
 			},
@@ -246,11 +250,11 @@ func (t *TUI) getHardcodedCategories() []Category {
 }
 
 // mergeInterfaceTasks finds "Manage Network Interfaces" and "Manage VLAN Interfaces"
-// in the "Host Configuration" category and replaces them with a single composite
+// in the "Network Setup" category and replaces them with a single composite
 // "Configure Interfaces" task whose SubTasks hold the originals.
 func mergeInterfaceTasks(categories []Category, str *Strings) []Category {
 	for ci, cat := range categories {
-		if cat.Name != str.CatHostConfig {
+		if cat.Name != str.CatNetworkSetup {
 			continue
 		}
 		var ifaceTask, vlanTask Task
@@ -444,10 +448,8 @@ func (t *TUI) loadWorkspaceResults() {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to scan workspace for results: %v\n", err)
 		return
 	}
-	for _, result := range results {
-		if err := t.correlator.AddScanResult(result); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to load workspace result: %v\n", err)
-		}
+	if err := t.correlator.BatchAddScanResults(results); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load workspace results: %v\n", err)
 	}
 
 	// Merge screenshot data from gowitness JSONL files on disk

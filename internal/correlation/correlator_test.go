@@ -151,6 +151,62 @@ func TestMergeHostInfo(t *testing.T) {
 			t.Error("LastSeen should be updated to newer time")
 		}
 	})
+
+	t.Run("OS merge prefers higher accuracy", func(t *testing.T) {
+		existing := &Host{
+			IP:         "192.168.1.1",
+			OS:         "Windows Server 2019",
+			Attributes: map[string]string{"os_match_accuracy": "98"},
+		}
+
+		newHost := &Host{
+			IP:         "192.168.1.1",
+			OS:         "Linux",
+			Attributes: map[string]string{"os_match_accuracy": "50"},
+		}
+
+		merged := correlator.mergeHostInfo(existing, newHost)
+		if merged.OS != "Windows Server 2019" {
+			t.Errorf("OS should prefer higher accuracy, got %s", merged.OS)
+		}
+	})
+
+	t.Run("OS merge allows equal accuracy overwrite", func(t *testing.T) {
+		existing := &Host{
+			IP:         "192.168.1.1",
+			OS:         "Windows 10",
+			Attributes: map[string]string{"os_match_accuracy": "90"},
+		}
+
+		newHost := &Host{
+			IP:         "192.168.1.1",
+			OS:         "Windows 11",
+			Attributes: map[string]string{"os_match_accuracy": "90"},
+		}
+
+		merged := correlator.mergeHostInfo(existing, newHost)
+		if merged.OS != "Windows 11" {
+			t.Errorf("equal accuracy should allow overwrite, got %s", merged.OS)
+		}
+	})
+
+	t.Run("OS merge allows overwrite when existing has no accuracy", func(t *testing.T) {
+		existing := &Host{
+			IP: "192.168.1.1",
+			OS: "Linux",
+		}
+
+		newHost := &Host{
+			IP:         "192.168.1.1",
+			OS:         "Ubuntu 22.04",
+			Attributes: map[string]string{"os_match_accuracy": "95"},
+		}
+
+		merged := correlator.mergeHostInfo(existing, newHost)
+		if merged.OS != "Ubuntu 22.04" {
+			t.Errorf("higher accuracy should overwrite, got %s", merged.OS)
+		}
+	})
 }
 
 func TestMergePorts(t *testing.T) {
@@ -275,6 +331,27 @@ func TestCalculateRiskScore(t *testing.T) {
 				},
 			},
 			wantScore: 100, // 100 ssl only — sslscan findings excluded from vuln factor
+		},
+		{
+			name: "testssl critical",
+			correlation: &CorrelationResult{
+				Services: []Service{},
+				Vulnerabilities: []Vulnerability{
+					{Severity: "critical", Title: "TLS 1.0 enabled", Source: "testssl"},
+				},
+			},
+			wantScore: 100, // 100 ssl only — testssl findings treated same as sslscan
+		},
+		{
+			name: "testssl excluded from vuln factor",
+			correlation: &CorrelationResult{
+				Services: []Service{},
+				Vulnerabilities: []Vulnerability{
+					{Severity: "high", Title: "BEAST", Source: "testssl"},
+					{Severity: "critical", Title: "RCE", Source: "nmap-nse"},
+				},
+			},
+			wantScore: 200, // 150 vuln (RCE) + 50 ssl (BEAST)
 		},
 		{
 			name: "telnet service exposure",
@@ -659,6 +736,88 @@ func TestAddScanResultAndCorrelate(t *testing.T) {
 	}
 }
 
+func TestBatchAddScanResultsProducesSameCorrelation(t *testing.T) {
+	// Set up two correlators: one using individual adds, one using batch
+	correlator1 := NewCorrelator("")
+	correlator2 := NewCorrelator("")
+
+	now := time.Now()
+	results := []*ScanResult{
+		{
+			ID:        "scan1",
+			Type:      ScanTypePortScan,
+			Timestamp: now,
+			Source:    "test",
+			Hosts: []Host{
+				{IP: "192.168.1.1", Status: "up", LastSeen: now, Ports: []Port{{Number: 80, Protocol: "tcp", State: "open", Service: "http"}}},
+			},
+			Services: []Service{{Host: "192.168.1.1", Port: 80, Name: "http"}},
+		},
+		{
+			ID:        "scan2",
+			Type:      ScanTypeVulnerability,
+			Timestamp: now,
+			Source:    "test",
+			Vulnerabilities: []Vulnerability{
+				{Host: "192.168.1.1", Severity: "critical", Title: "RCE", Source: "nmap-nse"},
+			},
+		},
+		{
+			ID:        "scan3",
+			Type:      ScanTypePortScan,
+			Timestamp: now,
+			Source:    "test",
+			Hosts: []Host{
+				{IP: "192.168.1.2", Status: "up", LastSeen: now, OS: "Linux"},
+			},
+		},
+	}
+
+	// Add individually
+	for _, r := range results {
+		if err := correlator1.AddScanResult(r); err != nil {
+			t.Fatalf("AddScanResult() error = %v", err)
+		}
+	}
+
+	// Add as batch
+	if err := correlator2.BatchAddScanResults(results); err != nil {
+		t.Fatalf("BatchAddScanResults() error = %v", err)
+	}
+
+	// Verify both correlators have the same hosts
+	all1 := correlator1.GetAllCorrelations()
+	all2 := correlator2.GetAllCorrelations()
+
+	if len(all1) != len(all2) {
+		t.Errorf("correlation count mismatch: individual=%d, batch=%d", len(all1), len(all2))
+	}
+
+	// Verify host 192.168.1.1 has both services and vulnerabilities in both
+	corr1, ok1 := correlator1.GetCorrelationForHost("192.168.1.1")
+	corr2, ok2 := correlator2.GetCorrelationForHost("192.168.1.1")
+	if !ok1 || !ok2 {
+		t.Fatal("expected host 192.168.1.1 in both correlators")
+	}
+
+	if len(corr1.Services) != len(corr2.Services) {
+		t.Errorf("services count mismatch: individual=%d, batch=%d", len(corr1.Services), len(corr2.Services))
+	}
+	if len(corr1.Vulnerabilities) != len(corr2.Vulnerabilities) {
+		t.Errorf("vuln count mismatch: individual=%d, batch=%d", len(corr1.Vulnerabilities), len(corr2.Vulnerabilities))
+	}
+	if corr1.RiskScore != corr2.RiskScore {
+		t.Errorf("risk score mismatch: individual=%d, batch=%d", corr1.RiskScore, corr2.RiskScore)
+	}
+
+	// Verify host 192.168.1.2 exists in both
+	_, ok1 = correlator1.GetCorrelationForHost("192.168.1.2")
+	_, ok2 = correlator2.GetCorrelationForHost("192.168.1.2")
+	if !ok1 || !ok2 {
+		t.Error("expected host 192.168.1.2 in both correlators")
+	}
+}
+
 func TestSortTimeline(t *testing.T) {
 	correlator := NewCorrelator("")
 
@@ -998,5 +1157,287 @@ func TestIPParsing(t *testing.T) {
 
 	if len(hosts) != 1 {
 		t.Errorf("len(hosts) = %d, want 1", len(hosts))
+	}
+}
+
+func TestInferHostSubtype(t *testing.T) {
+	correlator := NewCorrelator("")
+
+	tests := []struct {
+		name    string
+		result  *CorrelationResult
+		wantSub string // expected host_subtype value, empty string means not set
+	}{{
+		name: "windows server via os_match",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category": "windows",
+					"os_match": "Windows Server 2019",
+				},
+			},
+		},
+		wantSub: "server",
+	}, {
+		name: "windows workstation via os_match",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category": "windows",
+					"os_match": "Windows 10 Pro",
+				},
+			},
+		},
+		wantSub: "workstation",
+	}, {
+		name: "windows 7 workstation",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category": "windows",
+					"os_match": "Windows 7",
+				},
+			},
+		},
+		wantSub: "workstation",
+	}, {
+		name: "windows domain controller via LDAP port",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Ports: []Port{
+					{Number: 389, Protocol: "tcp", State: "open"},
+				},
+				Attributes: map[string]string{
+					"category": "windows",
+				},
+			},
+		},
+		wantSub: "domain controller",
+	}, {
+		name: "windows sql server via port 1433",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Ports: []Port{
+					{Number: 1433, Protocol: "tcp", State: "open"},
+				},
+				Attributes: map[string]string{
+					"category": "windows",
+				},
+			},
+		},
+		wantSub: "sql server",
+	}, {
+		name: "network device printer via vendor",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category": "network_device",
+					"vendor":   "printer",
+				},
+			},
+		},
+		wantSub: "printer",
+	}, {
+		name: "network device printer via sys_description LaserJet",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category":        "network_device",
+					"sys_description": "HP LaserJet",
+				},
+			},
+		},
+		wantSub: "printer",
+	}, {
+		name: "network device switch via sys_description",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category":        "network_device",
+					"sys_description": "Cisco Nexus Switch",
+				},
+			},
+		},
+		wantSub: "switch",
+	}, {
+		name: "network device firewall via sys_description ASA",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category":        "network_device",
+					"sys_description": "Cisco ASA",
+				},
+			},
+		},
+		wantSub: "firewall",
+	}, {
+		name: "network device router via sys_description",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category":        "network_device",
+					"sys_description": "Cisco IOS Router",
+				},
+			},
+		},
+		wantSub: "router",
+	}, {
+		name: "network device storage via sys_description",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category":        "network_device",
+					"sys_description": "NetApp Storage",
+				},
+			},
+		},
+		wantSub: "storage",
+	}, {
+		name: "network device switch via vendor ubiquiti",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category": "network_device",
+					"vendor":   "ubiquiti",
+				},
+			},
+		},
+		wantSub: "switch",
+	}, {
+		name: "network device printer via port 9100",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Ports: []Port{
+					{Number: 9100, Protocol: "tcp", State: "open"},
+				},
+				Attributes: map[string]string{
+					"category": "network_device",
+				},
+			},
+		},
+		wantSub: "printer",
+	}, {
+		name: "network device router via OS field",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				OS: "Cisco IOS Router",
+				Attributes: map[string]string{
+					"category": "network_device",
+				},
+			},
+		},
+		wantSub: "router",
+	}, {
+		name: "network device firewall via OS ASA",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				OS: "Cisco ASA Adaptive",
+				Attributes: map[string]string{
+					"category": "network_device",
+				},
+			},
+		},
+		wantSub: "firewall",
+	}, {
+		name: "linux openwrt router",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category": "linux",
+					"os_match": "OpenWrt",
+				},
+			},
+		},
+		wantSub: "router",
+	}, {
+		name: "linux embedded",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category": "linux",
+					"os_match": "Linux Embedded",
+				},
+			},
+		},
+		wantSub: "embedded",
+	}, {
+		name: "linux no special os",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category": "linux",
+					"os_match": "Ubuntu 22.04",
+				},
+			},
+		},
+		wantSub: "",
+	}, {
+		name: "unknown category no subtype",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category": "unknown",
+				},
+			},
+		},
+		wantSub: "",
+	}, {
+		name: "empty category treated as unknown",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{},
+			},
+		},
+		wantSub: "",
+	}, {
+		name: "already set subtype not overwritten",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category":     "windows",
+					"os_match":     "Windows Server 2019",
+					"host_subtype": "custom",
+				},
+			},
+		},
+		wantSub: "custom",
+	}, {
+		name: "nil hostinfo no panic",
+		result: &CorrelationResult{
+			HostInfo: nil,
+		},
+		wantSub: "",
+	}, {
+		name: "nil attributes no panic",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: nil,
+			},
+		},
+		wantSub: "",
+	}, {
+		name: "network device no data no subtype",
+		result: &CorrelationResult{
+			HostInfo: &Host{
+				Attributes: map[string]string{
+					"category": "network_device",
+				},
+			},
+		},
+		wantSub: "",
+	}}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			correlator.inferHostSubtype(tt.result)
+
+			got := ""
+			if tt.result.HostInfo != nil && tt.result.HostInfo.Attributes != nil {
+				got = tt.result.HostInfo.Attributes["host_subtype"]
+			}
+			if got != tt.wantSub {
+				t.Errorf("host_subtype = %q, want %q", got, tt.wantSub)
+			}
+		})
 	}
 }

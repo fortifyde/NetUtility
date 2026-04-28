@@ -205,6 +205,12 @@ var commandMappings = map[string]ScriptInfo{
 	"auto-discover":  {"scripts/advanced/auto_discover.sh", "Auto Discovery"},
 	"gather-configs": {"scripts/config/gather_network_configs.sh", "Network Config Gatherer"},
 	"screenshot":     {"scripts/advanced/web_screenshot.sh", "Web Services Gatherer"},
+	"lldp":           {"scripts/advanced/lldp_cdp_discovery.sh", "LLDP/CDP Neighbor Discovery"},
+	"cdp":            {"scripts/advanced/lldp_cdp_discovery.sh", "LLDP/CDP Neighbor Discovery"},
+	"snmp":           {"scripts/advanced/snmp_interrogate.sh", "SNMP Device Interrogation"},
+	"exploits":       {"scripts/advanced/exploit_search.sh", "Exploit Search"},
+	"fingerprint":    {"scripts/discovery/passive_fingerprint.sh", "Passive Fingerprinting"},
+	"arp":            {"scripts/discovery/arp_ingest.sh", "ARP Table Ingestion"},
 }
 
 // Numeric shortcuts (most frequently used)

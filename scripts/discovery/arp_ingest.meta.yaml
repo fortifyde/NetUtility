@@ -1,0 +1,55 @@
+script:
+  name: "ARP Table Ingestion"
+  description: "Snapshot the local ARP table, parse entries into structured format, and output results for correlation engine consumption"
+  name_de: "ARP-Tabelle erfassen"
+  description_de: "Lokale ARP-Tabelle aufzeichnen, Eintraege strukturieren und fuer die Korrelations-Engine aufbereiten"
+  category: "discovery"
+  subcategory: "arp"
+
+  file: "arp_ingest.sh"
+  requires_root: false
+  estimated_duration: "less than 1 minute"
+
+  cli_shortcuts:
+    - "arp"
+  keywords:
+    - "arp"
+    - "mac"
+    - "neighbor"
+    - "cache"
+    - "table"
+    - "ingest"
+
+  dependencies:
+    tools:
+      - name: "ip"
+        package: "iproute2"
+        check_command: "which ip"
+      - name: "arp"
+        package: "net-tools"
+        check_command: "which arp"
+
+  output:
+    creates_files: true
+    file_patterns:
+      - "arp_raw.txt"
+      - "arp_results.xml"
+      - "arp_summary.txt"
+    workspace_subdirs:
+      - "discovery/arp"
+
+  tags:
+    - "arp"
+    - "mac"
+    - "neighbor"
+    - "discovery"
+  risk_level: "low"
+  network_access: false
+  modifies_system: false
+
+  examples:
+    - description: "Ingest local ARP table"
+      command: "netutil arp"
+
+  version: "1.0"
+  last_updated: "2025-04-25"
