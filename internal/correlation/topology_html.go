@@ -76,12 +76,14 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 .node { cursor: pointer; }
 .node circle { stroke-width: 2; transition: r 0.2s; }
 .node:hover circle { stroke-width: 3; }
-.node text { font-size: 10px; fill: #ccc; pointer-events: none; text-anchor: middle; }
+.node text { pointer-events: none; text-anchor: middle; }
+.node .node-label { font-size: 11px; fill: #e0e0e0; }
+.node .node-sub { font-size: 8px; fill: #888; text-transform: uppercase; letter-spacing: 0.3px; }
 .node.gateway circle { stroke-dasharray: none; }
 .link { stroke-opacity: 0.4; }
 .link.gateway { stroke-dasharray: 6,3; }
 .vlan-hull { fill-opacity: 0.06; stroke-opacity: 0.3; stroke-width: 1.5; }
-.vlan-label { font-size: 12px; fill: #666; font-weight: bold; }
+.vlan-label { font-size: 13px; fill: #888; font-weight: bold; }
 .node.remote circle { stroke-dasharray: 4,2; }
 .node.local circle { stroke-dasharray: none; }
 .node.highlighted circle { stroke: #fff !important; stroke-width: 3 !important; }
@@ -110,25 +112,38 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; b
 const topologyHTMLJS = `;
 'use strict';
 
-// ─── Color Scales ─────────────────────────────────────────────
+// ─── Primary categories (match TUI: linux, windows, network_device, unknown) ──
 const CAT_COLORS = {
   network_device: '#2196F3',
   windows: '#4CAF50',
   linux: '#FF9800',
-  unknown: '#9E9E9E',
-  server: '#9C27B0',
-  printer: '#795548',
-  iot: '#00BCD4'
+  unknown: '#9E9E9E'
 };
 const CAT_LABELS = {
   network_device: 'Network Device',
   windows: 'Windows',
   linux: 'Linux',
-  unknown: 'Unknown',
-  server: 'Server',
-  printer: 'Printer',
-  iot: 'IoT'
+  unknown: 'Unknown'
 };
+
+// Sub-type inference: derives a secondary label from device_type, ports, or OS.
+// Shown as secondary text on nodes and as "Type" in the detail panel.
+function hostSubtype(h) {
+  var dt = (h.device_type || '').toLowerCase();
+  if (dt && dt !== h.category && dt !== 'unknown') return dt;
+  if (h.category === 'windows') {
+    var os = (h.os || '').toLowerCase();
+    if (os.indexOf('server') >= 0) return 'server';
+    if (os.indexOf('professional') >= 0 || os.indexOf('windows 10') >= 0 || os.indexOf('windows 11') >= 0) return 'workstation';
+  }
+  if (h.category === 'network_device') {
+    var ports = h.ports || [];
+    if (ports.some(function(p){ return p.number === 9100; })) return 'printer';
+    if (dt === 'switch' || dt === 'router' || dt === 'firewall' || dt === 'gateway' || dt === 'access_point') return dt;
+  }
+  return '';
+}
+
 const VLAN_COLORS = [
   '#e94560','#2196F3','#4CAF50','#FF9800','#9C27B0',
   '#00BCD4','#FFEB3B','#795548','#607D8B','#E91E63',
@@ -146,7 +161,7 @@ const SEV_COLORS = {
 const state = {
   currentTab: 'overview',
   simulation: null,
-  filters: { network_device: true, windows: true, linux: true, unknown: true, server: true, printer: true, iot: true },
+  filters: { network_device: true, windows: true, linux: true, unknown: true },
   searchText: '',
   serviceFilter: '',
   riskThreshold: 0,
@@ -229,6 +244,16 @@ function renderGraph(vlanId) {
   var width = container.clientWidth;
   var height = container.clientHeight;
 
+  // ── Adaptive spacing based on host count ──
+  // More hosts = more repulsion and larger collision to prevent overlap.
+  // Fewer hosts (filtered VLAN view) = spread them wide to use all space.
+  var n = hosts.length;
+  var isSingleVLAN = !!vlanId;
+  var chargeStrength = isSingleVLAN ? -600 : Math.max(-500, -50 * Math.sqrt(n));
+  var collisionPad = isSingleVLAN ? 35 : Math.max(18, 30 - n * 0.2);
+  var linkDist = isSingleVLAN ? 160 : Math.max(80, 120 - n * 0.3);
+  var labelOffset = 16;
+
   // Build nodes
   var nodes = hosts.map(function(h, i) {
     return {
@@ -257,38 +282,44 @@ function renderGraph(vlanId) {
   var vi = 0;
   var vlansInGraph = {};
   nodes.forEach(function(n) { vlansInGraph[n.host._vlanId] = true; });
-  Object.keys(vlansInGraph).sort().forEach(function(vid) {
+  var uniqueVLANs = Object.keys(vlansInGraph).sort();
+  uniqueVLANs.forEach(function(vid) {
     vlanColorMap[vid] = VLAN_COLORS[vi % VLAN_COLORS.length];
     vi++;
   });
 
-  // Create SVG
+  // Create SVG with expanded viewport so nodes have room to spread
+  var svgW = isSingleVLAN ? Math.max(width, n * 80) : width;
+  var svgH = isSingleVLAN ? Math.max(height, n * 60) : height;
   var svg = d3.select('#graph-container').append('svg')
-    .attr('width', width)
-    .attr('height', height);
+    .attr('width', svgW)
+    .attr('height', svgH);
 
   var g = svg.append('g');
 
   // Zoom
   var zoom = d3.zoom()
-    .scaleExtent([0.1, 8])
+    .scaleExtent([0.05, 8])
     .on('zoom', function(event) {
       g.attr('transform', event.transform);
     });
   svg.call(zoom);
 
-  // Auto-center after simulation
+  // Auto-center: called once after simulation cools
+  var centered = false;
   function centerGraph() {
+    if (centered) return;
+    centered = true;
     var bounds = g.node().getBBox();
     if (bounds.width === 0 || bounds.height === 0) return;
     var fullWidth = container.clientWidth;
     var fullHeight = container.clientHeight;
     var midX = bounds.x + bounds.width / 2;
     var midY = bounds.y + bounds.height / 2;
-    var scale = 0.85 / Math.max(bounds.width / fullWidth, bounds.height / fullHeight);
-    scale = Math.min(scale, 2);
+    var scale = 0.9 / Math.max(bounds.width / fullWidth, bounds.height / fullHeight);
+    scale = Math.min(scale, 3);
     var translate = [fullWidth / 2 - scale * midX, fullHeight / 2 - scale * midY];
-    svg.transition().duration(500).call(
+    svg.transition().duration(600).call(
       zoom.transform,
       d3.zoomIdentity.translate(translate[0], translate[1]).scale(scale)
     );
@@ -307,41 +338,51 @@ function renderGraph(vlanId) {
     });
     Object.keys(vlanNodes).forEach(function(vid) {
       var pts = vlanNodes[vid];
+      var color = vlanColorMap[vid] || '#333';
       if (pts.length < 2) {
-        // Single node — draw a small circle
         hullGroup.append('circle')
           .attr('cx', pts[0][0])
           .attr('cy', pts[0][1])
-          .attr('r', 30)
-          .attr('fill', vlanColorMap[vid] || '#333')
+          .attr('r', 40)
+          .attr('fill', color)
           .attr('class', 'vlan-hull');
+        // Label
+        var nm = nodes.find(function(n){ return n.host._vlanId === vid; });
+        hullGroup.append('text')
+          .attr('x', pts[0][0])
+          .attr('y', pts[0][1] - 50)
+          .attr('text-anchor', 'middle')
+          .attr('class', 'vlan-label')
+          .text(nm ? nm.host._vlanName : 'VLAN ' + vid);
         return;
       }
       var hull = d3.polygonHull(pts);
       if (!hull) return;
-      // Expand hull slightly
+      // Expand hull to give nodes room
       var cx = 0, cy = 0;
       hull.forEach(function(p) { cx += p[0]; cy += p[1]; });
       cx /= hull.length; cy /= hull.length;
+      var expandFactor = 1 + 50 / Math.max(
+        Math.sqrt(hull.reduce(function(s,p){ return s + (p[0]-cx)*(p[0]-cx) + (p[1]-cy)*(p[1]-cy); }, 0) / hull.length),
+        1
+      );
       var expanded = hull.map(function(p) {
-        var dx = p[0] - cx, dy = p[1] - cy;
-        var dist = Math.sqrt(dx*dx + dy*dy);
-        var s = 1 + 30 / Math.max(dist, 1);
-        return [cx + dx * s, cy + dy * s];
+        return [cx + (p[0] - cx) * expandFactor, cy + (p[1] - cy) * expandFactor];
       });
       hullGroup.append('path')
         .attr('d', 'M' + expanded.join('L') + 'Z')
-        .attr('fill', vlanColorMap[vid] || '#333')
-        .attr('stroke', vlanColorMap[vid] || '#333')
+        .attr('fill', color)
+        .attr('stroke', color)
         .attr('class', 'vlan-hull');
-      // VLAN label at centroid
-      var name = nodes.find(function(n){ return n.host._vlanId === vid; });
+      // VLAN label above the hull
+      var top = expanded.reduce(function(m, p) { return p[1] < m[1] ? p : m; }, expanded[0]);
+      var nm = nodes.find(function(n){ return n.host._vlanId === vid; });
       hullGroup.append('text')
         .attr('x', cx)
-        .attr('y', cy - 20)
+        .attr('y', top[1] - 8)
         .attr('text-anchor', 'middle')
         .attr('class', 'vlan-label')
-        .text(name ? name.host._vlanName : 'VLAN ' + vid);
+        .text(nm ? nm.host._vlanName : 'VLAN ' + vid);
     });
   }
 
@@ -375,7 +416,6 @@ function renderGraph(vlanId) {
     .attr('fill', function(d) {
       var cat = d.host.category;
       var base = CAT_COLORS[cat] || CAT_COLORS.unknown;
-      // Tint toward risk color
       if (d.host.risk_score > 0) {
         var rc = riskColor(d.host.risk_score);
         return d3.interpolateRgb(base, rc)(Math.min(d.host.risk_score / 1000, 1) * 0.6);
@@ -387,23 +427,31 @@ function renderGraph(vlanId) {
     })
     .attr('stroke-width', function(d) { return d.isGateway ? 3 : 2; });
 
-  // Gateway icon indicator (small square inside)
+  // Gateway indicator
   node.filter(function(d){ return d.isGateway; })
     .append('text')
     .attr('text-anchor', 'middle')
     .attr('dy', '0.35em')
     .attr('fill', '#fff')
     .attr('font-size', '9px')
+    .attr('style', 'pointer-events:none')
     .text('G');
 
-  // Node label
+  // Node label (hostname or IP)
   node.append('text')
-    .attr('dy', function(d) { return d.radius + 12; })
-    .attr('text-anchor', 'middle')
+    .attr('class', 'node-label')
+    .attr('dy', function(d) { return d.radius + labelOffset; })
     .text(function(d) {
       var name = d.host.hostname || d.host.ip;
-      return name.length > 16 ? name.substring(0, 13) + '...' : name;
+      return name.length > 20 ? name.substring(0, 17) + '...' : name;
     });
+
+  // Sub-type label beneath hostname
+  node.filter(function(d) { return !!hostSubtype(d.host); })
+    .append('text')
+    .attr('class', 'node-sub')
+    .attr('dy', function(d) { return d.radius + labelOffset + 11; })
+    .text(function(d) { return hostSubtype(d.host); });
 
   // Click handler
   node.on('click', function(event, d) {
@@ -422,37 +470,32 @@ function renderGraph(vlanId) {
     link.attr('stroke-opacity', 0.4);
   });
 
-  // Force simulation
+  // ── Force simulation with adaptive parameters ──
   if (state.simulation) state.simulation.stop();
 
-  var vlanForceNodes = nodes.map(function(n) { return n.host._vlanId; });
-  var uniqueVLANs = [];
-  vlanForceNodes.forEach(function(v) { if (uniqueVLANs.indexOf(v) < 0) uniqueVLANs.push(v); });
-
   state.simulation = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(80))
-    .force('charge', d3.forceManyBody().strength(-200))
-    .force('center', d3.forceCenter(width / 2, height / 2))
-    .force('collision', d3.forceCollide().radius(function(d) { return d.radius + 8; }))
-    .force('x', d3.forceX(width / 2).strength(0.05))
-    .force('y', d3.forceY(height / 2).strength(0.05));
+    .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(linkDist))
+    .force('charge', d3.forceManyBody().strength(chargeStrength))
+    .force('center', d3.forceCenter(svgW / 2, svgH / 2))
+    .force('collision', d3.forceCollide().radius(function(d) { return d.radius + collisionPad; }))
+    .force('x', d3.forceX(svgW / 2).strength(0.03))
+    .force('y', d3.forceY(svgH / 2).strength(0.03));
 
-  // VLAN clustering force
-  if (uniqueVLANs.length > 1) {
+  // VLAN clustering force (only for multi-VLAN overview)
+  if (uniqueVLANs.length > 1 && !isSingleVLAN) {
     var vlanCenters = {};
+    var clusterR = Math.min(svgW, svgH) * 0.3;
     uniqueVLANs.forEach(function(vid, i) {
       var angle = (2 * Math.PI * i) / uniqueVLANs.length - Math.PI / 2;
-      var r = Math.min(width, height) * 0.25;
-      vlanCenters[vid] = { x: width / 2 + r * Math.cos(angle), y: height / 2 + r * Math.sin(angle) };
+      vlanCenters[vid] = { x: svgW / 2 + clusterR * Math.cos(angle), y: svgH / 2 + clusterR * Math.sin(angle) };
     });
-    state.simulation.force('vlan', d3.forceX(function(d) {
-      return vlanCenters[d.host._vlanId] ? vlanCenters[d.host._vlanId].x : width / 2;
-    }).strength(0.15).x(function(d) {
-      return vlanCenters[d.host._vlanId] ? vlanCenters[d.host._vlanId].x : width / 2;
-    }));
-    state.simulation.force('vlany', d3.forceY(function(d) {
-      return vlanCenters[d.host._vlanId] ? vlanCenters[d.host._vlanId].y : height / 2;
-    }).strength(0.15));
+    state.simulation
+      .force('vlanX', d3.forceX(function(d) {
+        return vlanCenters[d.host._vlanId] ? vlanCenters[d.host._vlanId].x : svgW / 2;
+      }).strength(0.12))
+      .force('vlanY', d3.forceY(function(d) {
+        return vlanCenters[d.host._vlanId] ? vlanCenters[d.host._vlanId].y : svgH / 2;
+      }).strength(0.12));
   }
 
   state.simulation.on('tick', function() {
@@ -461,15 +504,16 @@ function renderGraph(vlanId) {
       .attr('y1', function(d) { return d.source.y; })
       .attr('x2', function(d) { return d.target.x; })
       .attr('y2', function(d) { return d.target.y; });
-
     node.attr('transform', function(d) { return 'translate(' + d.x + ',' + d.y + ')'; });
     drawHulls();
   });
 
-  // Center after initial layout
-  state.simulation.on('end', function() {
-    setTimeout(centerGraph, 100);
-  });
+  // Auto-center after simulation cools. Use alphaDecay to detect convergence
+  // rather than 'end' event, which is unreliable after drag interactions.
+  setTimeout(function() {
+    if (state.simulation && state.simulation.alpha() < 0.05) centerGraph();
+  }, 2000);
+  setTimeout(function() { centerGraph(); }, 4000);
 
   // Drag functions
   function dragstarted(event, d) {
@@ -502,8 +546,6 @@ function showDetail(h) {
   // Risk badge
   if (h.risk_score > 0) {
     html += '<div style="margin:8px 0"><span class="risk-badge ' + riskClass(h.risk_score) + '">Risk: ' + h.risk_score + ' (' + riskLabel(h.risk_score) + ')</span></div>';
-
-    // Risk breakdown bar
     var rd = h.risk_details || {};
     var total = h.risk_score || 1;
     var vulnPct = ((rd.vulnerability_score || 0) / total * 100);
@@ -519,10 +561,15 @@ function showDetail(h) {
     html += '<div style="font-size:10px;color:#666;margin-bottom:4px">Vuln ' + (rd.vulnerability_score||0) + ' | SSL ' + (rd.ssl_issues||0) + ' | Exposure ' + (rd.service_exposure||0) + ' | Ports ' + (rd.open_port_score||0) + '</div>';
   }
 
-  // Metadata fields
+  // Category + sub-type
+  var catLabel = CAT_LABELS[h.category] || h.category;
+  var sub = hostSubtype(h);
+  if (sub) catLabel += ' \u203A ' + sub;
+  html += '<div class="field"><span class="label">Category:</span> <span class="value">' + catLabel + '</span></div>';
+
+  // Metadata
   if (h.mac) html += '<div class="field"><span class="label">MAC:</span> <span class="value">' + escHtml(h.mac) + '</span></div>';
   if (h.os) html += '<div class="field"><span class="label">OS:</span> <span class="value">' + escHtml(h.os) + '</span></div>';
-  html += '<div class="field"><span class="label">Category:</span> <span class="value">' + (CAT_LABELS[h.category] || h.category) + '</span></div>';
   if (h.vendor) html += '<div class="field"><span class="label">Vendor:</span> <span class="value">' + escHtml(h.vendor) + '</span></div>';
   if (h.vlan_id) html += '<div class="field"><span class="label">VLAN:</span> <span class="value">' + escHtml(h.vlan_name || h.vlan_id) + '</span></div>';
   if (h.device_type) html += '<div class="field"><span class="label">Device:</span> <span class="value">' + escHtml(h.device_type) + '</span></div>';
@@ -626,8 +673,8 @@ function buildToolbar() {
   riskLabel.appendChild(riskSel);
   toolbar.appendChild(riskLabel);
 
-  // Category filters
-  Object.keys(CAT_COLORS).forEach(function(cat) {
+  // Category filters (only the 3 real categories + unknown)
+  ['network_device', 'windows', 'linux', 'unknown'].forEach(function(cat) {
     var lbl = document.createElement('label');
     var cb = document.createElement('input');
     cb.type = 'checkbox';
@@ -647,13 +694,25 @@ function buildLegend() {
   var legend = document.getElementById('legend');
   legend.innerHTML = '';
 
+  // Category colors
+  ['network_device', 'windows', 'linux'].forEach(function(cat) {
+    var item = document.createElement('div');
+    item.className = 'legend-item';
+    var c = document.createElement('span');
+    c.className = 'legend-color';
+    c.style.background = CAT_COLORS[cat];
+    item.appendChild(c);
+    item.appendChild(document.createTextNode(CAT_LABELS[cat]));
+    legend.appendChild(item);
+  });
+
   // Risk gradient
   var riskItem = document.createElement('div');
   riskItem.className = 'legend-item';
   var riskGrad = document.createElement('span');
   riskGrad.style.cssText = 'display:inline-block;width:60px;height:12px;border-radius:3px;background:linear-gradient(to right,#1b5e20,#f57f17,#e65100,#b71c1c)';
   riskItem.appendChild(riskGrad);
-  riskItem.appendChild(document.createTextNode(' Risk (0 → 1000)'));
+  riskItem.appendChild(document.createTextNode(' Risk (0 \u2192 1000)'));
   legend.appendChild(riskItem);
 
   // Segment types
@@ -661,7 +720,7 @@ function buildLegend() {
   localItem.className = 'legend-item';
   var localBox = document.createElement('span');
   localBox.className = 'legend-color';
-  localBox.style.cssText = 'border:2px solid #fff;background:transparent;border-radius:50%';
+  localBox.style.cssText = 'border:2px solid #aaa;background:transparent;border-radius:50%';
   localItem.appendChild(localBox);
   localItem.appendChild(document.createTextNode(' Local (same segment)'));
   legend.appendChild(localItem);
@@ -670,7 +729,7 @@ function buildLegend() {
   remoteItem.className = 'legend-item';
   var remoteBox = document.createElement('span');
   remoteBox.className = 'legend-color';
-  remoteBox.style.cssText = 'border:2px dashed #fff;background:transparent;border-radius:50%';
+  remoteBox.style.cssText = 'border:2px dashed #aaa;background:transparent;border-radius:50%';
   remoteItem.appendChild(remoteBox);
   remoteItem.appendChild(document.createTextNode(' Remote (behind gateway)'));
   legend.appendChild(remoteItem);
@@ -680,9 +739,8 @@ function buildLegend() {
   gwItem.className = 'legend-item';
   var gwBox = document.createElement('span');
   gwBox.className = 'legend-color';
-  gwBox.style.cssText = 'border:3px solid #e94560;background:#e9456044;border-radius:50%';
+  gwBox.style.cssText = 'border:3px solid #fff;background:#e94560;border-radius:50%;font-size:7px;color:#fff;text-align:center;line-height:12px';
   gwBox.textContent = 'G';
-  gwBox.style.cssText += ';font-size:8px;color:#fff;text-align:center;line-height:12px;border:3px solid #fff;background:#e94560;border-radius:50%';
   gwItem.appendChild(gwBox);
   gwItem.appendChild(document.createTextNode(' Gateway/Router'));
   legend.appendChild(gwItem);
