@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -146,7 +148,39 @@ func (tg *TopologyGenerator) GenerateHTMLViewer(correlations map[string]*Correla
 		return "", fmt.Errorf("writing HTML viewer: %w", err)
 	}
 
+	tg.fixTopologyOwnership(outDir)
+
 	return htmlPath, nil
+}
+
+
+// fixTopologyOwnership restores ownership of the topology directory to the
+// invoking user when netutil is run via sudo. Without this, the directory and its
+// files are owned by root, preventing the user from managing them directly.
+func (tg *TopologyGenerator) fixTopologyOwnership(topologyDir string) {
+	if os.Geteuid() != 0 {
+		return
+	}
+	sudoUID := os.Getenv("SUDO_UID")
+	sudoGID := os.Getenv("SUDO_GID")
+	if sudoUID == "" || sudoGID == "" {
+		return
+	}
+	uid, err := strconv.Atoi(sudoUID)
+	if err != nil {
+		return
+	}
+	gid, err := strconv.Atoi(sudoGID)
+	if err != nil {
+		return
+	}
+	_ = filepath.Walk(topologyDir, func(path string, _ os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		_ = syscall.Chown(path, uid, gid)
+		return nil
+	})
 }
 
 // --- Shared helpers ---

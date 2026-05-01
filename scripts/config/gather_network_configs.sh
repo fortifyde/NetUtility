@@ -755,7 +755,7 @@ process_device() {
         esac
     done
 
-    # Pass 2: collect compliance commands and run as a single bundled session
+    # Pass 2: collect and run compliance commands individually with command headers
     compliance_cmds_file=$(mktemp)
     echo "$commands" | while IFS= read -r line; do
         [ -z "$line" ] && continue
@@ -765,19 +765,23 @@ process_device() {
         esac
     done
 
-    compliance_bundle=$(cat "$compliance_cmds_file")
-    rm -f "$compliance_cmds_file"
-
-    if [ -n "$compliance_bundle" ]; then
-        print_step "Executing compliance commands on $device_ip (bundled session)..."
-        output=$(exec_ssh_command "$device_ip" "$username" "$password" "$compliance_bundle" "$terminal_cmd" "" "compliance" "$vendor" 2>&1)
-        if [ -n "$output" ]; then
-            echo "$output" >> "$compliance_file"
-            print_success "Saved: compliance_commands.txt"
-        else
-            print_warning "Failed or empty output for compliance commands"
-        fi
+    if [ -s "$compliance_cmds_file" ]; then
+        print_step "Executing compliance commands on $device_ip..."
+        while IFS= read -r cmd; do
+            [ -z "$cmd" ] && continue
+            output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "" "" "$vendor" 2>&1)
+            if [ -n "$output" ]; then
+                echo "--- Command: $cmd ---" >> "$compliance_file"
+                echo "$output" >> "$compliance_file"
+                echo "" >> "$compliance_file"
+            else
+                echo "--- Command: $cmd (no output) ---" >> "$compliance_file"
+                echo "" >> "$compliance_file"
+            fi
+        done < "$compliance_cmds_file"
+        print_success "Saved: compliance_commands.txt"
     fi
+    rm -f "$compliance_cmds_file"
 
     print_success "Completed extraction for $device_ip"
     return 0

@@ -791,7 +791,7 @@ Erweiterte Funktionen:
 	CatNetworkDiscovery: "Discovery",
 	CatCaptureAnalysis:  "Analyse",
 	CatPortScanning:     "Port-Scans",
-	CatReconnaissance:   "Aufklärung",
+	CatReconnaissance:   "Reconnaissance",
 	CatConfigGathering:  "Konfiguration",
 
 	// Hardcoded task names
