@@ -19,17 +19,21 @@ Terminal-based network assessment toolkit for Linux. Handles traffic capture, VL
 - **Streaming output viewer** — live script output with ANSI color support, interactive input handling, search, and background mode
 - **Global search** (`/`) — fuzzy search across all scripts by name, description, or keyword
 - **Assessment checklist** — workflow progress tracking: capture, system config, discovery, categorization, port/vuln scanning, device config extraction
+- **Topology visualization** — interactive D3.js network topology viewer with VLAN grouping, connection inference, and risk overlay
+- **Compliance checking** — automated security compliance assessment against network device configurations
 - **File server** — share scan results across VLANs via an authenticated HTTP(S) server
 
 ## Script Categories
 
-| Category | Description |
+| Category | Scripts |
 |---|---|
-| **Host Configuration** | Interface, VLAN, IP, route, and DNS configuration |
-| **System Utilities** | Workspace setup, OUI database, log management, team IP exclusion, config backup/restore |
-| **Advanced Tools** | All-in-one automated discovery, web screenshot capture, device config extraction (Cisco, HP, Aruba) |
-| **Network Discovery** | Multi-phase discovery, packet capture, VLAN extraction, MAC vendor analysis, packet analysis |
-| **Port Scanning** | Full TCP port enumeration with service detection, vulnerability assessment |
+| **Network Setup** | Interface management, VLAN configuration, IP address setup, route configuration, DNS configuration |
+| **System Utilities** | Workspace selection, OUI database, log management, team IP exclusion, config backup/restore, file server |
+| **Network Discovery** | Auto discovery, multi-phase discovery, packet capture, ARP table ingestion, LLDP/CDP neighbor discovery, VLAN extraction |
+| **Capture Analysis** | Packet capture analysis, MAC address analysis, passive OS fingerprinting |
+| **Port Scanning** | Full TCP port/service enumeration, vulnerability assessment |
+| **Reconnaissance** | Web screenshot capture, exploit search, SNMP device interrogation |
+| **Config Gathering** | Network device config extraction (Cisco IOS/Nexus, HP Comware/ProVision/Aruba) |
 
 ## Installation
 
@@ -55,13 +59,20 @@ sudo ./netutil
 **CLI mode** — run scripts directly by shortcut:
 ```bash
 sudo ./netutil auto-discover       # Automated discovery workflow
+sudo ./netutil multi-discovery     # Multi-phase discovery
 sudo ./netutil capture             # Packet capture
+sudo ./netutil packet-analysis     # Analyze pcap files
+sudo ./netutil fingerprint         # Passive OS fingerprinting
 sudo ./netutil port-scan           # Port & service scan
 sudo ./netutil vuln                # Vulnerability assessment
+sudo ./netutil lldp                # LLDP/CDP neighbor discovery
+sudo ./netutil snmp                # SNMP device interrogation
+sudo ./netutil exploits            # Exploit search
+sudo ./netutil screenshot          # Web screenshot capture
 sudo ./netutil interfaces          # Manage network interfaces
 sudo ./netutil config-ip           # Configure IP addresses
-sudo ./netutil setup-fileserver    # Set up authenticated file server
 sudo ./netutil gather-configs      # Extract device configs via SSH
+sudo ./netutil setup-fileserver    # Set up authenticated file server
 ```
 
 Use `sudo ./netutil --help` to list all commands. Shortcuts support fuzzy matching — e.g. `netutil cap` resolves to `capture`.
