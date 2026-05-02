@@ -177,7 +177,12 @@ func TestConfigEnricher_HasConfigs_Empty(t *testing.T) {
 
 func TestConfigEnricher_HasConfigs_WithDir(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(dir, "configs", "gather_20240101_120000"), 0o755); err != nil {
+	deviceDir := filepath.Join(dir, "configs", "10.0.0.1")
+	if err := os.MkdirAll(deviceDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(deviceDir, "metadata.txt"),
+		[]byte("IP Address: 10.0.0.1\nVendor/OS: cisco_ios\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	ce := NewConfigEnricher(dir)
@@ -188,8 +193,7 @@ func TestConfigEnricher_HasConfigs_WithDir(t *testing.T) {
 
 func TestConfigEnricher_Enrich_ComplianceAndMAC(t *testing.T) {
 	dir := t.TempDir()
-	sessionDir := filepath.Join(dir, "configs", "gather_20240101_120000")
-	deviceDir := filepath.Join(sessionDir, "device_10.0.0.1")
+	deviceDir := filepath.Join(dir, "configs", "10.0.0.1")
 	if err := os.MkdirAll(deviceDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -694,11 +694,7 @@ func (t *TUI) checkDevConfigDone() bool {
 	if t.workspaceDir == "" {
 		return false
 	}
-	matches, _ := filepath.Glob(filepath.Join(t.workspaceDir, "configs", "gather_*", "session_summary.txt"))
-	if len(matches) > 0 {
-		return true
-	}
-	matches, _ = filepath.Glob(filepath.Join(t.workspaceDir, "configs", "gather_*", "device_*", "running_config.txt"))
+	matches, _ := filepath.Glob(filepath.Join(t.workspaceDir, "configs", "*", "running_config.txt"))
 	return len(matches) > 0
 }
 

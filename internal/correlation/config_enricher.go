@@ -3,7 +3,6 @@ package correlation
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -13,27 +12,22 @@ type ConfigEnricher struct {
 	workspaceDir string
 }
 
-// NewConfigEnricher returns an enricher that reads from workspaceDir/configs/gather_*/.
+// NewConfigEnricher returns an enricher that reads from workspaceDir/configs/<IP>/.
 func NewConfigEnricher(workspaceDir string) *ConfigEnricher {
 	return &ConfigEnricher{workspaceDir: workspaceDir}
 }
 
-// HasConfigs returns true if at least one gather session directory exists.
+// HasConfigs returns true if at least one device config directory exists.
 func (ce *ConfigEnricher) HasConfigs() bool {
-	dir, err := ce.latestSessionDir()
-	return err == nil && dir != ""
+	dirs, err := ce.deviceIPDirs()
+	return err == nil && len(dirs) > 0
 }
 
 // Enrich enriches correlations in-place with compliance findings and physical links.
 // It is best-effort: partial failures are silently skipped.
 func (ce *ConfigEnricher) Enrich(correlations map[string]*CorrelationResult) error {
-	sessionDir, err := ce.latestSessionDir()
-	if err != nil || sessionDir == "" {
-		return err
-	}
-
-	dirs, err := ce.deviceDirs(sessionDir)
-	if err != nil {
+	dirs, err := ce.deviceIPDirs()
+	if err != nil || len(dirs) == 0 {
 		return err
 	}
 
@@ -45,40 +39,26 @@ func (ce *ConfigEnricher) Enrich(correlations map[string]*CorrelationResult) err
 	return nil
 }
 
-// latestSessionDir returns the most recent configs/gather_*/ directory.
-func (ce *ConfigEnricher) latestSessionDir() (string, error) {
+// deviceIPDirs returns all IP directories under configs/ that contain device files.
+func (ce *ConfigEnricher) deviceIPDirs() ([]string, error) {
 	configsDir := filepath.Join(ce.workspaceDir, "configs")
 	entries, err := os.ReadDir(configsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return "", nil
+			return nil, nil
 		}
-		return "", err
-	}
-
-	var sessions []string
-	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), "gather_") {
-			sessions = append(sessions, filepath.Join(configsDir, e.Name()))
-		}
-	}
-	if len(sessions) == 0 {
-		return "", nil
-	}
-	sort.Strings(sessions)
-	return sessions[len(sessions)-1], nil
-}
-
-// deviceDirs returns all device_<IP> subdirectories within sessionDir.
-func (ce *ConfigEnricher) deviceDirs(sessionDir string) ([]string, error) {
-	entries, err := os.ReadDir(sessionDir)
-	if err != nil {
 		return nil, err
 	}
+
 	var dirs []string
 	for _, e := range entries {
-		if e.IsDir() && strings.HasPrefix(e.Name(), "device_") {
-			dirs = append(dirs, filepath.Join(sessionDir, e.Name()))
+		if !e.IsDir() {
+			continue
+		}
+		ipDir := filepath.Join(configsDir, e.Name())
+		// Verify it contains at least one device file (e.g. metadata.txt).
+		if _, err := os.Stat(filepath.Join(ipDir, "metadata.txt")); err == nil {
+			dirs = append(dirs, ipDir)
 		}
 	}
 	return dirs, nil

@@ -50,7 +50,6 @@ fi
 # Global variables
 VERSION="1.0.0"
 NETUTIL_WORKDIR="${NETUTIL_WORKDIR:-$HOME}"
-SESSION_DIR=""
 SESSION_ID=""
 COMMANDS_DIR="${SCRIPT_DIR}/commands"
 FAILURES_FILE=""
@@ -139,9 +138,9 @@ EXAMPLES:
     $0 --cred-mode file --cred-file creds.csv
 
 OUTPUT:
-    Results saved to: \${NETUTIL_WORKDIR}/configs/gather_YYYYMMDD_HHMMSS/
+    Results saved to: \${NETUTIL_WORKDIR}/configs/
 
-    Per-device directories contain:
+    Per-device IP directories (\${NETUTIL_WORKDIR}/configs/<IP>/):
       - version.txt                  Version information
       - running_config.txt           Running configuration
       - running_config_all.txt       Running config with all defaults
@@ -149,7 +148,7 @@ OUTPUT:
       - compliance_commands.txt      Additional compliance data
       - metadata.txt                 Device metadata
       - connection.log               Connection log
-
+      - failures.txt                 Failed device log (in configs/)
 SUPPORTED VENDORS:
     - Cisco IOS
     - Cisco Nexus (NX-OS)
@@ -169,39 +168,57 @@ EOF
 
 # Initialize session directory
 init_session() {
-    SESSION_ID="gather_$(date +%Y%m%d_%H%M%S)"
-    SESSION_DIR="${NETUTIL_WORKDIR}/configs/${SESSION_ID}"
+    SESSION_ID="$(date +%Y%m%d_%H%M%S)"
 
-    mkdir -p "$SESSION_DIR" || {
-        log_error "Failed to create session directory: $SESSION_DIR" "$SCRIPT_NAME"
-        print_error "Failed to create session directory: $SESSION_DIR"
+    _configs_dir="${NETUTIL_WORKDIR}/configs"
+    mkdir -p "$_configs_dir" || {
+        log_error "Failed to create configs directory: $_configs_dir" "$SCRIPT_NAME"
+        print_error "Failed to create configs directory: $_configs_dir"
         exit 1
     }
 
-    FAILURES_FILE="${SESSION_DIR}/failures.txt"
+    FAILURES_FILE="${_configs_dir}/failures.txt"
     touch "$FAILURES_FILE"
 
     print_success "Session initialized: $SESSION_ID"
-    print_info "Output directory: $SESSION_DIR"
+    print_info "Output directory: $_configs_dir"
 }
 
 # Clean output - remove ANSI codes, pagination prompts, command echoes
 clean_output() {
-    sed 's/\x1b\[[^A-Za-z]*[A-Za-z]//g' | \
+    sed -e 's/\x1b\[[^A-Za-z]*[A-Za-z]//g' \
+        -e 's/\x1b[()>/B =]//g' \
+        -e 's/\x1b\[[0-9;]*m//g' | \
     tr -d '\r' | \
     grep -v -- '--More--' | grep -v -- '---- More ----' | \
     grep -v -i 'press any key to continue' | \
-    grep -v '^[A-Za-z0-9._-]*[#>]$' | \
-    grep -v '^[A-Za-z0-9._-]*[#>] ' || true
+    grep -v '^[A-Za-z0-9._() -]*[#>] *$' | \
+    grep -v '^[A-Za-z0-9._() -]*[#>] ' || true
 }
 
 # Like clean_output but keeps PTY command echoes (HOSTNAME# cmd) as command separators
+# Used for compliance output where command visibility matters.
+# Strips only bare prompts (PROMPT# or PROMPT# ) but preserves PROMPT# command lines.
 clean_output_compliance() {
-    sed 's/\x1b\[[^A-Za-z]*[A-Za-z]//g' | \
+    sed -e 's/\x1b\[[^A-Za-z]*[A-Za-z]//g' \
+        -e 's/\x1b[()>/B =]//g' \
+        -e 's/\x1b\[[0-9;]*m//g' | \
     tr -d '\r' | \
     grep -v -- '--More--' | grep -v -- '---- More ----' | \
     grep -v -i 'press any key to continue' | \
-    grep -v '^[A-Za-z0-9._-]*[#>]$' || true
+    grep -v '^[A-Za-z0-9._() -]*[#>] *$' | \
+    grep -v '^\s*$' || true
+}
+
+# If file exists, rename existing with timestamp prefix, then write new.
+save_config_file() {
+    _sf_path="$1"
+    _sf_data="$2"
+    if [ -f "$_sf_path" ]; then
+        _old_ts=$(date -r "$_sf_path" '+%Y%m%d_%H%M%S')
+        mv "$_sf_path" "$(dirname "$_sf_path")/${_old_ts}_$(basename "$_sf_path")"
+    fi
+    printf '%s\n' "$_sf_data" > "$_sf_path"
 }
 
 # Runs sshpass + ssh, inserting -F for legacy algorithm config when set
@@ -571,7 +588,7 @@ process_device() {
     username="$2"
     password="$3"
     enable_pass="${4:-}"
-    device_dir="${SESSION_DIR}/device_${device_ip}"
+    device_dir="${NETUTIL_WORKDIR}/configs/${device_ip}"
 
     mkdir -p "$device_dir"
 
@@ -579,10 +596,13 @@ process_device() {
     log_file="${device_dir}/connection.log"
     metadata_file="${device_dir}/metadata.txt"
 
-    echo "=== Connection Log for $device_ip ===" > "$log_file"
-    echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')" >> "$log_file"
-    echo "Username: $username" >> "$log_file"
-    echo "" >> "$log_file"
+    {
+        echo "--- Session: $SESSION_ID ---"
+        echo "=== Connection Log for $device_ip ==="
+        echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo "Username: $username"
+        echo ""
+    } >> "$log_file"
 
     # Test connectivity (auto-detects legacy SSH need on negotiation failure)
     print_step "Connecting to $device_ip..."
@@ -616,7 +636,7 @@ process_device() {
                     rm -f "$_ssh_err"
                     log_error "Failed to connect to $device_ip (all methods)" "$SCRIPT_NAME"
                     print_error "Failed to connect to $device_ip"
-                    echo "$device_ip,connection_failed,Failed to establish SSH connection" >> "$FAILURES_FILE"
+                    echo "$(date '+%Y-%m-%d %H:%M:%S'),$device_ip,connection_failed,Failed to establish SSH connection" >> "$FAILURES_FILE"
                     echo "FAILURE: Connection failed (all methods)" >> "$log_file"
                     return 1
                 fi
@@ -637,7 +657,7 @@ process_device() {
                 rm -f "$_ssh_err"
                 log_error "Failed to connect to $device_ip (exec and PTY)" "$SCRIPT_NAME"
                 print_error "Failed to connect to $device_ip"
-                echo "$device_ip,connection_failed,Failed to establish SSH connection" >> "$FAILURES_FILE"
+                echo "$(date '+%Y-%m-%d %H:%M:%S'),$device_ip,connection_failed,Failed to establish SSH connection" >> "$FAILURES_FILE"
                 echo "FAILURE: Connection failed (exec and PTY)" >> "$log_file"
                 return 1
             fi
@@ -659,7 +679,7 @@ process_device() {
     if [ -z "$version_output" ]; then
         log_error "Failed to get version info from $device_ip" "$SCRIPT_NAME"
         print_error "Failed to get version info from $device_ip"
-        echo "$device_ip,version_detection_failed,Could not retrieve version information" >> "$FAILURES_FILE"
+        echo "$(date '+%Y-%m-%d %H:%M:%S'),$device_ip,version_detection_failed,Could not retrieve version information" >> "$FAILURES_FILE"
         echo "FAILURE: Version detection failed" >> "$log_file"
         return 1
     fi
@@ -682,7 +702,30 @@ process_device() {
     echo "" >> "$metadata_file"
 
     # Extract hostname from version if possible
-    hostname=$(echo "$version_output" | grep -i "hostname\|system name" | head -1 || echo "Unknown")
+    # Cisco IOS: "<hostname> uptime is ..." or "You are connected to <hostname>"
+    # Cisco NX-OS: "Hostname: ..." or "Device name: ..."
+    # HP Comware: embedded in "HPE Comware Platform Software ..."
+    # Aruba/ProVision: "System Name: ..." or " hostname ..."
+    hostname=$(echo "$version_output" | grep -iE \
+        "^[A-Za-z0-9._-]+ uptime is|\
+^[[:space:]]*(hostname|device name|system name):|\
+system name |connected to [A-Za-z0-9._-]+" | head -1)
+
+    # Parse the actual hostname value from the matched line
+    if [ -n "$hostname" ]; then
+        case "$hostname" in
+            *uptime\ is*)
+                hostname=$(echo "$hostname" | sed 's/ uptime is.*//')
+                ;;
+            *connected\ to\ *)
+                hostname=$(echo "$hostname" | sed 's/.*connected to //')
+                ;;
+            *:*)
+                hostname=$(echo "$hostname" | sed 's/^[^:]*:[[:space:]]*//')
+                ;;
+        esac
+    fi
+    hostname="${hostname:-Unknown}"
     echo "Hostname: $hostname" >> "$metadata_file"
 
     # If dry-run mode, stop here
@@ -702,9 +745,15 @@ process_device() {
 
     # Process commands
     compliance_file="${device_dir}/compliance_commands.txt"
-    echo "=== Compliance Commands Output for $device_ip ===" > "$compliance_file"
-    echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')" >> "$compliance_file"
-    echo "" >> "$compliance_file"
+    if [ -f "$compliance_file" ]; then
+        _old_ts=$(date -r "$compliance_file" '+%Y%m%d_%H%M%S')
+        mv "$compliance_file" "$(dirname "$compliance_file")/${_old_ts}_$(basename "$compliance_file")"
+    fi
+    {
+        echo "=== Compliance Commands Output for $device_ip ==="
+        echo "Timestamp: $(date '+%Y-%m-%d %H:%M:%S')"
+        echo ""
+    } > "$compliance_file"
 
     # Pass 1: per-file config commands (@-markers), each in its own session with terminal setup
     echo "$commands" | while IFS= read -r line; do
@@ -718,7 +767,7 @@ process_device() {
                 print_step "Executing: $cmd on $device_ip"
                 output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" "" "$vendor" 2>&1)
                 if [ -n "$output" ]; then
-                    echo "$output" > "${device_dir}/running_config_all.txt"
+                    save_config_file "${device_dir}/running_config_all.txt" "$output"
                     print_success "Saved: running_config_all.txt"
                     echo "SUCCESS: $cmd" >> "$log_file"
                 else
@@ -731,7 +780,7 @@ process_device() {
                 print_step "Executing: $cmd on $device_ip"
                 output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" "" "$vendor" 2>&1)
                 if [ -n "$output" ]; then
-                    echo "$output" > "${device_dir}/running_config.txt"
+                    save_config_file "${device_dir}/running_config.txt" "$output"
                     print_success "Saved: running_config.txt"
                     echo "SUCCESS: $cmd" >> "$log_file"
                 else
@@ -744,7 +793,7 @@ process_device() {
                 print_step "Executing: $cmd on $device_ip"
                 output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "$enable_pass" "" "$vendor" 2>&1)
                 if [ -n "$output" ]; then
-                    echo "$output" > "${device_dir}/startup_config.txt"
+                    save_config_file "${device_dir}/startup_config.txt" "$output"
                     print_success "Saved: startup_config.txt"
                     echo "SUCCESS: $cmd" >> "$log_file"
                 else
@@ -755,7 +804,7 @@ process_device() {
         esac
     done
 
-    # Pass 2: collect and run compliance commands individually with command headers
+    # Pass 2: collect compliance commands and run as a single bundled session
     compliance_cmds_file=$(mktemp)
     echo "$commands" | while IFS= read -r line; do
         [ -z "$line" ] && continue
@@ -765,110 +814,25 @@ process_device() {
         esac
     done
 
-    if [ -s "$compliance_cmds_file" ]; then
-        print_step "Executing compliance commands on $device_ip..."
-        while IFS= read -r cmd; do
-            [ -z "$cmd" ] && continue
-            output=$(exec_ssh_command "$device_ip" "$username" "$password" "$cmd" "$terminal_cmd" "" "" "$vendor" 2>&1)
-            if [ -n "$output" ]; then
-                echo "--- Command: $cmd ---" >> "$compliance_file"
-                echo "$output" >> "$compliance_file"
-                echo "" >> "$compliance_file"
-            else
-                echo "--- Command: $cmd (no output) ---" >> "$compliance_file"
-                echo "" >> "$compliance_file"
-            fi
-        done < "$compliance_cmds_file"
-        print_success "Saved: compliance_commands.txt"
-    fi
+    compliance_bundle=$(cat "$compliance_cmds_file")
     rm -f "$compliance_cmds_file"
+
+    if [ -n "$compliance_bundle" ]; then
+        print_step "Executing compliance commands on $device_ip (bundled session)..."
+        output=$(exec_ssh_command "$device_ip" "$username" "$password" "$compliance_bundle" "$terminal_cmd" "" "compliance" "$vendor" 2>&1)
+        if [ -n "$output" ]; then
+            echo "$output" >> "$compliance_file"
+            print_success "Saved: compliance_commands.txt"
+        else
+            print_warning "Failed or empty output for compliance commands"
+        fi
+    fi
 
     print_success "Completed extraction for $device_ip"
     return 0
 }
 
-# Generate summary report
-generate_summary() {
-    summary_file="${SESSION_DIR}/session_summary.txt"
 
-    cat > "$summary_file" << EOF
-==================================================
-Network Config Gatherer - Session Summary
-==================================================
-
-Session Information:
-  Session ID:        $SESSION_ID
-  Start Time:        $(date '+%Y-%m-%d %H:%M:%S')
-  Working Directory: $SESSION_DIR
-  Mode:              $([ "$DRY_RUN" -eq 1 ] && echo "Dry-run" || echo "Full extraction")
-
-Statistics:
-  Total Devices:     $PROCESSED_COUNT
-  Successful:        $SUCCESS_COUNT
-  Failed:            $FAILURE_COUNT
-  Success Rate:      $([ "$PROCESSED_COUNT" -gt 0 ] && echo "$((SUCCESS_COUNT * 100 / PROCESSED_COUNT))%" || echo "N/A")
-
-EOF
-
-    # Add vendor distribution if devices were processed
-    if [ -d "$SESSION_DIR" ] && [ "$(find "$SESSION_DIR" -type d -name 'device_*' | wc -l)" -gt 0 ]; then
-        echo "Vendor Distribution:" >> "$summary_file"
-        find "$SESSION_DIR" -type d -name 'device_*' -exec cat {}/metadata.txt \; 2>/dev/null | \
-            grep "Vendor/OS:" | sort | uniq -c | sed 's/^/  /' >> "$summary_file" || echo "  No vendor data available" >> "$summary_file"
-        echo "" >> "$summary_file"
-    fi
-
-    # Add failed devices if any
-    if [ "$FAILURE_COUNT" -gt 0 ] && [ -f "$FAILURES_FILE" ]; then
-        echo "Failed Devices:" >> "$summary_file"
-        cat "$FAILURES_FILE" | sed 's/^/  /' >> "$summary_file"
-        echo "" >> "$summary_file"
-    fi
-
-    # Add storage information
-    echo "Storage Information:" >> "$summary_file"
-    echo "  Total Size:        $(du -sh "$SESSION_DIR" | cut -f1)" >> "$summary_file"
-    echo "  Device Folders:    $(find "$SESSION_DIR" -type d -name 'device_*' | wc -l)" >> "$summary_file"
-    echo "  Total Files:       $(find "$SESSION_DIR" -type f | wc -l)" >> "$summary_file"
-    echo "" >> "$summary_file"
-
-    echo "===================================================" >> "$summary_file"
-    echo "End of Summary Report" >> "$summary_file"
-    echo "===================================================" >> "$summary_file"
-
-    print_success "Summary report generated: session_summary.txt"
-}
-
-# Generate retry script for failed devices
-generate_retry_script() {
-    if [ "$FAILURE_COUNT" -eq 0 ]; then
-        return 0
-    fi
-
-    retry_script="${SESSION_DIR}/retry_failures.sh"
-
-    cat > "$retry_script" << 'EOF'
-#!/bin/sh
-# Auto-generated retry script for failed devices
-# Run this script to retry configuration extraction for devices that failed
-
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-PARENT_DIR="$(dirname "$SCRIPT_DIR")"
-
-EOF
-
-    echo "# Failed devices from session: $SESSION_ID" >> "$retry_script"
-    echo "FAILED_IPS=\"$(cut -d',' -f1 "$FAILURES_FILE" | tr '\n' ',' | sed 's/,$//')\"" >> "$retry_script"
-    echo "" >> "$retry_script"
-
-    cat >> "$retry_script" << 'EOF'
-# Run the config gatherer with failed devices
-"${PARENT_DIR}/../gather_network_configs.sh" --targets "$FAILED_IPS" "$@"
-EOF
-
-    chmod +x "$retry_script"
-    print_info "Retry script generated: retry_failures.sh"
-}
 
 # Offer retry for failed devices
 offer_retry() {
@@ -1105,12 +1069,8 @@ main() {
     FAILURE_COUNT=$((PROCESSED_COUNT - SUCCESS_COUNT))
     rm -rf "$results_dir"
 
-    # Generate summary
-    echo "" >&2
-    generate_summary
-    generate_retry_script
-
     # Display summary
+    echo "" >&2
     print_header
     print_success "Processing Complete!"
     echo "" >&2
@@ -1118,24 +1078,18 @@ main() {
     printf "Successful:       %d\n" "$SUCCESS_COUNT" >&2
     printf "Failed:           %d\n" "$FAILURE_COUNT" >&2
     echo "" >&2
-    print_info "Results saved to: $SESSION_DIR"
+    print_info "Results saved to: ${NETUTIL_WORKDIR}/configs/"
 
     if [ "$FAILURE_COUNT" -gt 0 ]; then
-        print_warning "Some devices failed. Check failures.txt for details."
+        print_warning "  Failed: $FAILURE_COUNT (see configs/failures.txt)"
 
         # Offer retry
         offer_retry
-
-        # Regenerate summary after retry
-        if [ "$FAILURE_COUNT" -gt 0 ]; then
-            generate_summary
-        fi
     fi
 
     log_info "Session complete: $SUCCESS_COUNT/$PROCESSED_COUNT devices succeeded" "$SCRIPT_NAME"
     echo "" >&2
-    print_success "Session complete. Review session_summary.txt for full details."
+    print_success "Session complete."
 }
 
-# Run main
 main "$@"
