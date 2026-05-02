@@ -1877,3 +1877,28 @@ func TestParseTestSSLResult_MultipleHosts(t *testing.T) {
 		t.Fatalf("expected 2 hosts, got %d", len(parsed.Hosts))
 	}
 }
+
+func TestDetermineScanType_NonTestSSLJSON(t *testing.T) {
+	parser := NewResultParser("")
+
+	// JSON array with severity+finding+id but WITHOUT ip/port (e.g., generic vulnerability scanner output)
+	// This should NOT be classified as testssl after the fix
+	content := `[{"id": "CVE-2021-44228", "severity": "critical", "finding": "Log4Shell RCE"}]`
+
+	scanType := parser.determineScanType("/path/vuln_output.json", content)
+	if scanType == ScanTypeTestSSL {
+		t.Errorf("non-testssl JSON with only id/severity/finding should not be classified as testssl, got %s", scanType)
+	}
+}
+
+func TestDetermineScanType_TestSSLWithIPPort(t *testing.T) {
+	parser := NewResultParser("")
+
+	// JSON with all testssl fields including ip and port
+	content := `[{"id": "SSLv3", "ip": "10.0.0.1:443", "port": "443", "severity": "CRITICAL", "finding": "offered"}]`
+
+	scanType := parser.determineScanType("/path/some_output.json", content)
+	if scanType != ScanTypeTestSSL {
+		t.Errorf("JSON with severity+finding+ip+port should be classified as testssl, got %s", scanType)
+	}
+}

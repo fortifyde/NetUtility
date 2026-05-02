@@ -70,6 +70,8 @@ normalize_mac() {
     echo "$1" | tr '[:lower:]' '[:upper:]'
 }
 
+_escape_xml() { sed 's/&/\&amp;/g;s/</\&lt;/g;s/>/\&gt;/g'; }
+
 if [ "$CAPTURE_TOOL" = "ip" ]; then
     # ip neigh format: IP dev INTERFACE lladdr MAC [router] STATUS
     # e.g.: 192.168.1.1 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE
@@ -176,7 +178,11 @@ XML_FILE="$SESSION_DIR/arp_results.xml"
     echo "    <entry_count>$ENTRY_COUNT</entry_count>"
     echo "  </metadata>"
     while read -r ip mac iface state; do
-        echo "  <entry ip=\"$ip\" mac=\"$mac\" interface=\"$iface\" state=\"$state\"/>"
+        _e_ip=$(echo "$ip" | _escape_xml)
+        _e_mac=$(echo "$mac" | _escape_xml)
+        _e_iface=$(echo "$iface" | _escape_xml)
+        _e_state=$(echo "$state" | _escape_xml)
+        echo "  <entry ip=\"$_e_ip\" mac=\"$_e_mac\" interface=\"$_e_iface\" state=\"$_e_state\"/>"
     done < "$TEMP_ENTRIES"
     echo "</arp_results>"
 } > "$XML_FILE"

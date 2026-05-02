@@ -254,3 +254,125 @@ func TestConfigEnricher_Enrich_ComplianceAndMAC(t *testing.T) {
 		}
 	}
 }
+
+// ─── ArubaOS-CX compliance ──────────────────────────────────────
+
+func TestCheckCompliance_ArubaCX_TelnetEnabled(t *testing.T) {
+	cfg := `
+telnet-server
+ssh server
+ntp server 10.0.0.1
+logging 10.0.0.2
+`
+	findings, severity := checkCompliance(cfg, "aruba_cx")
+	if severity != "critical" {
+		t.Errorf("severity got %q want critical", severity)
+	}
+	found := false
+	for _, f := range findings {
+		if f.Check == "Telnet enabled" && f.Severity == "critical" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected Telnet enabled critical finding, got: %+v", findings)
+	}
+}
+
+func TestCheckCompliance_ArubaCX_Clean(t *testing.T) {
+	cfg := `
+ssh server
+snmp-server community MyStr1ng RO
+ntp server 10.0.0.1
+logging 10.0.0.2
+`
+	findings, severity := checkCompliance(cfg, "aruba_cx")
+	if severity == "critical" {
+		t.Errorf("expected no critical findings, got: %+v", findings)
+	}
+	for _, f := range findings {
+		if f.Severity == "critical" {
+			t.Errorf("unexpected critical finding: %+v", f)
+		}
+	}
+}
+
+func TestCheckCompliance_ArubaCX_DefaultSNMP(t *testing.T) {
+	cfg := `snmp-server community public RO`
+	_, severity := checkCompliance(cfg, "aruba_cx")
+	if severity != "critical" {
+		t.Errorf("severity got %q want critical", severity)
+	}
+}
+
+func TestCheckCompliance_ArubaCX_Routing(t *testing.T) {
+	// Verify that generic "aruba" falls back to ArubaCX (not Comware)
+	cfg := `telnet-server`
+	findings, _ := checkCompliance(cfg, "aruba")
+	found := false
+	for _, f := range findings {
+		if f.Check == "Telnet enabled" && f.Severity == "critical" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected Telnet enabled finding from ArubaCX checker, got: %+v", findings)
+	}
+}
+
+// ─── ArubaOS-Switch / ProVision compliance ──────────────────────
+
+func TestCheckCompliance_ArubaSwitch_TelnetEnabled(t *testing.T) {
+	cfg := `
+telnet-server
+ip ssh
+timep server 10.0.0.1
+logging 10.0.0.2
+`
+	_, severity := checkCompliance(cfg, "aruba_switch")
+	if severity != "critical" {
+		t.Errorf("severity got %q want critical", severity)
+	}
+}
+
+func TestCheckCompliance_ArubaSwitch_Clean(t *testing.T) {
+	cfg := `
+ip ssh
+snmp-server community MyStr1ng RO
+ timep server 10.0.0.1
+logging 10.0.0.2
+`
+	findings, severity := checkCompliance(cfg, "aruba_switch")
+	if severity == "critical" {
+		t.Errorf("expected no critical findings, got: %+v", findings)
+	}
+}
+
+func TestCheckCompliance_Provision_Routing(t *testing.T) {
+	// Verify provision routes to checkArubaSwitch
+	cfg := `telnet-server`
+	findings, _ := checkCompliance(cfg, "hp_provision")
+	found := false
+	for _, f := range findings {
+		if f.Check == "Telnet enabled" && f.Severity == "critical" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected Telnet enabled finding from ArubaSwitch checker, got: %+v", findings)
+	}
+}
+
+func TestCheckCompliance_ArubaSwitch_NTPClean(t *testing.T) {
+	// Verify sntp is recognized as valid NTP config
+	cfg := `
+sntp server 10.0.0.1
+ssh server
+`
+	findings, _ := checkCompliance(cfg, "aruba_switch")
+	for _, f := range findings {
+		if f.Check == "NTP not configured" {
+			t.Errorf("sntp should be recognized as NTP config")
+		}
+	}
+}

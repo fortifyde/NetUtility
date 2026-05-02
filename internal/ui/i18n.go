@@ -115,8 +115,12 @@ type Strings struct {
 	TaskPortServiceScanDesc        string
 	TaskVulnAssessment             string
 	TaskVulnAssessmentDesc         string
-	TaskIntegratedWorkflow         string
-	TaskIntegratedWorkflowDesc     string
+	TaskSNMPInterrogate         string
+	TaskSNMPInterrogateDesc     string
+	TaskWebScreenshot           string
+	TaskWebScreenshotDesc       string
+	TaskExploitSearch           string
+	TaskExploitSearchDesc       string
 	TaskDeviceConfigGathering      string
 	TaskDeviceConfigGatheringDesc  string
 	TaskNetworkCaptureAnalysis     string
@@ -473,8 +477,12 @@ Mouse:
 	TaskPortServiceScanDesc:        "Comprehensive port scan with service version detection and OS fingerprinting",
 	TaskVulnAssessment:             "Vulnerability Assessment",
 	TaskVulnAssessmentDesc:         "Safe vulnerability assessment using NSE scripts and supplementary tools",
-	TaskIntegratedWorkflow:         "Integrated Workflow",
-	TaskIntegratedWorkflowDesc:     "Comprehensive workflow: capture, analysis, interface config, and discovery",
+	TaskSNMPInterrogate:         "SNMP Interrogation",
+	TaskSNMPInterrogateDesc:     "Query SNMP-enabled devices for system info, interfaces, ARP, VLANs, and routes",
+	TaskWebScreenshot:           "Web Screenshot",
+	TaskWebScreenshotDesc:       "Capture screenshots of web services discovered during scanning",
+	TaskExploitSearch:           "Exploit Search",
+	TaskExploitSearchDesc:       "Search exploit databases for vulnerabilities matching discovered services",
 	TaskDeviceConfigGathering:      "Device Configuration Gathering",
 	TaskDeviceConfigGatheringDesc:  "SSH to device, detect vendor, and gather configuration",
 	TaskNetworkCaptureAnalysis:     "Network Capture Analysis",
@@ -825,8 +833,12 @@ Erweiterte Funktionen:
 	TaskPortServiceScanDesc:        "Umfassender Port-Scan mit Diensterkennung und OS-Fingerprinting",
 	TaskVulnAssessment:             "Schwachstellen-Scan",
 	TaskVulnAssessmentDesc:         "Minimalinvasive Schwachstellenanalyse mit NSE-Skripten und ergänzenden Werkzeugen",
-	TaskIntegratedWorkflow:         "Automatisierter Workflow",
-	TaskIntegratedWorkflowDesc:     "All-in-one: Mitschnitt, Analyse, Schnittstellenkonfiguration, Discovery und Host-Erkennung",
+	TaskSNMPInterrogate:         "SNMP-Abfrage",
+	TaskSNMPInterrogateDesc:     "SNMP-Geräte abfragen: Systeminfos, Schnittstellen, ARP, VLANs und Routen",
+	TaskWebScreenshot:           "Web-Screenshot",
+	TaskWebScreenshotDesc:       "Screenshots von erkannten Webdiensten erstellen",
+	TaskExploitSearch:           "Exploit-Suche",
+	TaskExploitSearchDesc:       "Exploit-Datenbanken nach Schwachstellen für erkannte Dienste durchsuchen",
 	TaskDeviceConfigGathering:      "Netzwerkgeräte-Gatherer",
 	TaskDeviceConfigGatheringDesc:  "Per SSH zum Gerät verbinden, Hersteller erkennen und Konfiguration sammeln",
 	TaskNetworkCaptureAnalysis:     "Netzwerkmitschnitt-Analyse",

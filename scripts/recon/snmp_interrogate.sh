@@ -276,6 +276,11 @@ echo "" >> "$RAW_OUTPUT"
 echo '<?xml version="1.0" encoding="UTF-8"?>' > "$XML_OUTPUT"
 echo '<snmp_results>' >> "$XML_OUTPUT"
 
+# Temp file cleanup on early exit
+_CLEANUP_FILES=""
+_cleanup() { [ -n "$_CLEANUP_FILES" ] && rm -f $_CLEANUP_FILES; }
+trap _cleanup INT TERM EXIT
+
 for host in $TARGETS; do
     log_info "Interrogating host: $host" "$SCRIPT_NAME"
     echo "" >&2
@@ -321,6 +326,7 @@ for host in $TARGETS; do
     IF_SPEED_FILE=$(mktemp)
     IF_OCTETS_IN_FILE=$(mktemp)
     IF_OCTETS_OUT_FILE=$(mktemp)
+_CLEANUP_FILES="$_CLEANUP_FILES $IF_NAMES_FILE $IF_STATUS_FILE $IF_SPEED_FILE $IF_OCTETS_IN_FILE $IF_OCTETS_OUT_FILE"
 
     # ifDescr (1.3.6.1.2.1.2.2.1.2)
     echo "$if_walk" | grep "1.3.6.1.2.1.2.2.1.2\." > "$IF_NAMES_FILE" 2>/dev/null || true

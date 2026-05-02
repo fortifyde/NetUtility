@@ -237,7 +237,9 @@ func (t *TUI) getHardcodedCategories() []Category {
 		{
 			Name: t.str.CatReconnaissance,
 			Tasks: []Task{
-				{Name: t.str.TaskIntegratedWorkflow, Description: t.str.TaskIntegratedWorkflowDesc, Script: s("network", "integrated_workflow.sh")},
+				{Name: t.str.TaskSNMPInterrogate, Description: t.str.TaskSNMPInterrogateDesc, Script: s("recon", "snmp_interrogate.sh")},
+				{Name: t.str.TaskWebScreenshot, Description: t.str.TaskWebScreenshotDesc, Script: s("recon", "web_screenshot.sh")},
+				{Name: t.str.TaskExploitSearch, Description: t.str.TaskExploitSearchDesc, Script: s("recon", "exploit_search.sh")},
 			},
 		},
 		{

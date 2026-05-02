@@ -178,7 +178,7 @@ init_session() {
     }
 
     FAILURES_FILE="${_configs_dir}/failures.txt"
-    touch "$FAILURES_FILE"
+    : > "$FAILURES_FILE"
 
     print_success "Session initialized: $SESSION_ID"
     print_info "Output directory: $_configs_dir"
@@ -886,7 +886,7 @@ offer_retry() {
         echo "" >&2
 
         # Extract failed IPs
-        failed_ips=$(cut -d',' -f1 "$FAILURES_FILE")
+        failed_ips=$(cut -d',' -f2 "$FAILURES_FILE")
 
         print_info "Retrying $(echo "$failed_ips" | wc -l) failed device(s)..."
         echo "" >&2
@@ -899,6 +899,9 @@ offer_retry() {
             if process_device "$ip" "$new_user" "$new_pass" "$new_enable"; then
                 SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
                 FAILURE_COUNT=$((FAILURE_COUNT - 1))
+                _tmp_failures=$(mktemp)
+                grep -v ",${ip}," "$FAILURES_FILE" > "$_tmp_failures" || true
+                mv "$_tmp_failures" "$FAILURES_FILE"
             fi
         done
 

@@ -136,7 +136,8 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 	if strings.HasPrefix(strings.TrimSpace(outputContent), "[") &&
 		strings.Contains(contentLower, "\"severity\"") &&
 		strings.Contains(contentLower, "\"finding\"") &&
-		(strings.Contains(scriptName, "testssl") || strings.Contains(contentLower, "\"id\"")) {
+		(strings.Contains(scriptName, "testssl") ||
+			(strings.Contains(contentLower, "\"ip\"") && strings.Contains(contentLower, "\"port\""))) {
 		return ScanTypeTestSSL
 	}
 
@@ -1374,7 +1375,6 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 
 	return result, nil
 }
-
 
 // --- sslscan XML types ---
 

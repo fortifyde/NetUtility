@@ -53,7 +53,7 @@ echo "  2) 180 seconds - Standard (recommended, 2 intervals)" >&2
 echo "  3) 300 seconds - Comprehensive (5 minutes)" >&2
 echo "  4) Custom duration" >&2
 echo >&2
-duration_choice=$(prompt_for_choice "Select capture duration" 2 4)
+duration_choice=$(prompt_for_choice "Select capture duration" 1 4)
 
 case "$duration_choice" in
     1) capture_duration=90 ;;

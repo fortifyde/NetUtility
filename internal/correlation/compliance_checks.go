@@ -18,8 +18,12 @@ func checkCompliance(runningConfig, vendor string) ([]ComplianceFinding, string)
 		findings = checkCiscoIOS(cfg)
 	case strings.Contains(lower, "hp_comware"), strings.Contains(lower, "comware"):
 		findings = checkHPComware(cfg)
-	case strings.Contains(lower, "aruba"), strings.Contains(lower, "provision"):
-		findings = checkHPComware(cfg)
+	case strings.Contains(lower, "aruba_cx"):
+		findings = checkArubaCX(cfg)
+	case strings.Contains(lower, "aruba_switch"), strings.Contains(lower, "provision"):
+		findings = checkArubaSwitch(cfg)
+	case strings.Contains(lower, "aruba"):
+		findings = checkArubaCX(cfg)
 	default:
 		findings = checkGeneric(cfg)
 	}
@@ -179,6 +183,20 @@ var reComwareSSH = regexp.MustCompile(`(?mi)ssh server enable`)
 var reComwareNTP = regexp.MustCompile(`(?mi)ntp-service unicast-server`)
 var reComwareSyslog = regexp.MustCompile(`(?mi)info-center loghost`)
 
+// --- ArubaOS-CX ---
+var reArubaCXTelnet = regexp.MustCompile(`(?mi)^\s*telnet-server`)
+var reArubaCXSSH = regexp.MustCompile(`(?mi)^\s*ssh server`)
+var reArubaCXSNMP = regexp.MustCompile(`(?mi)^\s*snmp-server community\s+(public|private)\b`)
+var reArubaCXNTP = regexp.MustCompile(`(?mi)^\s*ntp server\b`)
+var reArubaCXSyslog = regexp.MustCompile(`(?mi)^\s*logging\s+\d+\.\d+\.\d+\.\d+`)
+
+// --- ArubaOS-Switch / ProVision ---
+var reArubaSwitchTelnet = regexp.MustCompile(`(?mi)^\s*(telnet-server|ip telnet)`)
+var reArubaSwitchSSH = regexp.MustCompile(`(?mi)^\s*(ip ssh|crypto ssh)`)
+var reArubaSwitchSNMP = regexp.MustCompile(`(?mi)^\s*snmp-server community\s+(public|private)\b`)
+var reArubaSwitchNTP = regexp.MustCompile(`(?mi)^\s*(timep|sntp)\s+`)
+var reArubaSwitchSyslog = regexp.MustCompile(`(?mi)^\s*logging\s+\d+\.\d+\.\d+\.\d+`)
+
 // --- Generic / fallback ---
 var reGenericSNMP = regexp.MustCompile(`(?mi)(community|snmp).*\b(public|private)\b`)
 
@@ -244,6 +262,80 @@ func checkHPComware(cfg string) []ComplianceFinding {
 	// Syslog
 	if !reComwareSyslog.MatchString(cfg) {
 		out = append(out, ComplianceFinding{"Syslog server not configured", "warning", "No \"info-center loghost\" found"})
+	} else {
+		out = append(out, ComplianceFinding{"Syslog configured", "ok", ""})
+	}
+	return out
+}
+
+// --- ArubaOS-CX ---
+
+func checkArubaCX(cfg string) []ComplianceFinding {
+	var out []ComplianceFinding
+	// Telnet
+	if reArubaCXTelnet.MatchString(cfg) {
+		out = append(out, ComplianceFinding{"Telnet enabled", "critical", "\"telnet-server\" found in running config"})
+	} else {
+		out = append(out, ComplianceFinding{"Telnet disabled", "ok", ""})
+	}
+	// SNMP default communities
+	if reArubaCXSNMP.MatchString(cfg) {
+		out = append(out, ComplianceFinding{"Default SNMP community", "critical", "SNMP community \"public\" or \"private\" configured"})
+	} else {
+		out = append(out, ComplianceFinding{"SNMP community strings", "ok", ""})
+	}
+	// SSH
+	if !reArubaCXSSH.MatchString(cfg) {
+		out = append(out, ComplianceFinding{"SSH server not configured", "warning", "\"ssh server\" not found"})
+	} else {
+		out = append(out, ComplianceFinding{"SSH configured", "ok", ""})
+	}
+	// NTP
+	if !reArubaCXNTP.MatchString(cfg) {
+		out = append(out, ComplianceFinding{"NTP not configured", "warning", "No \"ntp server\" found"})
+	} else {
+		out = append(out, ComplianceFinding{"NTP configured", "ok", ""})
+	}
+	// Syslog
+	if !reArubaCXSyslog.MatchString(cfg) {
+		out = append(out, ComplianceFinding{"Syslog server not configured", "warning", "No \"logging <ip>\" found"})
+	} else {
+		out = append(out, ComplianceFinding{"Syslog configured", "ok", ""})
+	}
+	return out
+}
+
+// --- ArubaOS-Switch / ProVision ---
+
+func checkArubaSwitch(cfg string) []ComplianceFinding {
+	var out []ComplianceFinding
+	// Telnet
+	if reArubaSwitchTelnet.MatchString(cfg) {
+		out = append(out, ComplianceFinding{"Telnet enabled", "critical", "\"telnet-server\" or \"ip telnet\" found in running config"})
+	} else {
+		out = append(out, ComplianceFinding{"Telnet disabled", "ok", ""})
+	}
+	// SNMP default communities
+	if reArubaSwitchSNMP.MatchString(cfg) {
+		out = append(out, ComplianceFinding{"Default SNMP community", "critical", "SNMP community \"public\" or \"private\" configured"})
+	} else {
+		out = append(out, ComplianceFinding{"SNMP community strings", "ok", ""})
+	}
+	// SSH
+	if !reArubaSwitchSSH.MatchString(cfg) {
+		out = append(out, ComplianceFinding{"SSH not configured", "warning", "\"ip ssh\" or \"crypto ssh\" not found"})
+	} else {
+		out = append(out, ComplianceFinding{"SSH configured", "ok", ""})
+	}
+	// NTP
+	if !reArubaSwitchNTP.MatchString(cfg) {
+		out = append(out, ComplianceFinding{"NTP not configured", "warning", "No \"timep\" or \"sntp\" configuration found"})
+	} else {
+		out = append(out, ComplianceFinding{"NTP configured", "ok", ""})
+	}
+	// Syslog
+	if !reArubaSwitchSyslog.MatchString(cfg) {
+		out = append(out, ComplianceFinding{"Syslog server not configured", "warning", "No \"logging <ip>\" found"})
 	} else {
 		out = append(out, ComplianceFinding{"Syslog configured", "ok", ""})
 	}
