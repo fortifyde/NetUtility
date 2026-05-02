@@ -898,6 +898,12 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 	case tcell.KeyTab:
 		t.switchFocus()
 		return nil
+	case tcell.KeyLeft:
+		t.setActiveFocus(t.categoryPane)
+		return nil
+	case tcell.KeyRight:
+		t.setActiveFocus(t.taskPane)
+		return nil
 	case tcell.KeyEscape:
 		t.confirmQuit()
 		return nil
