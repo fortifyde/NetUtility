@@ -167,9 +167,9 @@ func main() {
 
 	// Default TUI mode - now with integrated streaming execution
 	tui := ui.NewTUI(scriptsDir, cfg.WorkspaceDir, cfg.Language)
+	defer tui.Stop() // Ensure child processes are killed on any exit path
 	if err := tui.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
-		os.Exit(1)
 	}
 }
 

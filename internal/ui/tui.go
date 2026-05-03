@@ -1219,8 +1219,14 @@ func (t *TUI) Run() error {
 }
 
 func (t *TUI) Stop() {
-	t.stopOnce.Do(func() { close(t.mainViewTickerStop) })
-	t.app.Stop()
+	t.stopOnce.Do(func() {
+		// Stop the periodic UI refresh ticker.
+		close(t.mainViewTickerStop)
+		// Cancel all running jobs and kill their process groups.
+		t.jobManager.Stop()
+		// Tear down the tview event loop.
+		t.app.Stop()
+	})
 }
 
 // startSearch opens a compact centered modal for searching tasks across all categories.
@@ -1459,7 +1465,7 @@ func (t *TUI) returnToMain() {
 func (t *TUI) confirmQuit() {
 	stats := t.jobManager.GetStats()
 	if stats.RunningJobs == 0 {
-		t.app.Stop()
+		t.Stop()
 		return
 	}
 	message := fmt.Sprintf(t.str.FmtConfirmQuit, stats.RunningJobs)
@@ -1469,7 +1475,7 @@ func (t *TUI) confirmQuit() {
 		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
 			t.pages.RemovePage("quit-confirm")
 			if buttonLabel == t.str.BtnQuit {
-				t.app.Stop()
+				t.Stop()
 			}
 		})
 	t.pages.AddPage("quit-confirm", modal, true, true)

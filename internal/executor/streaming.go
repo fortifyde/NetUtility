@@ -31,6 +31,7 @@ type StreamingExecutor struct {
 	errorChan  chan error
 	doneChan   chan struct{}
 	mu         sync.RWMutex
+	stopOnce   sync.Once
 }
 
 // StreamingResult contains the final result of script execution
@@ -314,9 +315,23 @@ func (e *StreamingExecutor) IsRunning() bool {
 	return e.running
 }
 
-// Stop cancels the running script execution
+// Stop cancels the running script execution and kills the entire process
+// group to ensure grandchildren (nmap, tcpdump, etc.) are cleaned up,
+// not just the direct bash child.
 func (e *StreamingExecutor) Stop() error {
-	e.cancel()
+	e.stopOnce.Do(func() {
+		e.cancel() // Signal context cancellation
+
+		// Kill the entire process group. Setpgid: true (set in executeScript)
+		// ensures the child leads its own group, so -pid targets the group.
+		e.mu.RLock()
+		cmd := e.cmd
+		e.mu.RUnlock()
+
+		if cmd != nil && cmd.Process != nil {
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+	})
 	return nil
 }
 
