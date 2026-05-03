@@ -2496,7 +2496,7 @@ echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 log_info "Starting Stage 5: Advanced analysis"
 
 echo "Running advanced packet analysis..."
-analysis_script="$(dirname "$0")/../discovery/advanced_packet_analysis.sh"
+analysis_script="$(dirname "$0")/../analysis/advanced_packet_analysis.sh"
 
 if [ -x "$analysis_script" ]; then
     "$analysis_script" "$capture_file" > "$TEMP_DIR/analysis_output.txt" 2>&1
