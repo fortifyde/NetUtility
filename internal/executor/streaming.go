@@ -148,7 +148,9 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 	// Isolate child in its own process group so SIGINT to the TUI
 	// does not propagate to the script, and vice versa.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	e.mu.Lock()
 	e.cmd = cmd
+	e.mu.Unlock()
 
 	// Set up pipes
 	stdout, err := cmd.StdoutPipe()
@@ -330,6 +332,8 @@ func (e *StreamingExecutor) Stop() error {
 
 		if cmd != nil && cmd.Process != nil {
 			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+			// TODO: Consider SIGTERM + graceful timeout before SIGKILL for
+			// scripts that produce intermediate output to disk.
 		}
 	})
 	return nil

@@ -63,6 +63,10 @@ func getDefaultScriptsDir() string {
 }
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	// Define command-line flags
 	scriptsDirFlag := flag.String("scripts-dir", "", "Path to scripts directory (default: next to executable)")
 	flag.Parse()
@@ -110,7 +114,7 @@ func main() {
 
 		if err := runFirstTimeSetup(cfg); err != nil {
 			fmt.Fprintf(os.Stderr, "Setup failed: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
 
 		fmt.Println("Setup complete! Starting NetUtility...")
@@ -146,23 +150,25 @@ func main() {
 			command == "list" || command == "--list" || command == "-l" ||
 			command == "recent" || command == "--recent" || command == "-r" {
 			handleCLICommand(args, cfg, registry)
-			return
+			return 0
 		}
 
 		// For other CLI commands, check root access first, then execute
 		if err := app.CheckRootAccess(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-			os.Exit(1)
+			return 1
 		}
 
-		handleCLICommand(args, cfg, registry)
-		return
+		if !handleCLICommand(args, cfg, registry) {
+			return 1
+		}
+		return 0
 	}
 
 	// Default TUI mode - check root access
 	if err := app.CheckRootAccess(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Default TUI mode - now with integrated streaming execution
@@ -170,7 +176,10 @@ func main() {
 	defer tui.Stop() // Ensure child processes are killed on any exit path
 	if err := tui.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error running TUI: %v\n", err)
+		return 1
 	}
+
+	return 0
 }
 
 // Command mappings for CLI shortcuts
@@ -255,11 +264,11 @@ type ScriptInfo struct {
 	Name string
 }
 
-// handleCLICommand processes command line arguments
-func handleCLICommand(args []string, cfg *config.Config, registry *metadata.ScriptRegistry) {
+// handleCLICommand processes command line arguments. Returns false if the command was not found.
+func handleCLICommand(args []string, cfg *config.Config, registry *metadata.ScriptRegistry) bool {
 	if len(args) == 0 {
 		showHelp()
-		return
+		return true
 	}
 
 	command := strings.ToLower(args[0])
@@ -268,13 +277,13 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 	switch command {
 	case "help", "--help", "-h":
 		showHelp()
-		return
+		return true
 	case "list", "--list", "-l":
 		showCommands()
-		return
+		return true
 	case "recent", "--recent", "-r":
 		showRecent(cfg)
-		return
+		return true
 	}
 
 	// Use metadata registry if available, otherwise fall back to hardcoded mappings
@@ -286,7 +295,7 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 			if saveErr := cfg.SaveConfig(); saveErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
 			}
-			return
+			return true
 		}
 
 		// Try fuzzy matching with metadata
@@ -297,7 +306,7 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 			if saveErr := cfg.SaveConfig(); saveErr != nil {
 				fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
 			}
-			return
+			return true
 		}
 	}
 
@@ -309,7 +318,7 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 		if saveErr := cfg.SaveConfig(); saveErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
 		}
-		return
+		return true
 	}
 
 	// Check exact command matches
@@ -319,7 +328,7 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 		if saveErr := cfg.SaveConfig(); saveErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
 		}
-		return
+		return true
 	}
 
 	// Try fuzzy matching
@@ -330,13 +339,13 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 		if saveErr := cfg.SaveConfig(); saveErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
 		}
-		return
+		return true
 	}
 
 	// Command not found
 	fmt.Printf("Unknown command: %s\n\n", command)
 	showHelp()
-	os.Exit(1)
+	return false
 }
 
 // findFuzzyMatch attempts to find a close match for the command

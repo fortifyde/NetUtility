@@ -65,7 +65,8 @@ type JobManager struct {
 	jobStartedChan   chan *Job
 	jobCompletedChan chan *Job
 	jobFailedChan    chan *Job
-	stopChan         chan struct{}
+
+	stopOnce sync.Once
 
 	// onJobDone is called after each job completes (success or failure).
 	onJobDone func()
@@ -83,7 +84,7 @@ func NewJobManager(maxConcurrent int) *JobManager {
 		jobStartedChan:   make(chan *Job, 10),
 		jobCompletedChan: make(chan *Job, 10),
 		jobFailedChan:    make(chan *Job, 10),
-		stopChan:         make(chan struct{}),
+		// stopChan removed — was never read; stopOnce handles idempotent Stop
 	}
 }
 
@@ -543,20 +544,19 @@ func (jm *JobManager) GetJobEventChannels() (<-chan *Job, <-chan *Job, <-chan *J
 
 // Stop stops the job manager and cancels all running jobs
 func (jm *JobManager) Stop() {
-	jm.mu.Lock()
-	defer jm.mu.Unlock()
+	jm.stopOnce.Do(func() {
+		jm.mu.Lock()
+		defer jm.mu.Unlock()
 
-	// Cancel all running jobs
-	for _, job := range jm.jobs {
-		job.mu.RLock()
-		if job.Status == JobStatusRunning && job.Executor != nil {
-			job.Executor.Stop()
+		// Cancel all running jobs
+		for _, job := range jm.jobs {
+			job.mu.RLock()
+			if job.Status == JobStatusRunning && job.Executor != nil {
+				job.Executor.Stop()
+			}
+			job.mu.RUnlock()
 		}
-		job.mu.RUnlock()
-	}
-
-	// Signal stop
-	close(jm.stopChan)
+	})
 }
 
 // Helper methods for Job

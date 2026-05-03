@@ -368,7 +368,8 @@ func (r *ScriptRegistry) ValidateScript(script ScriptMetadata) error {
 		if tool.CheckCommand == "" {
 			continue
 		}
-		if _, err := exec.LookPath(tool.CheckCommand); err != nil {
+		cmd := exec.Command("sh", "-c", tool.CheckCommand)
+		if err := cmd.Run(); err != nil {
 			return fmt.Errorf("required tool %q not found in PATH: %w", tool.Name, err)
 		}
 	}
