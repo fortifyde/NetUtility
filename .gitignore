@@ -1,4 +1,16 @@
-.worktrees/
+# Build artifacts
 /netutil
-ouihelper
-fileserver
+bin/ouihelper
+bin/netutil-fileserver
+
+# Runtime data
+correlations/
+netutil-lab-workspace/
+netutil-config.json
+
+# Lab
+lab/*.tfstate*
+lab/.terraform/
+
+# IDE/Tool
+.worktrees/

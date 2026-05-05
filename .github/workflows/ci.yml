@@ -49,6 +49,25 @@ jobs:
         path: coverage.txt
         retention-days: 7
 
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.26.x'
+
+    # TODO: Remove continue-on-error once pre-existing lint backlog is resolved
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v7
+      continue-on-error: true
+      with:
+        version: v2.11
   shellcheck:
     name: Shellcheck
     runs-on: ubuntu-latest
@@ -65,7 +84,7 @@ jobs:
   build:
     name: Build Validation
     runs-on: ubuntu-latest
-    needs: [test, shellcheck]
+    needs: [test, lint, shellcheck]
 
     steps:
     - name: Checkout code
@@ -86,20 +105,24 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-go-build-
 
+    - name: Get version
+      id: get_version
+      run: echo "VERSION=${{ github.ref_type == 'tag' && github.ref_name || github.sha }}" >> "$GITHUB_OUTPUT"
+
     - name: Build netutil
-      run: go build -v -o netutil ./cmd/netutil
+      run: go build -v -ldflags="-s -w -X main.version=${{ steps.get_version.outputs.VERSION }}" -o netutil ./cmd/netutil
 
     - name: Build ouihelper
-      run: go build -v -o bin/ouihelper ./cmd/ouihelper
+      run: go build -v -ldflags="-s -w -X main.version=${{ steps.get_version.outputs.VERSION }}" -o bin/ouihelper ./cmd/ouihelper
 
     - name: Build netutil-fileserver
-      run: go build -v -o bin/netutil-fileserver ./cmd/fileserver
+      run: go build -v -ldflags="-s -w -X main.version=${{ steps.get_version.outputs.VERSION }}" -o bin/netutil-fileserver ./cmd/fileserver
 
     - name: Verify binaries
       run: |
         test -f netutil
         test -f bin/ouihelper
         test -f bin/netutil-fileserver
-        ./netutil --version || true
-        ./bin/ouihelper --help || true
+        ./netutil --version
+        ./bin/ouihelper --version
         ./bin/netutil-fileserver --help || true

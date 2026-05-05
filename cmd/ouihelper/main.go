@@ -8,6 +8,9 @@ import (
 	"netutil/internal/oui"
 )
 
+// version is set at build time via -ldflags "-X main.version=..."
+var version = "dev"
+
 // ouihelper is a command-line utility for MAC address vendor lookups
 // It's designed to be called from shell scripts for fast OUI database access
 func main() {
@@ -24,6 +27,8 @@ func main() {
 	command := strings.ToLower(os.Args[1])
 
 	switch command {
+	case "--version", "-v":
+		fmt.Printf("ouihelper %s\n", version)
 	case "lookup":
 		if len(os.Args) < 3 {
 			fmt.Fprintf(os.Stderr, "Usage: %s lookup <mac_address>\n", os.Args[0])

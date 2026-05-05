@@ -14,6 +14,9 @@ import (
 	"netutil/internal/ui"
 )
 
+// version is set at build time via -ldflags "-X main.version=..."
+var version = "dev"
+
 // ensureExecutable ensures all binaries in bin/ and shell scripts in scripts/
 // have the executable bit set. Called at TUI startup so permissions are always
 // correct regardless of how the files were installed or extracted.
@@ -69,7 +72,13 @@ func main() {
 func run() int {
 	// Define command-line flags
 	scriptsDirFlag := flag.String("scripts-dir", "", "Path to scripts directory (default: next to executable)")
+	showVersion := flag.Bool("version", false, "Show version")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("NetUtility %s\n", version)
+		return 0
+	}
 
 	// Determine scripts directory
 	scriptsDir := getDefaultScriptsDir()
@@ -407,13 +416,14 @@ func executeScript(scriptPath, scriptName string, cfg *config.Config) bool {
 
 // showHelp displays available commands
 func showHelp() {
-	fmt.Printf("NetUtility - Network Security Toolkit\n\n")
+	fmt.Printf("NetUtility %s - Network Security Toolkit\n\n", version)
 	fmt.Printf("USAGE:\n")
 	fmt.Printf("  netutil [flags]            # Launch TUI (default)\n")
 	fmt.Printf("  netutil [flags] <command>  # Run command directly\n")
 	fmt.Printf("  netutil [flags] <number>   # Run numbered shortcut\n\n")
 	fmt.Printf("FLAGS:\n")
-	fmt.Printf("  --scripts-dir <path>       # Override scripts directory location\n\n")
+	fmt.Printf("  --scripts-dir <path>       # Override scripts directory location\n")
+	fmt.Printf("  --version                  # Show version\n\n")
 	fmt.Printf("SHORTCUTS:\n")
 	fmt.Printf("  1-5                        # Most common tasks\n")
 	fmt.Printf("  scan, enum                 # Network enumeration\n")
