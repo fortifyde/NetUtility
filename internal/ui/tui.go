@@ -19,8 +19,7 @@ import (
 )
 
 const (
-	AppName    = "NetUtility"
-	AppVersion = "v0.5.1"
+	AppName = "NetUtility"
 )
 
 type TUI struct {
@@ -46,9 +45,11 @@ type TUI struct {
 	corrViewer             *CorrelationViewer
 	outputViewer           *OutputViewer
 	taskListIsContinuation []bool // true for wrapped-description continuation rows
-	lang                   string
+	lang    string
+	version string
 
-	str *Strings
+	str     *Strings
+
 
 	jobCounter         atomic.Int64
 	mainViewTickerStop chan struct{}
@@ -381,7 +382,7 @@ func ensureTrueColor() {
 	_ = os.Setenv("COLORTERM", "truecolor")
 }
 
-func NewTUI(scriptsDir, workspaceDir, lang string) *TUI {
+func NewTUI(scriptsDir, workspaceDir, lang, ver string) *TUI {
 
 	// Ensure TrueColor is available for screenshot rendering.
 	// Many terminals (e.g., qterminal) support 24-bit color but don't set
@@ -419,6 +420,7 @@ func NewTUI(scriptsDir, workspaceDir, lang string) *TUI {
 	}
 	tui.str = stringsForLang(lang)
 	tui.lang = lang
+	tui.version = ver
 
 	if workspaceDir != "" {
 		tui.jobManager.SetOnJobDone(func() { config.FixWorkspaceOwnershipForPath(workspaceDir) })
@@ -703,7 +705,7 @@ func (t *TUI) checkDevConfigDone() bool {
 func (t *TUI) setupUI() {
 	// Setup header pane (program info)
 	t.headerPane.SetBorder(true).SetTitle(t.str.PaneTitleProgramInfo)
-	headerText := fmt.Sprintf(t.str.FmtHeaderText, AppName, AppVersion)
+	headerText := fmt.Sprintf(t.str.FmtHeaderText, AppName, t.version)
 	t.headerPane.SetText(headerText)
 	t.headerPane.SetTextAlign(tview.AlignCenter)
 
