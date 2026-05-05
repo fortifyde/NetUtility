@@ -38,11 +38,11 @@ jobs:
         mkdir -p build/${{ matrix.goos }}_${{ matrix.goarch }}/netutility/bin
 
         # Build main binary
-        go build -v -ldflags="-s -w" -o build/${{ matrix.goos }}_${{ matrix.goarch }}/netutility/netutil ./cmd/netutil
+        go build -v -ldflags="-s -w -X main.version=${{ steps.get_version.outputs.VERSION }}" -o build/${{ matrix.goos }}_${{ matrix.goarch }}/netutility/netutil ./cmd/netutil
 
         # Build helper binaries
-        go build -v -ldflags="-s -w" -o build/${{ matrix.goos }}_${{ matrix.goarch }}/netutility/bin/ouihelper ./cmd/ouihelper
-        go build -v -ldflags="-s -w" -o build/${{ matrix.goos }}_${{ matrix.goarch }}/netutility/bin/netutil-fileserver ./cmd/fileserver
+        go build -v -ldflags="-s -w -X main.version=${{ steps.get_version.outputs.VERSION }}" -o build/${{ matrix.goos }}_${{ matrix.goarch }}/netutility/bin/ouihelper ./cmd/ouihelper
+        go build -v -ldflags="-s -w -X main.version=${{ steps.get_version.outputs.VERSION }}" -o build/${{ matrix.goos }}_${{ matrix.goarch }}/netutility/bin/netutil-fileserver ./cmd/fileserver
 
     - name: Copy scripts
       run: |
