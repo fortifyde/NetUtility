@@ -22,7 +22,8 @@ var (
 	tlsCert      = flag.String("tls-cert", "", "TLS certificate file (enables HTTPS)")
 	tlsKey       = flag.String("tls-key", "", "TLS private key file (enables HTTPS)")
 	hashPassword = flag.String("hash", "", "Hash a password and exit (utility mode)")
-	version      = "1.0.0"
+	showVersion  = flag.Bool("version", false, "Show version")
+	version      = "dev"
 )
 
 func main() {
@@ -39,6 +40,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "    echo -n 'mypassword' | %s -hash -\n", os.Args[0])
 	}
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("netutil-fileserver %s\n", version)
+		os.Exit(0)
+	}
 
 	// Hash mode - hash a password and exit
 	if *hashPassword != "" {
