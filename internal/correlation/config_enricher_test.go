@@ -178,11 +178,11 @@ func TestConfigEnricher_HasConfigs_Empty(t *testing.T) {
 func TestConfigEnricher_HasConfigs_WithDir(t *testing.T) {
 	dir := t.TempDir()
 	deviceDir := filepath.Join(dir, "configs", "10.0.0.1")
-	if err := os.MkdirAll(deviceDir, 0o755); err != nil {
+	if err := os.MkdirAll(deviceDir, 0750); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(deviceDir, "metadata.txt"),
-		[]byte("IP Address: 10.0.0.1\nVendor/OS: cisco_ios\n"), 0o644); err != nil {
+		[]byte("IP Address: 10.0.0.1\nVendor/OS: cisco_ios\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	ce := NewConfigEnricher(dir)
@@ -194,23 +194,23 @@ func TestConfigEnricher_HasConfigs_WithDir(t *testing.T) {
 func TestConfigEnricher_Enrich_ComplianceAndMAC(t *testing.T) {
 	dir := t.TempDir()
 	deviceDir := filepath.Join(dir, "configs", "10.0.0.1")
-	if err := os.MkdirAll(deviceDir, 0o755); err != nil {
+	if err := os.MkdirAll(deviceDir, 0750); err != nil {
 		t.Fatal(err)
 	}
 
 	// Write metadata
 	if err := os.WriteFile(filepath.Join(deviceDir, "metadata.txt"),
-		[]byte("IP Address: 10.0.0.1\nVendor/OS: cisco_ios\nHostname: SW-CORE\n"), 0o644); err != nil {
+		[]byte("IP Address: 10.0.0.1\nVendor/OS: cisco_ios\nHostname: SW-CORE\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	// Running config with telnet enabled
 	if err := os.WriteFile(filepath.Join(deviceDir, "running_config.txt"),
-		[]byte("hostname SW-CORE\nline vty 0 4\n transport input telnet\n"), 0o644); err != nil {
+		[]byte("hostname SW-CORE\nline vty 0 4\n transport input telnet\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	// Compliance output with MAC table entry for a host
 	if err := os.WriteFile(filepath.Join(deviceDir, "compliance_commands.txt"),
-		[]byte("show mac address-table\n  10    aabb.cc00.0200    DYNAMIC     Gi0/5\n"), 0o644); err != nil {
+		[]byte("show mac address-table\n  10    aabb.cc00.0200    DYNAMIC     Gi0/5\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 

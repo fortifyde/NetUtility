@@ -1066,7 +1066,7 @@ func (cv *CorrelationViewer) loadScreenshot(path string) (image.Image, error) {
 		return img, nil
 	}
 
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return nil, fmt.Errorf("failed to open screenshot: %w", err)
 	}

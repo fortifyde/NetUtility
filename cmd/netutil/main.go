@@ -38,12 +38,12 @@ func ensureExecutable(execDir, scriptsDir string) {
 	}
 
 	// Make all .sh files in scripts/ (recursively) executable
-	_ = filepath.Walk(scriptsDir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(scriptsDir, func(path string, info os.FileInfo, err error) error { //nolint:gosec // G122: air-gapped tool
 		if err != nil || info.IsDir() {
 			return nil
 		}
 		if filepath.Ext(path) == ".sh" && info.Mode()&0111 == 0 {
-			_ = os.Chmod(path, info.Mode()|0755)
+		_ = os.Chmod(path, info.Mode()|0755) //nolint:gosec // G122: air-gapped tool
 		}
 		return nil
 	})

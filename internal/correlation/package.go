@@ -74,7 +74,7 @@ func (c *Correlator) GenerateDistributionPackage() (string, error) {
 	archiveName := fmt.Sprintf("hostfile_distribution_%s.tar.gz", ts)
 
 	discoveryDir := filepath.Join(c.workspaceDir, "discovery")
-	if err := os.MkdirAll(discoveryDir, 0755); err != nil {
+	if err := os.MkdirAll(discoveryDir, 0750); err != nil {
 		return "", fmt.Errorf("creating discovery directory: %w", err)
 	}
 	archivePath := filepath.Join(discoveryDir, archiveName)
@@ -111,7 +111,7 @@ func (c *Correlator) GenerateDistributionPackage() (string, error) {
 		}
 	}
 	if hasScreenshots {
-		if err := os.MkdirAll(screenshotsDir, 0755); err != nil {
+		if err := os.MkdirAll(screenshotsDir, 0750); err != nil {
 			return "", fmt.Errorf("creating screenshots directory: %w", err)
 		}
 		for _, entries := range categoryEntries {
@@ -211,7 +211,7 @@ func formatScreenshotNotes(screenshots []ScreenshotInfo) string {
 
 // writeMarkdownFile writes a markdown file with a table of host entries.
 func writeMarkdownFile(path, category string, entries []HostEntry) error {
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}
@@ -258,7 +258,7 @@ func writeMarkdownFile(path, category string, entries []HostEntry) error {
 
 // writeMetadata creates a metadata.txt with timestamp and host counts.
 func writeMetadata(path string, ts time.Time, categoryEntries map[string][]HostEntry) error {
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}
@@ -280,16 +280,16 @@ func writeMetadata(path string, ts time.Time, categoryEntries map[string][]HostE
 
 // copyFile copies src to dst. Creates dst parent directories if needed.
 func copyFile(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0750); err != nil {
 		return err
 	}
-	in, err := os.Open(src)
+	in, err := os.Open(src) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
 
-	out, err := os.Create(dst)
+	out, err := os.Create(dst) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}
@@ -301,7 +301,7 @@ func copyFile(src, dst string) error {
 
 // createTarGz creates a tar.gz archive of the contents of srcDir at dstPath.
 func createTarGz(srcDir, dstPath string) error {
-	out, err := os.Create(dstPath)
+	out, err := os.Create(dstPath) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}
@@ -345,7 +345,7 @@ func createTarGz(srcDir, dstPath string) error {
 }
 
 func copyFileToTar(tw *tar.Writer, filePath string) error {
-	f, err := os.Open(filePath)
+	f, err := os.Open(filePath) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}

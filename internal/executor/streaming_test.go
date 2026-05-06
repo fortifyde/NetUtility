@@ -14,7 +14,7 @@ func writeScript(t *testing.T, content string) string {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "test.sh")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+content), 0755); err != nil {
+	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+content), 0750); err != nil { //nolint:gosec // test script needs execute
 		t.Fatalf("writeScript: %v", err)
 	}
 	return path

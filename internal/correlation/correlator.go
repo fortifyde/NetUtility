@@ -1037,7 +1037,7 @@ func (c *Correlator) saveResults() error {
 	}
 
 	correlationDir := filepath.Join(c.dataDir, "correlations")
-	if err := os.MkdirAll(correlationDir, 0755); err != nil {
+	if err := os.MkdirAll(correlationDir, 0750); err != nil {
 		return fmt.Errorf("failed to create correlation directory: %w", err)
 	}
 
@@ -1048,7 +1048,7 @@ func (c *Correlator) saveResults() error {
 		return fmt.Errorf("failed to marshal correlations: %w", err)
 	}
 
-	if err := os.WriteFile(correlationFile, data, 0644); err != nil {
+	if err := os.WriteFile(correlationFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write correlations: %w", err)
 	}
 
@@ -1124,7 +1124,7 @@ func (c *Correlator) loadManualOverrides() error {
 	if path == "" {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path from trusted workspace
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -1139,14 +1139,14 @@ func (c *Correlator) saveManualOverrides() error {
 	if path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return fmt.Errorf("creating correlations directory: %w", err)
 	}
 	data, err := json.MarshalIndent(c.manualOverrides, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshalling manual overrides: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return err
 	}
 	c.fixCorrelationsOwnership()
@@ -1167,7 +1167,7 @@ func (c *Correlator) loadExcludedHosts() error {
 	if path == "" {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path from trusted workspace
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -1190,14 +1190,14 @@ func (c *Correlator) saveExcludedHosts() error {
 	if path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return fmt.Errorf("creating correlations dir: %w", err)
 	}
 	data, err := json.MarshalIndent(c.excludedHosts, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshalling excluded hosts: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return err
 	}
 	c.fixCorrelationsOwnership()
@@ -1263,7 +1263,7 @@ func (c *Correlator) LoadResults() error {
 		return nil
 	}
 
-	data, err := os.ReadFile(correlationFile)
+	data, err := os.ReadFile(correlationFile) //nolint:gosec // G304: trusted workspace path
 	if err != nil {
 		return fmt.Errorf("failed to read correlations: %w", err)
 	}
@@ -1289,7 +1289,7 @@ func (c *Correlator) LoadResults() error {
 
 // ParseNmapOutput parses nmap output and creates a scan result
 func ParseNmapOutput(filePath, scanID string) (*ScanResult, error) {
-	content, err := os.ReadFile(filePath)
+	content, err := os.ReadFile(filePath) //nolint:gosec // G304: filePath from scan results
 	if err != nil {
 		return nil, err
 	}

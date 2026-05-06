@@ -103,7 +103,7 @@ func moveHostInSession(hostfilesDir, ip, targetPlainFile, category string) error
 	}
 
 	target := filepath.Join(hostfilesDir, targetPlainFile)
-	f, err := os.OpenFile(target, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(target, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", target, err)
 	}
@@ -119,7 +119,7 @@ func moveHostInSession(hostfilesDir, ip, targetPlainFile, category string) error
 			return fmt.Errorf("expected .txt suffix in plain file %q", targetPlainFile)
 		}
 		targetEnriched := filepath.Join(hostfilesDir, base+"_enriched.txt")
-		f2, err := os.OpenFile(targetEnriched, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		f2, err := os.OpenFile(targetEnriched, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600) //nolint:gosec // G304: path from trusted workspace
 		if err != nil {
 			return fmt.Errorf("opening %s: %w", targetEnriched, err)
 		}
@@ -145,7 +145,7 @@ func moveHostInSession(hostfilesDir, ip, targetPlainFile, category string) error
 // Returns (true, nil) if any line was removed, (false, nil) if ip was not found,
 // (false, err) on I/O error. Missing files return (false, nil).
 func removeIPFromFile(path, ip string) (bool, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // G304: path from trusted workspace
 	if os.IsNotExist(err) {
 		return false, nil
 	}
@@ -182,13 +182,13 @@ func removeIPFromFile(path, ip string) (bool, error) {
 	if len(keep) > 0 {
 		out += "\n"
 	}
-	return true, os.WriteFile(path, []byte(out), 0644)
+	return true, os.WriteFile(path, []byte(out), 0600)
 }
 
 // extractEnrichedDataForIP reads an enriched file and returns the line for a specific IP.
 // Returns the full line (with hostname, category, tags) or empty string if not found.
 func extractEnrichedDataForIP(filepath, ip string) string {
-	f, err := os.Open(filepath)
+	f, err := os.Open(filepath) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return ""
 	}

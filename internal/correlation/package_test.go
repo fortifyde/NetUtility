@@ -10,6 +10,7 @@ import (
 	"testing"
 )
 
+const maxDecompressionSize = 100 * 1024 * 1024 // 100 MB
 func TestFormatScreenshotNotes(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -262,7 +263,7 @@ func TestWriteMarkdownFile(t *testing.T) {
 		t.Fatalf("writeMarkdownFile() error: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: test path
 	if err != nil {
 		t.Fatalf("reading output: %v", err)
 	}
@@ -362,7 +363,7 @@ func TestGenerateDistributionPackage(t *testing.T) {
 	}
 
 	// Verify archive contents.
-	f, err := os.Open(archivePath)
+	f, err := os.Open(archivePath) //nolint:gosec // G304: test path
 	if err != nil {
 		t.Fatalf("opening archive: %v", err)
 	}
@@ -389,7 +390,7 @@ func TestGenerateDistributionPackage(t *testing.T) {
 		// Verify windows.md content.
 		if hdr.Name == "windows.md" {
 			var buf strings.Builder
-			if _, err := io.Copy(&buf, tr); err != nil {
+			if _, err := io.Copy(&buf, io.LimitReader(tr, maxDecompressionSize)); err != nil {
 				t.Fatalf("reading windows.md: %v", err)
 			}
 			content := buf.String()
@@ -407,7 +408,7 @@ func TestGenerateDistributionPackage(t *testing.T) {
 		// Verify linux.md content.
 		if hdr.Name == "linux.md" {
 			var buf strings.Builder
-			if _, err := io.Copy(&buf, tr); err != nil {
+			if _, err := io.Copy(&buf, io.LimitReader(tr, maxDecompressionSize)); err != nil {
 				t.Fatalf("reading linux.md: %v", err)
 			}
 			content := buf.String()
@@ -422,7 +423,7 @@ func TestGenerateDistributionPackage(t *testing.T) {
 		// Verify metadata.txt.
 		if hdr.Name == "metadata.txt" {
 			var buf strings.Builder
-			if _, err := io.Copy(&buf, tr); err != nil {
+			if _, err := io.Copy(&buf, io.LimitReader(tr, maxDecompressionSize)); err != nil {
 				t.Fatalf("reading metadata.txt: %v", err)
 			}
 			content := buf.String()
@@ -459,11 +460,11 @@ func TestGenerateDistributionPackageWithScreenshots(t *testing.T) {
 
 	// Create a fake screenshot file.
 	screenshotDir := filepath.Join(tmpDir, "captures", "screenshots")
-	if err := os.MkdirAll(screenshotDir, 0755); err != nil {
+	if err := os.MkdirAll(screenshotDir, 0750); err != nil {
 		t.Fatal(err)
 	}
 	screenshotPath := filepath.Join(screenshotDir, "http--192.168.1.10-80.jpeg")
-	if err := os.WriteFile(screenshotPath, []byte("fake png data"), 0644); err != nil {
+	if err := os.WriteFile(screenshotPath, []byte("fake png data"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -495,7 +496,7 @@ func TestGenerateDistributionPackageWithScreenshots(t *testing.T) {
 	}
 
 	// Verify archive contains screenshots directory and the file.
-	f, err := os.Open(archivePath)
+	f, err := os.Open(archivePath) //nolint:gosec // G304: test path
 	if err != nil {
 		t.Fatalf("opening archive: %v", err)
 	}
@@ -529,7 +530,7 @@ func TestGenerateDistributionPackageWithScreenshots(t *testing.T) {
 		// Verify markdown contains screenshot wikilinks.
 		if hdr.Name == "windows.md" {
 			var buf strings.Builder
-			if _, err := io.Copy(&buf, tr); err != nil {
+			if _, err := io.Copy(&buf, io.LimitReader(tr, maxDecompressionSize)); err != nil {
 				t.Fatalf("reading windows.md: %v", err)
 			}
 			content := buf.String()

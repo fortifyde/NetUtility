@@ -244,7 +244,7 @@ func TestFindScreenshotsOnDisk(t *testing.T) {
 	t.Run("workspace with screenshot JSONL file", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		screenshotsDir := filepath.Join(tmpDir, "captures", "screenshots", "20250120_120000")
-		if err := os.MkdirAll(screenshotsDir, 0755); err != nil {
+		if err := os.MkdirAll(screenshotsDir, 0750); err != nil {
 			t.Fatalf("Failed to create screenshots directory: %v", err)
 		}
 
@@ -253,7 +253,7 @@ func TestFindScreenshotsOnDisk(t *testing.T) {
 		jsonlContent := `{"url":"http://192.168.1.1","file_name":"http--192.168.1.1-80.jpeg","screenshot":"","response_code":200,"failed":false}
 {"url":"https://192.168.1.1","file_name":"https--192.168.1.1-443.jpeg","screenshot":"","response_code":200,"failed":false}
 {"url":"http://192.168.1.2","file_name":"http--192.168.1.2-80.jpeg","screenshot":"","response_code":404,"failed":false}`
-		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
+		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0600); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
 		}
 
@@ -393,7 +393,7 @@ func TestParseScreenshotJSONL(t *testing.T) {
 {"url":"https://192.168.1.1","final_url":"","file_name":"https--192.168.1.1-443.jpeg","screenshot":"","response_code":200,"failed":false}
 {"url":"http://192.168.1.2","final_url":"http://192.168.1.2/dashboard","file_name":"http--192.168.1.2-80.jpeg","screenshot":"","response_code":404,"failed":false}`
 
-		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
+		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0600); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
 		}
 
@@ -429,7 +429,7 @@ func TestParseScreenshotJSONL(t *testing.T) {
 invalid json line
 {"url":"https://192.168.1.1","file_name":"https--192.168.1.1-443.jpeg","screenshot":"","response_code":200,"failed":false}`
 
-		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
+		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0600); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
 		}
 
@@ -449,7 +449,7 @@ invalid json line
 {"url":"http://192.168.1.2","file_name":"","screenshot":"","response_code":0,"failed":true,"failed_reason":"connection refused"}
 {"url":"https://192.168.1.1","file_name":"https--192.168.1.1-443.jpeg","screenshot":"","response_code":200,"failed":false}`
 
-		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
+		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0600); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
 		}
 
@@ -475,7 +475,7 @@ invalid json line
 		jsonlContent := `{"url":"http://192.168.1.1","final_url":"http://router.local/home","file_name":"http--192.168.1.1-80.jpeg","screenshot":"","response_code":200,"failed":false}
 {"url":"https://192.168.1.2","final_url":"https://device.local/","file_name":"https--192.168.1.2-443.jpeg","screenshot":"","response_code":301,"failed":false}`
 
-		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0644); err != nil {
+		if err := os.WriteFile(jsonlPath, []byte(jsonlContent), 0600); err != nil {
 			t.Fatalf("Failed to write JSONL file: %v", err)
 		}
 

@@ -143,13 +143,13 @@ func (tg *TopologyGenerator) GenerateHTMLViewer(correlations map[string]*Correla
 	html := topologyHTMLHead + topologyD3 + "\nconst VLANS = " + string(vlansData) + ";\nconst CONNECTIONS = " + string(connData) + ";\n" + topologyHTMLJS + "\n</script>\n</body>\n</html>"
 
 	outDir := filepath.Join(tg.workspaceDir, "topology")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
+	if err := os.MkdirAll(outDir, 0750); err != nil {
 		return "", fmt.Errorf("creating topology dir: %w", err)
 	}
 
 	ts := time.Now().Format("20060102_150405")
 	htmlPath := filepath.Join(outDir, "topology_viewer_"+ts+".html")
-	if err := os.WriteFile(htmlPath, []byte(html), 0o644); err != nil {
+	if err := os.WriteFile(htmlPath, []byte(html), 0o600); err != nil {
 		return "", fmt.Errorf("writing HTML viewer: %w", err)
 	}
 

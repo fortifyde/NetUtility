@@ -169,7 +169,7 @@ func FindScreenshotsOnDisk(workspaceDir string) map[string][]ScreenshotInfo {
 func parseScreenshotJSONL(jsonlPath string) []ScreenshotInfo {
 	screenshots := make([]ScreenshotInfo, 0)
 
-	file, err := os.Open(jsonlPath)
+	file, err := os.Open(jsonlPath) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return screenshots
 	}

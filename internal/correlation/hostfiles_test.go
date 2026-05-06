@@ -10,11 +10,11 @@ import (
 func makeSession(t *testing.T, discoveryDir, sessionName string, files map[string]string) string {
 	t.Helper()
 	hostfilesDir := filepath.Join(discoveryDir, sessionName, "hostfiles")
-	if err := os.MkdirAll(hostfilesDir, 0755); err != nil {
+	if err := os.MkdirAll(hostfilesDir, 0750); err != nil {
 		t.Fatalf("makeSession: %v", err)
 	}
 	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(hostfilesDir, name), []byte(content), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(hostfilesDir, name), []byte(content), 0600); err != nil {
 			t.Fatalf("makeSession WriteFile: %v", err)
 		}
 	}
@@ -23,7 +23,7 @@ func makeSession(t *testing.T, discoveryDir, sessionName string, files map[strin
 
 func readFile(t *testing.T, path string) string {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: test path
 	if os.IsNotExist(err) {
 		return ""
 	}
@@ -167,11 +167,11 @@ func TestMoveHostInHostfiles_UnknownCategory(t *testing.T) {
 func makeNestedSession(t *testing.T, discoveryDir, subpath string, files map[string]string) string {
 	t.Helper()
 	hostfilesDir := filepath.Join(discoveryDir, subpath, "hostfiles")
-	if err := os.MkdirAll(hostfilesDir, 0755); err != nil {
+	if err := os.MkdirAll(hostfilesDir, 0750); err != nil {
 		t.Fatalf("makeNestedSession: %v", err)
 	}
 	for name, content := range files {
-		if err := os.WriteFile(filepath.Join(hostfilesDir, name), []byte(content), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(hostfilesDir, name), []byte(content), 0600); err != nil {
 			t.Fatalf("makeNestedSession WriteFile: %v", err)
 		}
 	}

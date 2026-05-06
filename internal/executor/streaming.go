@@ -84,7 +84,7 @@ func (r *StreamingResult) GetFinal() (success bool, exitCode int, duration time.
 
 // NewStreamingExecutor creates a new streaming executor
 func NewStreamingExecutor() *StreamingExecutor {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in struct
 	return &StreamingExecutor{
 		ctx:        ctx,
 		cancel:     cancel,

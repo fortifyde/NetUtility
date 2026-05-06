@@ -561,7 +561,7 @@ func (rp *ResultParser) parseGenericOutput(result *ScanResult, content string) (
 
 // ParseResultFile parses a result file and returns a scan result
 func (rp *ResultParser) ParseResultFile(filePath string) (*ScanResult, error) {
-	content, err := os.ReadFile(filePath)
+	content, err := os.ReadFile(filePath) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}

@@ -297,7 +297,9 @@ func mergeInterfaceTasks(categories []Category, str *Strings) []Category {
 			ifaceIdx = len(newTasks)
 		}
 		newTasks = append(newTasks[:ifaceIdx:ifaceIdx], append([]Task{composite}, newTasks[ifaceIdx:]...)...)
-		categories[ci].Tasks = newTasks
+		if ci < len(categories) {
+			categories[ci].Tasks = newTasks
+		}
 		break
 	}
 	return categories
@@ -366,7 +368,9 @@ func mergeCaptureAnalysisTasks(categories []Category, str *Strings) []Category {
 			}
 		}
 		newTasks = append(newTasks[:insertIdx:insertIdx], append([]Task{composite}, newTasks[insertIdx:]...)...)
-		categories[ci].Tasks = newTasks
+		if ci < len(categories) {
+			categories[ci].Tasks = newTasks
+		}
 		break
 	}
 	return categories
@@ -618,7 +622,7 @@ func (t *TUI) checkSysConfigDone() bool {
 		if name == "lo" {
 			continue
 		}
-		state, err := os.ReadFile(filepath.Join("/sys/class/net", name, "operstate"))
+		state, err := os.ReadFile(filepath.Join("/sys/class/net", name, "operstate")) //nolint:gosec // G304: kernel path
 		if err != nil || strings.TrimSpace(string(state)) != "up" {
 			continue
 		}

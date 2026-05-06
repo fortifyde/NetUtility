@@ -17,7 +17,7 @@ func TestConcurrentAddScanResult(t *testing.T) {
 		go func(idx int) {
 			defer wg.Done()
 			result := &ScanResult{
-				ID:   string(ScanTypeNetworkEnum) + "-" + string(rune('A'+idx)),
+				ID:   string(ScanTypeNetworkEnum) + "-" + string(rune('A'+idx%26)), //nosec G115 — modulo keeps rune in range
 				Type: ScanTypeNetworkEnum,
 				Hosts: []Host{
 					{IP: "192.168.1." + string(rune('0'+idx%10))},

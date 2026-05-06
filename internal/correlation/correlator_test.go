@@ -889,7 +889,7 @@ PORT     STATE SERVICE
 Nmap done: 2 IP addresses (2 hosts up) scanned in 1.23 seconds
 `
 
-	if err := os.WriteFile(nmapFile, []byte(nmapOutput), 0644); err != nil {
+	if err := os.WriteFile(nmapFile, []byte(nmapOutput), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -951,7 +951,7 @@ func TestSetManualCategory(t *testing.T) {
 
 	// Override file written
 	overridePath := filepath.Join(dir, "correlations", "manual_categories.json")
-	data, err := os.ReadFile(overridePath)
+	data, err := os.ReadFile(overridePath) //nolint:gosec // G304: test path
 	if err != nil {
 		t.Fatalf("reading override file: %v", err)
 	}
@@ -970,7 +970,7 @@ func TestManualOverrideSurvivesReload(t *testing.T) {
 	// Write correlations.json with "unknown" category directly (bypassing SetManualCategory
 	// so correlations.json does NOT contain the override — only manual_categories.json will).
 	corrDir := filepath.Join(dir, "correlations")
-	if err := os.MkdirAll(corrDir, 0755); err != nil {
+	if err := os.MkdirAll(corrDir, 0750); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 	correlations := map[string]*CorrelationResult{
@@ -983,14 +983,14 @@ func TestManualOverrideSurvivesReload(t *testing.T) {
 		},
 	}
 	corrData, _ := json.Marshal(correlations)
-	if err := os.WriteFile(filepath.Join(corrDir, "correlations.json"), corrData, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(corrDir, "correlations.json"), corrData, 0600); err != nil {
 		t.Fatalf("writing correlations.json: %v", err)
 	}
 
 	// Write manual_categories.json with the override directly.
 	overrides := map[string]string{"10.0.0.2": "network_device"}
 	overrideData, _ := json.MarshalIndent(overrides, "", "  ")
-	if err := os.WriteFile(filepath.Join(corrDir, "manual_categories.json"), overrideData, 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(corrDir, "manual_categories.json"), overrideData, 0600); err != nil {
 		t.Fatalf("writing manual_categories.json: %v", err)
 	}
 
@@ -1105,7 +1105,7 @@ Nmap done: 1 IP address (1 host up) scanned`
 
 	tempDir := t.TempDir()
 	nmapFile := filepath.Join(tempDir, "scan.nmap")
-	if err := os.WriteFile(nmapFile, []byte(input), 0644); err != nil {
+	if err := os.WriteFile(nmapFile, []byte(input), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 

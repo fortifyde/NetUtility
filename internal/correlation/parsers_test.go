@@ -379,7 +379,7 @@ PORT   STATE SERVICE
 80/tcp open  http
 `
 
-	if err := os.WriteFile(resultFile, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(resultFile, []byte(content), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -415,7 +415,7 @@ func TestScanWorkspaceForResults(t *testing.T) {
 
 	for filename, content := range files {
 		filePath := filepath.Join(tempDir, filename)
-		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(filePath, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 	}
@@ -701,7 +701,7 @@ func TestScanWorkspaceForResults_SubdirectoryScan(t *testing.T) {
 	dir := t.TempDir()
 	// Two levels deep — filepath.Glob("**") would not recurse this far
 	subdir := filepath.Join(dir, "scan-2024-01-15", "subscans")
-	if err := os.MkdirAll(subdir, 0755); err != nil {
+	if err := os.MkdirAll(subdir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	nmapContent := `Starting Nmap 7.94
@@ -711,7 +711,7 @@ PORT   STATE SERVICE
 22/tcp open  ssh
 Nmap done: 1 IP address (1 host up) scanned`
 	nmapFile := filepath.Join(subdir, "result.nmap")
-	if err := os.WriteFile(nmapFile, []byte(nmapContent), 0644); err != nil {
+	if err := os.WriteFile(nmapFile, []byte(nmapContent), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	rp := NewResultParser(dir)
@@ -730,7 +730,7 @@ func TestScanWorkspaceSkipsLargeFiles(t *testing.T) {
 
 	// Create a small file
 	smallFile := filepath.Join(tempDir, "small.txt")
-	if err := os.WriteFile(smallFile, []byte("192.168.1.1"), 0644); err != nil {
+	if err := os.WriteFile(smallFile, []byte("192.168.1.1"), 0600); err != nil {
 		t.Fatalf("Failed to create small file: %v", err)
 	}
 
@@ -972,7 +972,7 @@ func TestScanWorkspaceForResults_SSLScan(t *testing.T) {
 
 	// Create sslscan XML file in a supplementary directory
 	suppDir := filepath.Join(tempDir, "supplementary")
-	if err := os.MkdirAll(suppDir, 0755); err != nil {
+	if err := os.MkdirAll(suppDir, 0750); err != nil {
 		t.Fatal(err)
 	}
 	sslContent := `<?xml version="1.0" encoding="UTF-8"?>
@@ -981,7 +981,7 @@ func TestScanWorkspaceForResults_SSLScan(t *testing.T) {
   <protocol type="tls" version="1.2" enabled="1" />
  </ssltest>
 </document>`
-	if err := os.WriteFile(filepath.Join(suppDir, "sslscan_10.0.0.1.xml"), []byte(sslContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(suppDir, "sslscan_10.0.0.1.xml"), []byte(sslContent), 0600); err != nil {
 		t.Fatal(err)
 	}
 
