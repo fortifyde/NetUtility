@@ -314,10 +314,10 @@ func isValidInterfaceName(name string) bool {
 
 	// Interface names should contain only alphanumeric characters, dots, and hyphens
 	for _, char := range name {
-		if !((char >= 'a' && char <= 'z') ||
-			(char >= 'A' && char <= 'Z') ||
-			(char >= '0' && char <= '9') ||
-			char == '.' || char == '-' || char == '_') {
+		if (char < 'a' || char > 'z') &&
+			(char < 'A' || char > 'Z') &&
+			(char < '0' || char > '9') &&
+			char != '.' && char != '-' && char != '_' {
 			return false
 		}
 	}

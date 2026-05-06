@@ -76,10 +76,10 @@ func (r *StreamingResult) SetFinal(success bool, exitCode int, err error, endTim
 }
 
 // GetFinal returns the final result fields atomically.
-func (r *StreamingResult) GetFinal() (success bool, exitCode int, err error, duration time.Duration, endTime time.Time) {
+func (r *StreamingResult) GetFinal() (success bool, exitCode int, duration time.Duration, endTime time.Time, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.Success, r.ExitCode, r.Error, r.Duration, r.EndTime
+	return r.Success, r.ExitCode, r.Duration, r.EndTime, r.Error
 }
 
 // NewStreamingExecutor creates a new streaming executor

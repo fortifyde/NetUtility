@@ -106,11 +106,7 @@ func (ce *ConfigEnricher) applyPhysicalLinks(idx *macIndex, correlations map[str
 		if !ok {
 			continue
 		}
-		corr.PhysicalLinks = append(corr.PhysicalLinks, PhysicalLink{
-			SwitchIP:  entry.SwitchIP,
-			Interface: entry.Interface,
-			VLAN:      entry.VLAN,
-		})
+		corr.PhysicalLinks = append(corr.PhysicalLinks, PhysicalLink(entry))
 	}
 }
 

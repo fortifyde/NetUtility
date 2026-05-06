@@ -538,7 +538,7 @@ func (t *TUI) updateJobsPanel() {
 		// Duration for running jobs
 		if status == jobs.JobStatusRunning {
 			dur := time.Since(job.StartTime).Round(time.Second)
-			sb.WriteString(fmt.Sprintf("  %v", dur))
+		fmt.Fprintf(&sb, "  %v", dur)
 		}
 		sb.WriteString("\n")
 
@@ -553,7 +553,7 @@ func (t *TUI) updateJobsPanel() {
 				sb.WriteString(renderProgressBar(current, total, desc))
 			} else {
 				idx := int(time.Now().Unix()) % len(indicatorChars)
-				sb.WriteString(fmt.Sprintf("  %s %s", indicatorChars[idx], t.str.ProgressRunning))
+			fmt.Fprintf(&sb, "  %s %s", indicatorChars[idx], t.str.ProgressRunning)
 			}
 		}
 		sb.WriteString("\n")
@@ -1424,17 +1424,18 @@ func (t *TUI) updateInfoPanel() {
 	current := t.app.GetFocus()
 	var content strings.Builder
 
-	if current == t.categoryPane {
+	switch current {
+	case t.categoryPane:
 		content.WriteString(t.str.InfoCatLine1)
 		content.WriteString(t.str.InfoCatLine2)
-	} else if current == t.taskPane {
+	case t.taskPane:
 		if t.currentCategory != "" {
-			content.WriteString(fmt.Sprintf(t.str.FmtInfoTaskLine1, t.currentCategory))
+		fmt.Fprintf(&content, t.str.FmtInfoTaskLine1, t.currentCategory)
 		} else {
 			content.WriteString(t.str.InfoTaskNoCatLine1)
 		}
 		content.WriteString(t.str.InfoGlobalLine)
-	} else {
+	default:
 		content.WriteString(t.str.InfoDefaultLine1)
 		content.WriteString(t.str.InfoDefaultLine2)
 	}

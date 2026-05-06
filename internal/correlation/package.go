@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+const portStatusOpen = "open"
+
 // CategoryFileNames maps category keys to their markdown output filenames.
 var categoryFileNames = map[string]string{
 	"windows":        "windows.md",
@@ -172,7 +174,7 @@ func buildHostEntry(ip string, corr *CorrelationResult) HostEntry {
 
 		var portNums []int
 		for _, p := range corr.HostInfo.Ports {
-			if p.State == "open" {
+		if p.State == portStatusOpen {
 				portNums = append(portNums, p.Number)
 			}
 		}

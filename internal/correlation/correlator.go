@@ -15,6 +15,14 @@ import (
 	"time"
 )
 
+const scanTypeSSLScan = "sslscan"
+
+const (
+	severityHigh   = "high"
+	severityMedium = "medium"
+	subtypeSwitch  = "switch"
+)
+
 // ScanType represents different types of network scans
 type ScanType string
 
@@ -520,7 +528,7 @@ func (c *Correlator) mergePorts(existing []Port, new []Port) []Port {
 			if port.Banner != "" && existingPort.Banner == "" {
 				existingPort.Banner = port.Banner
 			}
-			if port.State == "open" {
+			if port.State == portStatusOpen {
 				existingPort.State = port.State
 			}
 			portMap[key] = existingPort
@@ -577,7 +585,7 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 	criticalCount := 0
 	highCount := 0
 	for _, vuln := range correlation.Vulnerabilities {
-		if vuln.Source == "sslscan" || vuln.Source == "testssl" {
+		if vuln.Source == scanTypeSSLScan || vuln.Source == string(ScanTypeTestSSL) {
 			continue
 		}
 		var pts int
@@ -588,12 +596,12 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 				pts = 150
 			}
 			criticalCount++
-		case "high":
+		case severityHigh:
 			if highCount < 4 {
 				pts = 80
 			}
 			highCount++
-		case "medium":
+		case severityMedium:
 			pts = 40
 		case "low":
 			pts = 15
@@ -619,7 +627,7 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 	// --- SSL/TLS factor (max 200) ---
 	slScore := 0
 	for _, vuln := range correlation.Vulnerabilities {
-		if vuln.Source != "sslscan" && vuln.Source != "testssl" {
+		if vuln.Source != scanTypeSSLScan && vuln.Source != string(ScanTypeTestSSL) {
 			continue
 		}
 		var pts int
@@ -627,9 +635,9 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 		switch sev {
 		case "critical":
 			pts = 100 // SSLv2/SSLv3
-		case "high":
+		case severityHigh:
 			pts = 50 // weak cipher
-		case "medium":
+		case severityMedium:
 			pts = 30 // TLS 1.0/1.1 or cert issue
 		}
 		if pts > 0 {
@@ -675,7 +683,7 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 				Category: "service",
 				Title:    fmt.Sprintf("%s exposed (port %d)", svc.Name, svc.Port),
 				Score:    pts,
-				Severity: "medium",
+				Severity: severityMedium,
 				Source:   "service-scan",
 			})
 		}
@@ -700,7 +708,7 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 	openCount := 0
 	if correlation.HostInfo != nil {
 		for _, port := range correlation.HostInfo.Ports {
-			if port.State == "open" {
+			if port.State == portStatusOpen {
 				openCount++
 			}
 		}
@@ -755,12 +763,12 @@ func (c *Correlator) generateRecommendations(correlation *CorrelationResult) []s
 		sev := strings.ToLower(vuln.Severity)
 		switch sev {
 		case "critical":
-			if vuln.Source == "sslscan" || vuln.Source == "testssl" {
+			if vuln.Source == scanTypeSSLScan || vuln.Source == string(ScanTypeTestSSL) {
 			} else {
 				criticalCount++
 			}
-		case "high":
-			if vuln.Source == "sslscan" || vuln.Source == "testssl" {
+		case severityHigh:
+			if vuln.Source == scanTypeSSLScan || vuln.Source == string(ScanTypeTestSSL) {
 			} else {
 				highCount++
 			}
@@ -865,7 +873,7 @@ func (c *Correlator) inferHostSubtype(correlation *CorrelationResult) {
 		if subtype == "" {
 			hasLDAP := false
 			for _, p := range correlation.HostInfo.Ports {
-				if (p.Number == 389 || p.Number == 636 || p.Number == 3268 || p.Number == 3269) && p.State == "open" {
+				if (p.Number == 389 || p.Number == 636 || p.Number == 3268 || p.Number == 3269) && p.State == portStatusOpen {
 					hasLDAP = true
 					break
 				}
@@ -877,7 +885,7 @@ func (c *Correlator) inferHostSubtype(correlation *CorrelationResult) {
 		// SQL Server: has port 1433
 		if subtype == "" {
 			for _, p := range correlation.HostInfo.Ports {
-				if p.Number == 1433 && p.State == "open" {
+				if p.Number == 1433 && p.State == portStatusOpen {
 					subtype = "sql server"
 					break
 				}
@@ -893,7 +901,7 @@ func (c *Correlator) inferHostSubtype(correlation *CorrelationResult) {
 		// Check sys_description for known device types
 		if subtype == "" {
 			if strings.Contains(sysDesc, "switch") || strings.Contains(sysDesc, "nexus") {
-				subtype = "switch"
+				subtype = subtypeSwitch
 			} else if strings.Contains(sysDesc, "asa") {
 				subtype = "firewall"
 			} else if strings.Contains(sysDesc, "router") {
@@ -902,7 +910,7 @@ func (c *Correlator) inferHostSubtype(correlation *CorrelationResult) {
 				subtype = "storage"
 			} else if strings.Contains(vendor, "ubiquiti") {
 				// Ubiquiti devices with port 80/443 are typically switches/routers
-				subtype = "switch"
+				subtype = subtypeSwitch
 			}
 		}
 		// OS-based inference for network devices
@@ -911,21 +919,21 @@ func (c *Correlator) inferHostSubtype(correlation *CorrelationResult) {
 			if strings.Contains(osLower, "cisco") && (strings.Contains(osLower, "asa") || strings.Contains(osLower, "adaptive")) {
 				subtype = "firewall"
 			} else if strings.Contains(osLower, "cisco") && strings.Contains(osLower, "nexus") {
-				subtype = "switch"
+				subtype = subtypeSwitch
 			} else if strings.Contains(osLower, "cisco") && strings.Contains(osLower, "router") {
 				subtype = "router"
 			} else if strings.Contains(osLower, "netapp") {
 				subtype = "storage"
 			} else if strings.Contains(osLower, "brocade") {
-				subtype = "switch"
+				subtype = subtypeSwitch
 			} else if strings.Contains(osLower, "aruba") {
-				subtype = "switch"
+				subtype = subtypeSwitch
 			}
 		}
 		// Port-based fallback only if nothing else worked
 		if subtype == "" {
 			for _, p := range correlation.HostInfo.Ports {
-				if p.Number == 9100 && p.State == "open" {
+				if p.Number == 9100 && p.State == portStatusOpen {
 					subtype = "printer"
 					break
 				}
@@ -1334,7 +1342,7 @@ func ParseNmapOutput(filePath, scanID string) (*ScanResult, error) {
 				currentHost.Ports = append(currentHost.Ports, port)
 
 				// Add to services
-				if port.State == "open" {
+				if port.State == portStatusOpen {
 					service := Service{
 						Host:     currentHost.IP,
 						Port:     portNum,

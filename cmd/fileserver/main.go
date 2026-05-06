@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"netutil/internal/auth"
@@ -215,15 +214,3 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// cleanPath ensures the path is clean and doesn't escape workspace
-func cleanPath(requestPath string) string {
-	// Clean the path to remove .. and . elements
-	cleaned := filepath.Clean("/" + requestPath)
-
-	// Ensure it starts with /
-	if !strings.HasPrefix(cleaned, "/") {
-		cleaned = "/" + cleaned
-	}
-
-	return cleaned
-}

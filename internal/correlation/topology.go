@@ -12,6 +12,11 @@ import (
 	"time"
 )
 
+const (
+	vlanDefault    = "default"
+	hostTypeRouter = "router"
+)
+
 // TopologyGenerator creates network topology visualizations from correlated data.
 type TopologyGenerator struct {
 	workspaceDir string
@@ -203,7 +208,7 @@ func vlanForHost(corr *CorrelationResult) string {
 	if corr.HostInfo != nil && corr.HostInfo.IP != "" {
 		return subnetFromIP(corr.HostInfo.IP)
 	}
-	return "default"
+	return vlanDefault
 }
 
 func subnetFromIP(ip string) string {
@@ -213,13 +218,13 @@ func subnetFromIP(ip string) string {
 		if len(parts) >= 3 {
 			return parts[0] + ":" + parts[1] + ":" + parts[2] + "::/48"
 		}
-		return "default"
+		return vlanDefault
 	}
 	parts := strings.Split(ip, ".")
 	if len(parts) >= 3 {
 		return parts[0] + "." + parts[1] + "." + parts[2] + ".0/24"
 	}
-	return "default"
+	return vlanDefault
 }
 
 func safeHost(corr *CorrelationResult) string {
@@ -237,7 +242,7 @@ func vlanGroupName(vlan string, hosts []*CorrelationResult) string {
 			}
 		}
 	}
-	if vlan != "default" {
+	if vlan != vlanDefault {
 		return "VLAN " + vlan
 	}
 	return "Default Network"
@@ -336,12 +341,12 @@ func isGateway(corr *CorrelationResult) bool {
 		return false
 	}
 	dt := strings.ToLower(corr.HostInfo.Attributes["device_type"])
-	if dt == "router" || dt == "gateway" || dt == "firewall" || dt == "layer3" || dt == "switch_l3" {
+	if dt == hostTypeRouter || dt == "gateway" || dt == "firewall" || dt == "layer3" || dt == "switch_l3" {
 		return true
 	}
 	// Check capabilities attribute
 	caps := strings.ToLower(corr.HostInfo.Attributes["capabilities"])
-	if strings.Contains(caps, "router") || strings.Contains(caps, "gateway") {
+	if strings.Contains(caps, hostTypeRouter) || strings.Contains(caps, "gateway") {
 		return true
 	}
 	return false

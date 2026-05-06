@@ -203,20 +203,20 @@ func (d *Dashboard) calculateStats(correlations map[string]*correlation.Correlat
 // updateStatsPanel renders the discovery statistics panel.
 func (d *Dashboard) updateStatsPanel(stats DashboardStats) {
 	var content strings.Builder
-	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsHostsDiscovered, stats.TotalHosts))
-	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsWindows, stats.HostsByCategory["windows"]))
-	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsLinux, stats.HostsByCategory["linux"]))
-	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsNetDevices, stats.HostsByCategory["network_device"]))
-	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsUnknown, stats.HostsByCategory["unknown"]))
+	fmt.Fprintf(&content, d.str.FmtDashStatsHostsDiscovered, stats.TotalHosts)
+	fmt.Fprintf(&content, d.str.FmtDashStatsWindows, stats.HostsByCategory[catWindows])
+	fmt.Fprintf(&content, d.str.FmtDashStatsLinux, stats.HostsByCategory[catLinux])
+	fmt.Fprintf(&content, d.str.FmtDashStatsNetDevices, stats.HostsByCategory[catNetworkDevice])
+	fmt.Fprintf(&content, d.str.FmtDashStatsUnknown, stats.HostsByCategory[catUnknown])
 	content.WriteString("\n")
-	content.WriteString(fmt.Sprintf(d.str.FmtDashStatsServices, stats.TotalServices))
+	fmt.Fprintf(&content, d.str.FmtDashStatsServices, stats.TotalServices)
 	content.WriteString("\n")
 	content.WriteString(d.str.DashJobsHeading)
-	content.WriteString(fmt.Sprintf(d.str.FmtDashJobsRunning, stats.RunningJobs, stats.MaxConcurrent))
-	content.WriteString(fmt.Sprintf(d.str.FmtDashJobsCompleted, stats.CompletedJobs))
-	content.WriteString(fmt.Sprintf(d.str.FmtDashJobsFailed, stats.FailedJobs))
+	fmt.Fprintf(&content, d.str.FmtDashJobsRunning, stats.RunningJobs, stats.MaxConcurrent)
+	fmt.Fprintf(&content, d.str.FmtDashJobsCompleted, stats.CompletedJobs)
+	fmt.Fprintf(&content, d.str.FmtDashJobsFailed, stats.FailedJobs)
 	if !stats.LastScanTime.IsZero() {
-		content.WriteString(fmt.Sprintf(d.str.FmtDashLastScan, stats.LastScanTime.Format("15:04")))
+		fmt.Fprintf(&content, d.str.FmtDashLastScan, stats.LastScanTime.Format("15:04"))
 	}
 	d.statsPanel.SetText(content.String())
 }
@@ -225,7 +225,7 @@ func (d *Dashboard) updateStatsPanel(stats DashboardStats) {
 func (d *Dashboard) updateChartsPanel(stats DashboardStats) {
 	var content strings.Builder
 
-	categories := []string{"windows", "linux", "network_device", "unknown"}
+	categories := []string{catWindows, catLinux, catNetworkDevice, catUnknown}
 	maxCount := 0
 	for _, cat := range categories {
 		if n := stats.HostsByCategory[cat]; n > maxCount {
@@ -246,7 +246,7 @@ func (d *Dashboard) updateChartsPanel(stats DashboardStats) {
 			bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
 			color := categoryTviewColor(cat)
 			label := d.str.CategoryDisplayLabel(cat)
-			content.WriteString(fmt.Sprintf(d.str.FmtDashCategoryBar, color, label, color, bar, count))
+			fmt.Fprintf(&content, d.str.FmtDashCategoryBar, color, label, color, bar, count)
 		}
 	}
 
@@ -280,7 +280,7 @@ func (d *Dashboard) updateActivityPanel() {
 		var prefix, color string
 		switch status {
 		case jobs.JobStatusRunning:
-			prefix, color = "●", "green"
+			prefix, color = "●", colorGreen
 		case jobs.JobStatusCompleted:
 			prefix, color = "✓", "blue"
 		case jobs.JobStatusFailed:
@@ -303,8 +303,8 @@ func (d *Dashboard) updateActivityPanel() {
 			name = string([]rune(name)[:21]) + "…"
 		}
 
-		content.WriteString(fmt.Sprintf("[%s]%s %s  %s[::-]\n",
-			color, prefix, name, formatJobDuration(dur)))
+		fmt.Fprintf(&content, "[%s]%s %s  %s[::-]\n",
+			color, prefix, name, formatJobDuration(dur))
 	}
 
 	if len(allJobs) == 0 {
@@ -324,7 +324,7 @@ var riskTiers = []struct {
 	{700, "Critical", "red", tcell.ColorRed},
 	{500, "High", "orange", tcell.ColorOrange},
 	{200, "Medium", "yellow", tcell.ColorYellow},
-	{0, "Low", "green", tcell.ColorGreen},
+	{0, "Low", colorGreen, tcell.ColorGreen},
 }
 
 // updateRiskPanel renders aggregate risk posture across all correlated hosts.
@@ -371,13 +371,13 @@ func (d *Dashboard) updateRiskPanel(correlations map[string]*correlation.Correla
 	content.WriteString(d.str.DashRiskDistHeading)
 	for _, tier := range riskTiers {
 		count := tierCounts[tier.label]
-		content.WriteString(fmt.Sprintf(d.str.FmtDashRiskTierLine, tier.tviewColor, d.str.RiskLabel(tier.label), count))
+		fmt.Fprintf(&content, d.str.FmtDashRiskTierLine, tier.tviewColor, d.str.RiskLabel(tier.label), count)
 	}
 
 	content.WriteString(d.str.DashSevSummaryHeading)
 	for _, sev := range []string{"critical", "high", "medium", "low", "info"} {
 		if count := severityCounts[sev]; count > 0 {
-			content.WriteString(fmt.Sprintf("  [%s]%-10s %d[::-]\n", severityTviewColor(sev), d.str.SeverityLabel(sev)+":", count))
+			fmt.Fprintf(&content, "  [%s]%-10s %d[::-]\n", severityTviewColor(sev), d.str.SeverityLabel(sev)+":", count)
 		}
 	}
 
@@ -385,17 +385,17 @@ func (d *Dashboard) updateRiskPanel(correlations map[string]*correlation.Correla
 	if niktoCount > 0 || sslCount > 0 {
 		content.WriteString(d.str.DashBySourceHeading)
 		if niktoCount > 0 {
-			content.WriteString(fmt.Sprintf(d.str.FmtDashNiktoFindings, niktoCount))
+			fmt.Fprintf(&content, d.str.FmtDashNiktoFindings, niktoCount)
 		}
 		if sslCount > 0 {
-			content.WriteString(fmt.Sprintf(d.str.FmtDashSSLIssues, sslCount))
+			fmt.Fprintf(&content, d.str.FmtDashSSLIssues, sslCount)
 		}
 	}
 
 	avgScore := totalScore / len(correlations)
-	content.WriteString(fmt.Sprintf(d.str.FmtDashAvgScore, avgScore))
+	fmt.Fprintf(&content, d.str.FmtDashAvgScore, avgScore)
 	if highestIP != "" {
-		content.WriteString(fmt.Sprintf(d.str.FmtDashHighestRisk, highestIP, highestScore))
+		fmt.Fprintf(&content, d.str.FmtDashHighestRisk, highestIP, highestScore)
 	}
 
 	d.riskPanel.SetText(content.String())
@@ -556,13 +556,13 @@ func (d *Dashboard) updateServicesPanel(correlations map[string]*correlation.Cor
 	}
 	for i := 0; i < maxShow; i++ {
 		s := svcs[i]
-		content.WriteString(fmt.Sprintf(d.str.FmtDashServiceEntry, s.name, s.count))
+		fmt.Fprintf(&content, d.str.FmtDashServiceEntry, s.name, s.count)
 	}
 
 	content.WriteString(d.str.DashPortsHeading)
-	content.WriteString(fmt.Sprintf(d.str.FmtDashUniqueOpenPorts, len(portSet)))
+	fmt.Fprintf(&content, d.str.FmtDashUniqueOpenPorts, len(portSet))
 	if maxPortHost != "" {
-		content.WriteString(fmt.Sprintf(d.str.FmtDashMostExposedHost, maxPortHost, maxPortCount))
+		fmt.Fprintf(&content, d.str.FmtDashMostExposedHost, maxPortHost, maxPortCount)
 	}
 
 	d.servicesPanel.SetText(content.String())
@@ -630,9 +630,9 @@ func severityTviewColor(severity string) string {
 	case "medium":
 		return "yellow"
 	case "low":
-		return "green"
+		return colorGreen
 	default:
-		return "gray"
+		return colorGray
 	}
 }
 
@@ -651,7 +651,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 
 	// Header with OS context
 	var headerExtra string
-	if cat != "unknown" {
+	if cat != catUnknown {
 		headerExtra = fmt.Sprintf(" — [%s]%s[::-]", categoryTviewColor(cat), cat)
 	}
 	if osLabel != "-" {
@@ -659,9 +659,9 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 	}
 	var details strings.Builder
 	if hostname != "-" {
-		details.WriteString(fmt.Sprintf(d.str.FmtHostRiskDetailWithHost, hostIP, hostname, headerExtra))
+		fmt.Fprintf(&details, d.str.FmtHostRiskDetailWithHost, hostIP, hostname, headerExtra)
 	} else {
-		details.WriteString(fmt.Sprintf(d.str.FmtHostRiskDetail, hostIP, headerExtra))
+		fmt.Fprintf(&details, d.str.FmtHostRiskDetail, hostIP, headerExtra)
 	}
 	details.WriteString("\n\n")
 
@@ -674,14 +674,14 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 			break
 		}
 	}
-	details.WriteString(fmt.Sprintf(d.str.FmtRiskScore, tierColor, corr.RiskScore, tierColor, d.str.RiskLabel(tierLabel)))
+	fmt.Fprintf(&details, d.str.FmtRiskScore, tierColor, corr.RiskScore, tierColor, d.str.RiskLabel(tierLabel))
 
 	// Risk breakdown
 	bd := corr.RiskDetails
-	details.WriteString(fmt.Sprintf(d.str.FmtRiskBreakdownVulns, bd.VulnerabilityScore))
-	details.WriteString(fmt.Sprintf(d.str.FmtRiskBreakdownService, bd.ServiceExposure))
-	details.WriteString(fmt.Sprintf(d.str.FmtRiskBreakdownSSL, bd.SSLIssues))
-	details.WriteString(fmt.Sprintf(d.str.FmtRiskBreakdownPorts, bd.OpenPortScore))
+	fmt.Fprintf(&details, d.str.FmtRiskBreakdownVulns, bd.VulnerabilityScore)
+	fmt.Fprintf(&details, d.str.FmtRiskBreakdownService, bd.ServiceExposure)
+	fmt.Fprintf(&details, d.str.FmtRiskBreakdownSSL, bd.SSLIssues)
+	fmt.Fprintf(&details, d.str.FmtRiskBreakdownPorts, bd.OpenPortScore)
 
 	// Risk factors by category
 	factorCategories := []struct {
@@ -699,7 +699,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 		if len(catFactors) == 0 {
 			continue
 		}
-		details.WriteString(fmt.Sprintf(d.str.FmtRiskFactorCategory, cat.label, len(catFactors)))
+		fmt.Fprintf(&details, d.str.FmtRiskFactorCategory, cat.label, len(catFactors))
 		maxFactors := len(catFactors)
 		if maxFactors > 15 {
 			maxFactors = 15
@@ -710,10 +710,10 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 			if f.Source != "" {
 				source = fmt.Sprintf(" (%s)", f.Source)
 			}
-			details.WriteString(fmt.Sprintf(d.str.FmtRiskFactorLine, f.Title, f.Score, source))
+			fmt.Fprintf(&details, d.str.FmtRiskFactorLine, f.Title, f.Score, source)
 		}
 		if len(catFactors) > maxFactors {
-			details.WriteString(fmt.Sprintf(d.str.FmtAndMore, len(catFactors)-maxFactors))
+			fmt.Fprintf(&details, d.str.FmtAndMore, len(catFactors)-maxFactors)
 		}
 	}
 
@@ -721,7 +721,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 	severities := []struct {
 		sev   string
 		color string
-	}{{"critical", "red"}, {"high", "orange"}, {"medium", "yellow"}, {"low", "green"}, {"info", "gray"}}
+	}{{"critical", "red"}, {"high", "orange"}, {"medium", colorYellow}, {"low", colorGreen}, {"info", colorGray}}
 
 	for _, s := range severities {
 		var sevVulns []correlation.Vulnerability
@@ -733,7 +733,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 		if len(sevVulns) == 0 {
 			continue
 		}
-		details.WriteString(fmt.Sprintf(d.str.FmtSevFindings, s.color, d.str.SeverityLabel(s.sev)))
+		fmt.Fprintf(&details, d.str.FmtSevFindings, s.color, d.str.SeverityLabel(s.sev))
 		maxShow := len(sevVulns)
 		if maxShow > 15 {
 			maxShow = 15
@@ -748,10 +748,10 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 				}
 				line += ")"
 			}
-			details.WriteString(fmt.Sprintf("%s\n", line))
+			fmt.Fprintf(&details, "%s\n", line)
 		}
 		if len(sevVulns) > maxShow {
-			details.WriteString(fmt.Sprintf(d.str.FmtAndMore, len(sevVulns)-maxShow))
+			fmt.Fprintf(&details, d.str.FmtAndMore, len(sevVulns)-maxShow)
 		}
 		details.WriteString("\n")
 	}
@@ -766,7 +766,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 		}
 	}
 	if len(openPorts) > 0 {
-		details.WriteString(fmt.Sprintf(d.str.FmtHostOpenPorts, strings.Join(openPorts, ", ")))
+		fmt.Fprintf(&details, d.str.FmtHostOpenPorts, strings.Join(openPorts, ", "))
 	}
 
 	// Build scrollable view

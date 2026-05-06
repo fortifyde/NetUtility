@@ -214,7 +214,7 @@ func (jm *JobManager) monitorJob(job *Job) {
 		job.Duration = job.EndTime.Sub(job.StartTime)
 
 		if job.Result != nil {
-			success, _, jobErr, _, _ := job.Result.GetFinal()
+			success, _, _, _, jobErr := job.Result.GetFinal()
 			if success {
 				job.Status = JobStatusCompleted
 			} else {

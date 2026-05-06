@@ -384,14 +384,14 @@ func (rp *ResultParser) parseVulnerabilityScan(result *ScanResult, content strin
 			if strings.Contains(lineLower, "not vulnerable") || strings.Contains(lineLower, "no vulnerable") {
 				continue
 			}
-			severity := "medium" // Default severity
+			severity := severityMedium // Default severity
 			title := line
 
 			// Determine severity from keywords
 			if strings.Contains(lineLower, "critical") {
 				severity = "critical"
 			} else if strings.Contains(lineLower, "high") {
-				severity = "high"
+			severity = severityHigh
 			} else if strings.Contains(lineLower, "low") {
 				severity = "low"
 			}
@@ -913,9 +913,9 @@ func (rp *ResultParser) addVulnFromTable(result *ScanResult, hostIP string, port
 		title = scriptID
 	}
 
-	severity := "medium"
+	severity := severityMedium
 	if state == "VULNERABLE" {
-		severity = "high"
+		severity = severityHigh
 	}
 
 	// Extract CVE from IDs table.
@@ -1135,7 +1135,7 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 			}
 
 			// Build consolidated title.
-			consolidated := prefix
+			var consolidated string
 			if len(suffixes) > 0 {
 				consolidated = fmt.Sprintf("%s (%d): %s", prefix, len(items), strings.Join(suffixes, ", "))
 			} else {
@@ -1177,7 +1177,7 @@ func niktoSeverity(item niktoItem) string {
 		"remote code", "rce", "injection"}
 	for _, kw := range highKW {
 		if strings.Contains(text, kw) {
-			return "high"
+			return severityHigh
 		}
 	}
 
@@ -1185,7 +1185,7 @@ func niktoSeverity(item niktoItem) string {
 		"disabled", "enabled", "x-powered", "server:", "cookie"}
 	for _, kw := range mediumKW {
 		if strings.Contains(text, kw) {
-			return "medium"
+			return severityMedium
 		}
 	}
 
@@ -1210,9 +1210,9 @@ func severityRank(sev string) int {
 	switch strings.ToLower(sev) {
 	case "critical":
 		return 4
-	case "high":
+	case severityHigh:
 		return 3
-	case "medium":
+	case severityMedium:
 		return 2
 	case "low":
 		return 1
@@ -1287,7 +1287,7 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 				Port:        currentPort,
 				Title:       "Deprecated TLS version enabled",
 				Description: line,
-				Severity:    "medium",
+				Severity:    severityMedium,
 				Source:      "sslscan",
 				Discovery:   result.Timestamp,
 			})
@@ -1302,7 +1302,7 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 					Port:        currentPort,
 					Title:       fmt.Sprintf("Weak cipher: %s", strings.ToUpper(weak)),
 					Description: line,
-					Severity:    "high",
+				Severity:    severityHigh,
 					Source:      "sslscan",
 					Discovery:   result.Timestamp,
 				})
@@ -1324,7 +1324,7 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 							Port:        currentPort,
 							Title:       fmt.Sprintf("Weak DH key exchange group (%d bits)", bits),
 							Description: line,
-							Severity:    "medium",
+							Severity:    severityMedium,
 							Source:      "sslscan",
 							Discovery:   result.Timestamp,
 						})
@@ -1342,7 +1342,7 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 					Port:        currentPort,
 					Title:       fmt.Sprintf("Certificate issue: %s", issue),
 					Description: line,
-					Severity:    "medium",
+				Severity:    severityMedium,
 					Source:      "sslscan",
 					Discovery:   result.Timestamp,
 				})
@@ -1358,7 +1358,7 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 				Port:        currentPort,
 				Title:       "Self-signed SSL certificate",
 				Description: line,
-				Severity:    "medium",
+				Severity:    severityMedium,
 				Source:      "sslscan",
 				Discovery:   result.Timestamp,
 			})
@@ -1489,7 +1489,7 @@ func (rp *ResultParser) parseSSLScanXML(result *ScanResult, content string) (*Sc
 					Port:        port,
 					Title:       "Deprecated TLS version enabled",
 					Description: fmt.Sprintf("TLS %s is enabled", proto.Version),
-					Severity:    "medium",
+					Severity:    severityMedium,
 					Source:      "sslscan",
 					Discovery:   result.Timestamp,
 				})
@@ -1503,7 +1503,7 @@ func (rp *ResultParser) parseSSLScanXML(result *ScanResult, content string) (*Sc
 					Host:        ip,
 					Port:        port,
 					Title:       "OpenSSL Heartbleed",
-					Severity:    "high",
+					Severity:    severityHigh,
 					Source:      "sslscan",
 					Discovery:   result.Timestamp,
 				})
@@ -1520,7 +1520,7 @@ func (rp *ResultParser) parseSSLScanXML(result *ScanResult, content string) (*Sc
 					Host:        ip,
 					Port:        port,
 					Title:       fmt.Sprintf("Weak DH key exchange group (%d bits)", cipher.DHEBits),
-					Severity:    "medium",
+					Severity:    severityMedium,
 					Source:      "sslscan",
 					Discovery:   result.Timestamp,
 				})
@@ -1535,7 +1535,7 @@ func (rp *ResultParser) parseSSLScanXML(result *ScanResult, content string) (*Sc
 					Host:        ip,
 					Port:        port,
 					Title:       "Self-signed SSL certificate",
-					Severity:    "medium",
+					Severity:    severityMedium,
 					Source:      "sslscan",
 					Discovery:   result.Timestamp,
 				})
@@ -1545,7 +1545,7 @@ func (rp *ResultParser) parseSSLScanXML(result *ScanResult, content string) (*Sc
 					Host:        ip,
 					Port:        port,
 					Title:       "Expired SSL certificate",
-					Severity:    "high",
+					Severity:    severityHigh,
 					Source:      "sslscan",
 					Discovery:   result.Timestamp,
 				})
@@ -1826,10 +1826,10 @@ func (rp *ResultParser) parseExploitSearchResult(result *ScanResult, content str
 
 		for _, svc := range h.Services {
 			for _, expl := range svc.Exploits {
-				exploitSeverity := "high"
+			exploitSeverity := severityHigh
 				switch strings.ToLower(expl.Type) {
 				case "dos", "local":
-					exploitSeverity = "medium"
+				exploitSeverity = severityMedium
 				}
 				vuln := Vulnerability{
 					Host:        h.IP,
