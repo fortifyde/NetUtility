@@ -228,7 +228,7 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 
 	// Close stdin
 	if e.stdin != nil {
-		e.stdin.Close()
+		_ = e.stdin.Close()
 		e.stdin = nil
 	}
 }

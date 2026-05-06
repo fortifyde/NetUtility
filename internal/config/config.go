@@ -572,7 +572,7 @@ func (c *Config) EnsureWorkspaceWritable() error {
 	}
 
 	// Clean up test file
-	os.Remove(testFile)
+	_ = os.Remove(testFile)
 
 	return nil
 }
@@ -600,7 +600,7 @@ func FixWorkspaceOwnershipForPath(dir string) {
 		return
 	}
 
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -608,5 +608,7 @@ func FixWorkspaceOwnershipForPath(dir string) {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to change ownership of %s: %v\n", path, chownErr)
 		}
 		return nil
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: error walking %s for chown: %v\n", dir, err)
+	}
 }

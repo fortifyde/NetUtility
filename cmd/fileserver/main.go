@@ -158,7 +158,7 @@ func basicAuthMiddleware(creds *auth.Credentials, next http.Handler) http.Handle
 func sendAuthRequired(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", `Basic realm="NetUtil File Server"`)
 	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte("401 Unauthorized\n"))
+	_, _ = w.Write([]byte("401 Unauthorized\n"))
 }
 
 // loggingMiddleware logs all requests

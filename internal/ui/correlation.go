@@ -1070,7 +1070,7 @@ func (cv *CorrelationViewer) loadScreenshot(path string) (image.Image, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open screenshot: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	img, _, err := image.Decode(file)
 	if err != nil {

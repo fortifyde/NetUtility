@@ -1075,7 +1075,9 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 	job := t.jobManager.CreateJob(jobID, taskName, absPath)
 	if err := t.jobManager.StartJob(job.ID); err != nil {
 		// Unexpected failure — clean up the orphan and show options
-		t.jobManager.RemoveJob(job.ID)
+		if err := t.jobManager.RemoveJob(job.ID); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove failed job %s: %v\n", job.ID, err)
+		}
 		t.showExecutionOptions(absPath, taskName)
 		return
 	}

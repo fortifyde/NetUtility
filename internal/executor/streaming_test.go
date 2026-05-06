@@ -93,7 +93,7 @@ func TestExecuteScriptStreaming_Cancellation(t *testing.T) {
 			t.Fatal("timed out waiting for output")
 		}
 	}
-	e.Stop()
+	_ = e.Stop()
 	e.Wait()
 	if e.IsRunning() {
 		t.Error("executor should not be running after Stop()")
@@ -108,7 +108,7 @@ func TestExecuteScriptStreaming_AlreadyRunning(t *testing.T) {
 	e := NewStreamingExecutor()
 	_, outCh, _ := e.ExecuteScriptStreaming(script)
 	defer func() {
-		e.Stop()
+		_ = e.Stop()
 		e.Wait()
 		for range outCh {
 		}
@@ -155,7 +155,7 @@ func TestSetFinalGetFinal_Concurrent(t *testing.T) {
 		case <-deadline:
 			t.Fatal("timed out waiting for SetFinal")
 		default:
-			result.GetFinal()
+		_, _, _, _, _ = result.GetFinal()
 		}
 	}
 }

@@ -144,7 +144,9 @@ func run() int {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to ensure workspace is writable: %v\n", err)
 		} else {
 			// Set NETUTIL_WORKDIR environment variable
-			os.Setenv("NETUTIL_WORKDIR", cfg.WorkspaceDir)
+			if err := os.Setenv("NETUTIL_WORKDIR", cfg.WorkspaceDir); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to set NETUTIL_WORKDIR: %v\n", err)
+			}
 		}
 	}
 
@@ -501,7 +503,7 @@ func runScriptDirect(scriptPath string, scriptName string) bool {
 
 	// Ask user to press enter to continue (TUI mode)
 	fmt.Printf("\nPress Enter to return to menu...")
-	fmt.Scanln()
+	_, _ = fmt.Scanln()
 
 	// Clear screen again
 	fmt.Print("\033[2J\033[H")

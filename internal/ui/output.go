@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -645,7 +646,9 @@ func (ov *OutputViewer) cancelJob() {
 	ov.mu.RUnlock()
 
 	if jobID != "" && ov.jobManager != nil {
-		ov.jobManager.CancelJob(jobID)
+		if err := ov.jobManager.CancelJob(jobID); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to cancel job %s: %v\n", jobID, err)
+		}
 	}
 }
 

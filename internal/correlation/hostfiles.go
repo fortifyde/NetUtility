@@ -107,7 +107,7 @@ func moveHostInSession(hostfilesDir, ip, targetPlainFile, category string) error
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", target, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	if _, err := fmt.Fprintln(f, ip); err != nil {
 		return err
 	}
@@ -123,7 +123,7 @@ func moveHostInSession(hostfilesDir, ip, targetPlainFile, category string) error
 		if err != nil {
 			return fmt.Errorf("opening %s: %w", targetEnriched, err)
 		}
-		defer f2.Close()
+		defer func() { _ = f2.Close() }()
 
 		// Update the category field in the enriched data
 		// Format: "IP HOSTNAME CATEGORY [tags]"
@@ -168,7 +168,7 @@ func removeIPFromFile(path, ip string) (bool, error) {
 		}
 		keep = append(keep, line)
 	}
-	f.Close()
+	_ = f.Close()
 
 	if err := scanner.Err(); err != nil {
 		return false, fmt.Errorf("scanning %s: %w", path, err)
@@ -192,7 +192,7 @@ func extractEnrichedDataForIP(filepath, ip string) string {
 	if err != nil {
 		return ""
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {

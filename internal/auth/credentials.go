@@ -22,7 +22,7 @@ func LoadCredentials(path string) (*Credentials, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open credentials file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	creds := &Credentials{
 		users: make(map[string]string),
