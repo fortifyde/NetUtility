@@ -297,42 +297,7 @@ func (rp *ResultParser) parsePortScan(result *ScanResult, content string) (*Scan
 
 		// Port detection
 		if currentHost != nil && (strings.Contains(line, "/tcp") || strings.Contains(line, "/udp")) {
-			portRegex := regexp.MustCompile(`(\d+)/(tcp|udp)\s+(\w+)\s+(.*)`)
-			if matches := portRegex.FindStringSubmatch(line); len(matches) > 4 {
-				portNum, _ := strconv.Atoi(matches[1])
-				protocol := matches[2]
-				state := matches[3]
-				serviceInfo := strings.TrimSpace(matches[4])
-
-				port := Port{
-					Number:   portNum,
-					Protocol: protocol,
-					State:    state,
-				}
-
-				// Parse service information
-				serviceParts := strings.Fields(serviceInfo)
-				if len(serviceParts) > 0 {
-					port.Service = serviceParts[0]
-					if len(serviceParts) > 1 {
-						port.Version = strings.Join(serviceParts[1:], " ")
-					}
-				}
-
-				currentHost.Ports = append(currentHost.Ports, port)
-
-				// Add to services if open
-				if state == "open" {
-					service := Service{
-						Host:     currentHost.IP,
-						Port:     portNum,
-						Protocol: protocol,
-						Name:     port.Service,
-						Version:  port.Version,
-					}
-					result.Services = append(result.Services, service)
-				}
-			}
+			rp.parsePortLine(result, currentHost, line)
 		}
 
 		// OS detection
@@ -358,6 +323,49 @@ func (rp *ResultParser) parsePortScan(result *ScanResult, content string) (*Scan
 	}
 
 	return result, nil
+}
+
+// parsePortLine parses a single port line from nmap output and updates the host and result.
+func (rp *ResultParser) parsePortLine(result *ScanResult, host *Host, line string) {
+	portRegex := regexp.MustCompile(`(\d+)/(tcp|udp)\s+(\w+)\s+(.*)`)
+	matches := portRegex.FindStringSubmatch(line)
+	if len(matches) <= 4 {
+		return
+	}
+
+	portNum, _ := strconv.Atoi(matches[1])
+	protocol := matches[2]
+	state := matches[3]
+	serviceInfo := strings.TrimSpace(matches[4])
+
+	port := Port{
+		Number:   portNum,
+		Protocol: protocol,
+		State:    state,
+	}
+
+	// Parse service information
+	serviceParts := strings.Fields(serviceInfo)
+	if len(serviceParts) > 0 {
+		port.Service = serviceParts[0]
+		if len(serviceParts) > 1 {
+			port.Version = strings.Join(serviceParts[1:], " ")
+		}
+	}
+
+	host.Ports = append(host.Ports, port)
+
+	// Add to services if open
+	if state == "open" {
+		service := Service{
+			Host:     host.IP,
+			Port:     portNum,
+			Protocol: protocol,
+			Name:     port.Service,
+			Version:  port.Version,
+		}
+		result.Services = append(result.Services, service)
+	}
 }
 
 // parseVulnerabilityScan parses vulnerability scan output
@@ -654,6 +662,19 @@ type niktoItem struct {
 	Description     string `xml:"description"`       // CDATA element content (real nikto output)
 	ID              string `xml:"id,attr"`
 	Text            string `xml:",chardata"`
+}
+
+// niktoGroupKey uniquely identifies a group of related nikto findings.
+type niktoGroupKey struct {
+	host string
+	port int
+	id   string
+}
+
+// niktoItemGroup holds a single item within a nikto finding group.
+type niktoItemGroup struct {
+	title    string
+	severity string
 }
 
 // --- Nmap XML types for parsing ---
@@ -1003,24 +1024,7 @@ func splitXMLDocuments(content string) []string {
 // Nikto appends per-host XML to the same file, producing concatenated XML
 // documents. We split on <?xml boundaries and parse each document separately.
 func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) (*ScanResult, error) {
-	var allDetails []niktoScanDetails
-
-	for _, doc := range splitXMLDocuments(content) {
-		// Try plural wrapper first (<niktoscans><niktoscan>...).
-		var scans niktoScans
-		if err := xml.Unmarshal([]byte(doc), &scans); err == nil && len(scans.Scans) > 0 {
-			for _, s := range scans.Scans {
-				allDetails = append(allDetails, s.ScanDetails...)
-			}
-			continue
-		}
-		// Try singular root (<niktoscan>...).
-		var single niktoScan
-		if err := xml.Unmarshal([]byte(doc), &single); err != nil {
-			continue
-		}
-		allDetails = append(allDetails, single.ScanDetails...)
-	}
+	allDetails := rp.parseNiktoScanDetails(content)
 
 	if len(allDetails) == 0 {
 		return rp.parseGenericOutput(result, content)
@@ -1045,120 +1049,136 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 			result.Targets = append(result.Targets, ip)
 		}
 
-		// Parse port if available
 		port := 0
 		if details.TargetPort != "" {
 			port, _ = strconv.Atoi(details.TargetPort)
 		}
 
-		// First pass: collect items grouped by (host, port, itemID).
-		// Items with the same nikto ID (e.g., "013587" for missing security
-		// headers) represent the same class of finding and should be
-		// consolidated into one scored entry.
-		type itemGroup struct {
-			title    string
-			severity string
-		}
-		type groupKey struct {
-			host string
-			port int
-			id   string
-		}
-		groups := make(map[groupKey][]itemGroup)
-
-		for _, item := range details.Items {
-			severity := niktoSeverity(item)
-
-			title := item.Description
-			if title == "" {
-				title = item.DescAttr
-			}
-			if title == "" {
-				title = item.Text
-			}
-			if title == "" && item.URL != "" {
-				title = fmt.Sprintf("%s %s", item.Method, item.URL)
-			}
-			if title == "" {
-				title = "Nikto finding"
-			}
-
-			// Use a unique key for items without a nikto ID so they aren't
-			// incorrectly grouped with other items that also lack an ID.
-			itemID := item.ID
-			if itemID == "" {
-				itemID = "_" + strconv.Itoa(len(groups))
-			}
-			key := groupKey{host: ip, port: port, id: itemID}
-			groups[key] = append(groups[key], itemGroup{
-				title:    strings.TrimSpace(title),
-				severity: severity,
-			})
-		}
-
-		// Second pass: emit one vulnerability per group.
-		// For multi-item groups, consolidate into a single entry with count.
-		for key, items := range groups {
-			if len(items) == 1 {
-				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-					Host:        key.host,
-					Port:        key.port,
-					Title:       items[0].title,
-					Severity:    items[0].severity,
-					Source:      "nikto",
-					Discovery:   result.Timestamp,
-				})
-				continue
-			}
-
-			// Extract the common prefix from titles for the group title.
-			// e.g., "Suggested security header missing: referrer-policy"
-			//   → prefix = "Suggested security header missing"
-			//   → suffixes = ["referrer-policy", "x-content-type-options", ...]
-			prefix := commonPrefix(items[0].title, items[1].title)
-			for _, it := range items[2:] {
-				prefix = commonPrefix(prefix, it.title)
-			}
-			prefix = strings.TrimRight(prefix, ": ")
-
-			// Collect the variable suffixes after the common prefix.
-			var suffixes []string
-			for _, it := range items {
-				suffix := strings.TrimPrefix(it.title, prefix)
-				suffix = strings.TrimLeft(suffix, ": ")
-				if suffix != "" {
-					suffixes = append(suffixes, suffix)
-				}
-			}
-
-			// Build consolidated title.
-			var consolidated string
-			if len(suffixes) > 0 {
-				consolidated = fmt.Sprintf("%s (%d): %s", prefix, len(items), strings.Join(suffixes, ", "))
-			} else {
-				consolidated = fmt.Sprintf("%s (%d instances)", prefix, len(items))
-			}
-
-			// Use the highest severity from the group.
-			sev := items[0].severity
-			for _, it := range items[1:] {
-				if severityRank(it.severity) > severityRank(sev) {
-					sev = it.severity
-				}
-			}
-
-			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-				Host:        key.host,
-				Port:        key.port,
-				Title:       consolidated,
-				Severity:    sev,
-				Source:      "nikto",
-				Discovery:   result.Timestamp,
-			})
-		}
+		groups := groupNiktoItems(details.Items, ip, port)
+		emitNiktoVulnerabilities(result, groups, result.Timestamp)
 	}
 
 	return result, nil
+}
+
+// parseNiktoScanDetails splits concatenated XML documents and unmarshals nikto scans.
+func (rp *ResultParser) parseNiktoScanDetails(content string) []niktoScanDetails {
+	var allDetails []niktoScanDetails
+	for _, doc := range splitXMLDocuments(content) {
+		// Try plural wrapper first (<niktoscans><niktoscan>...).
+		var scans niktoScans
+		if err := xml.Unmarshal([]byte(doc), &scans); err == nil && len(scans.Scans) > 0 {
+			for _, s := range scans.Scans {
+				allDetails = append(allDetails, s.ScanDetails...)
+			}
+			continue
+		}
+		// Try singular root (<niktoscan>...).
+		var single niktoScan
+		if err := xml.Unmarshal([]byte(doc), &single); err != nil {
+			continue
+		}
+		allDetails = append(allDetails, single.ScanDetails...)
+	}
+	return allDetails
+}
+
+// groupNiktoItems collects items grouped by (host, port, itemID).
+// Items with the same nikto ID represent the same class of finding and are
+// consolidated into one scored entry.
+func groupNiktoItems(items []niktoItem, ip string, port int) map[niktoGroupKey][]niktoItemGroup {
+	groups := make(map[niktoGroupKey][]niktoItemGroup)
+	for _, item := range items {
+		severity := niktoSeverity(item)
+
+		title := item.Description
+		if title == "" {
+			title = item.DescAttr
+		}
+		if title == "" {
+			title = item.Text
+		}
+		if title == "" && item.URL != "" {
+			title = fmt.Sprintf("%s %s", item.Method, item.URL)
+		}
+		if title == "" {
+			title = "Nikto finding"
+		}
+
+		// Use a unique key for items without a nikto ID so they aren't
+		// incorrectly grouped with other items that also lack an ID.
+		itemID := item.ID
+		if itemID == "" {
+			itemID = "_" + strconv.Itoa(len(groups))
+		}
+		key := niktoGroupKey{host: ip, port: port, id: itemID}
+		groups[key] = append(groups[key], niktoItemGroup{
+			title:    strings.TrimSpace(title),
+			severity: severity,
+		})
+	}
+	return groups
+}
+
+// emitNiktoVulnerabilities consolidates grouped items into vulnerability entries.
+// For multi-item groups, it produces a single entry with count and suffixes.
+func emitNiktoVulnerabilities(result *ScanResult, groups map[niktoGroupKey][]niktoItemGroup, timestamp time.Time) {
+	for key, items := range groups {
+		if len(items) == 1 {
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:      key.host,
+				Port:      key.port,
+				Title:     items[0].title,
+				Severity:  items[0].severity,
+				Source:    "nikto",
+				Discovery: timestamp,
+			})
+			continue
+		}
+
+		consolidated := consolidateNiktoGroup(items)
+
+		// Use the highest severity from the group.
+		sev := items[0].severity
+		for _, it := range items[1:] {
+			if severityRank(it.severity) > severityRank(sev) {
+				sev = it.severity
+			}
+		}
+
+		result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+			Host:      key.host,
+			Port:      key.port,
+			Title:     consolidated,
+			Severity:  sev,
+			Source:    "nikto",
+			Discovery: timestamp,
+		})
+	}
+}
+
+// consolidateNiktoGroup builds a consolidated title from a group of related items.
+// It extracts the common prefix and lists variable suffixes.
+func consolidateNiktoGroup(items []niktoItemGroup) string {
+	prefix := commonPrefix(items[0].title, items[1].title)
+	for _, it := range items[2:] {
+		prefix = commonPrefix(prefix, it.title)
+	}
+	prefix = strings.TrimRight(prefix, ": ")
+
+	var suffixes []string
+	for _, it := range items {
+		suffix := strings.TrimPrefix(it.title, prefix)
+		suffix = strings.TrimLeft(suffix, ": ")
+		if suffix != "" {
+			suffixes = append(suffixes, suffix)
+		}
+	}
+
+	if len(suffixes) > 0 {
+		return fmt.Sprintf("%s (%d): %s", prefix, len(items), strings.Join(suffixes, ", "))
+	}
+	return fmt.Sprintf("%s (%d instances)", prefix, len(items))
 }
 
 // niktoSeverity assigns a heuristic severity to a nikto finding based on the
@@ -1460,97 +1480,111 @@ func (rp *ResultParser) parseSSLScanXML(result *ScanResult, content string) (*Sc
 
 		port := test.Port
 
-		// SSLv2/SSLv3 — critical
-		for _, proto := range test.Protocols {
-			if proto.Enabled != "1" {
-				continue
-			}
-			if proto.Type == "ssl" && (proto.Version == "2" || proto.Version == "3") {
-				name := "SSLv3"
-				if proto.Version == "2" {
-					name = "SSLv2"
-				}
-				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-					Host:        ip,
-					Port:        port,
-					Title:       fmt.Sprintf("%s enabled", name),
-					Severity:    "critical",
-					Source:      "sslscan",
-					Discovery:   result.Timestamp,
-				})
-			}
-			// TLS 1.0/1.1 — medium
-			if proto.Type == "tls" && (proto.Version == "1.0" || proto.Version == "1.1") {
-				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-					Host:        ip,
-					Port:        port,
-					Title:       "Deprecated TLS version enabled",
-					Description: fmt.Sprintf("TLS %s is enabled", proto.Version),
-					Severity:    severityMedium,
-					Source:      "sslscan",
-					Discovery:   result.Timestamp,
-				})
-			}
-		}
+		// Protocol-based vulnerabilities (SSLv2/v3, deprecated TLS)
+		rp.detectSSLProtocolVulns(result, ip, port, test.Protocols)
 
-		// Heartbleed
-		for _, hb := range test.Heartbleed {
-			if hb.Vulnerable == "1" {
-				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-					Host:        ip,
-					Port:        port,
-					Title:       "OpenSSL Heartbleed",
-					Severity:    severityHigh,
-					Source:      "sslscan",
-					Discovery:   result.Timestamp,
-				})
-				break // only report once per host
-			}
-		}
-
-		// Weak DH groups (deduplicate by bit size)
-		seenDHE := make(map[int]bool)
-		for _, cipher := range test.Ciphers {
-			if cipher.DHEBits > 0 && cipher.DHEBits <= 1024 && !seenDHE[cipher.DHEBits] {
-				seenDHE[cipher.DHEBits] = true
-				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-					Host:        ip,
-					Port:        port,
-					Title:       fmt.Sprintf("Weak DH key exchange group (%d bits)", cipher.DHEBits),
-					Severity:    severityMedium,
-					Source:      "sslscan",
-					Discovery:   result.Timestamp,
-				})
-			}
-		}
+		// Heartbleed + weak DH group detection
+		rp.detectSSLCipherVulns(result, ip, port, test.Heartbleed, test.Ciphers)
 
 		// Certificate issues
-		if test.Certs != nil {
-			cert := test.Certs.Certificate
-			if cert.SelfSigned == "true" {
-				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-					Host:        ip,
-					Port:        port,
-					Title:       "Self-signed SSL certificate",
-					Severity:    severityMedium,
-					Source:      "sslscan",
-					Discovery:   result.Timestamp,
-				})
-			}
-			if cert.Expired == "true" {
-				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-					Host:        ip,
-					Port:        port,
-					Title:       "Expired SSL certificate",
-					Severity:    severityHigh,
-					Source:      "sslscan",
-					Discovery:   result.Timestamp,
-				})
-			}
-		}
+		rp.detectSSLCertVulns(result, ip, port, test.Certs)
 	}
 
 	return result, nil
+}
+
+// detectSSLProtocolVulns reports vulnerabilities for enabled SSLv2/v3 and deprecated TLS versions.
+func (rp *ResultParser) detectSSLProtocolVulns(result *ScanResult, ip string, port int, protocols []sslscanProtocol) {
+	for _, proto := range protocols {
+		if proto.Enabled != "1" {
+			continue
+		}
+		if proto.Type == "ssl" && (proto.Version == "2" || proto.Version == "3") {
+			name := "SSLv3"
+			if proto.Version == "2" {
+				name = "SSLv2"
+			}
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:        ip,
+				Port:        port,
+				Title:       fmt.Sprintf("%s enabled", name),
+				Severity:    "critical",
+				Source:      "sslscan",
+				Discovery:   result.Timestamp,
+			})
+		}
+		if proto.Type == "tls" && (proto.Version == "1.0" || proto.Version == "1.1") {
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:        ip,
+				Port:        port,
+				Title:       "Deprecated TLS version enabled",
+				Description: fmt.Sprintf("TLS %s is enabled", proto.Version),
+				Severity:    severityMedium,
+				Source:      "sslscan",
+				Discovery:   result.Timestamp,
+			})
+		}
+	}
+}
+
+// detectSSLCipherVulns reports Heartbleed and weak DH key-exchange vulnerabilities.
+func (rp *ResultParser) detectSSLCipherVulns(result *ScanResult, ip string, port int, heartbleeds []sslscanHeartbleed, ciphers []sslscanCipher) {
+	for _, hb := range heartbleeds {
+		if hb.Vulnerable == "1" {
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:        ip,
+				Port:        port,
+				Title:       "OpenSSL Heartbleed",
+				Severity:    severityHigh,
+				Source:      "sslscan",
+				Discovery:   result.Timestamp,
+			})
+			break
+		}
+	}
+
+	seenDHE := make(map[int]bool)
+	for _, cipher := range ciphers {
+		if cipher.DHEBits > 0 && cipher.DHEBits <= 1024 && !seenDHE[cipher.DHEBits] {
+			seenDHE[cipher.DHEBits] = true
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:        ip,
+				Port:        port,
+				Title:       fmt.Sprintf("Weak DH key exchange group (%d bits)", cipher.DHEBits),
+				Severity:    severityMedium,
+				Source:      "sslscan",
+				Discovery:   result.Timestamp,
+			})
+		}
+	}
+}
+
+// detectSSLCertVulns reports self-signed and expired certificate vulnerabilities.
+func (rp *ResultParser) detectSSLCertVulns(result *ScanResult, ip string, port int, certs *sslscanCerts) {
+	if certs == nil {
+		return
+	}
+	cert := certs.Certificate
+	if cert.SelfSigned == "true" {
+		result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+			Host:        ip,
+			Port:        port,
+			Title:       "Self-signed SSL certificate",
+			Severity:    severityMedium,
+			Source:      "sslscan",
+			Discovery:   result.Timestamp,
+		})
+	}
+	if cert.Expired == "true" {
+		result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+			Host:        ip,
+			Port:        port,
+			Title:       "Expired SSL certificate",
+			Severity:    severityHigh,
+			Source:      "sslscan",
+			Discovery:   result.Timestamp,
+		})
+	}
 }
 
 // --- LLDP/CDP XML types ---

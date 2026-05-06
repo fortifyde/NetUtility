@@ -313,67 +313,88 @@ func mergeCaptureAnalysisTasks(categories []Category, str *Strings) []Category {
 		if cat.Name != str.CatNetworkDiscovery {
 			continue
 		}
-		var vlanTask, macTask, captureTask Task
-		firstIdx := -1
-		for ti, task := range cat.Tasks {
-			switch task.CanonicalName {
-			case "Extract VLANs":
-				vlanTask = task
-				if firstIdx == -1 {
-					firstIdx = ti
-				}
-			case "MAC Address Analysis":
-				macTask = task
-				if firstIdx == -1 {
-					firstIdx = ti
-				}
-			case "Packet Capture Analysis":
-				captureTask = task
-				if firstIdx == -1 {
-					firstIdx = ti
-				}
-			}
-		}
-		if firstIdx == -1 || vlanTask.CanonicalName == "" || macTask.CanonicalName == "" || captureTask.CanonicalName == "" {
-			continue
-		}
-		newTasks := make([]Task, 0, len(cat.Tasks)-2)
-		for _, t := range cat.Tasks {
-			if t.CanonicalName != "Extract VLANs" && t.CanonicalName != "MAC Address Analysis" && t.CanonicalName != "Packet Capture Analysis" {
-				newTasks = append(newTasks, t)
-			}
-		}
-		composite := Task{
-			Name:          str.TaskNetworkCaptureAnalysis,
-			CanonicalName: "Network Capture Analysis",
-			Description:   str.TaskNetworkCaptureAnalysisDesc,
-			SubTasks: []Task{
-				{Name: str.TaskExtractVLANIDs, CanonicalName: "Extract VLANs", Description: vlanTask.Description, Script: vlanTask.Script},
-				{Name: macTask.Name, CanonicalName: "MAC Address Analysis", Description: macTask.Description, Script: macTask.Script},
-				{Name: captureTask.Name, CanonicalName: "Packet Capture Analysis", Description: captureTask.Description, Script: captureTask.Script},
-			},
-		}
-		// Insert composite immediately after "Network Capture" if present, otherwise at firstIdx
-		insertIdx := -1
-		for ti, t := range newTasks {
-			if t.CanonicalName == "Network Capture" {
-				insertIdx = ti + 1
-				break
-			}
-		}
-		if insertIdx == -1 {
-			insertIdx = firstIdx
-			if insertIdx > len(newTasks) {
-				insertIdx = len(newTasks)
-			}
-		}
-		newTasks = append(newTasks[:insertIdx:insertIdx], append([]Task{composite}, newTasks[insertIdx:]...)...)
-		if ci < len(categories) {
+		if newTasks := buildMergedCaptureTasks(cat.Tasks, str); newTasks != nil {
 			categories[ci].Tasks = newTasks
 		}
 		break
 	}
 	return categories
+}
+
+// mergeCaptureNames lists the canonical task names that get merged into the composite.
+var mergeCaptureNames = []string{"Extract VLANs", "MAC Address Analysis", "Packet Capture Analysis"}
+
+// buildMergedCaptureTasks merges the VLAN/MAC/PacketCapture tasks into a single
+// composite "Network Capture Analysis" task. Returns nil if the required tasks
+// are not all present.
+func buildMergedCaptureTasks(tasks []Task, str *Strings) []Task {
+	var vlanTask, macTask, captureTask Task
+	firstIdx := -1
+	for ti, task := range tasks {
+		switch task.CanonicalName {
+		case "Extract VLANs":
+			vlanTask = task
+			if firstIdx == -1 {
+				firstIdx = ti
+			}
+		case "MAC Address Analysis":
+			macTask = task
+			if firstIdx == -1 {
+				firstIdx = ti
+			}
+		case "Packet Capture Analysis":
+			captureTask = task
+			if firstIdx == -1 {
+				firstIdx = ti
+			}
+		}
+	}
+	if firstIdx == -1 || vlanTask.CanonicalName == "" || macTask.CanonicalName == "" || captureTask.CanonicalName == "" {
+		return nil
+	}
+
+	newTasks := make([]Task, 0, len(tasks)-2)
+	for _, t := range tasks {
+		isMergeTarget := false
+		for _, name := range mergeCaptureNames {
+			if t.CanonicalName == name {
+				isMergeTarget = true
+				break
+			}
+		}
+		if !isMergeTarget {
+			newTasks = append(newTasks, t)
+		}
+	}
+
+	composite := Task{
+		Name:          str.TaskNetworkCaptureAnalysis,
+		CanonicalName: "Network Capture Analysis",
+		Description:   str.TaskNetworkCaptureAnalysisDesc,
+		SubTasks: []Task{
+			{Name: str.TaskExtractVLANIDs, CanonicalName: "Extract VLANs", Description: vlanTask.Description, Script: vlanTask.Script},
+			{Name: macTask.Name, CanonicalName: "MAC Address Analysis", Description: macTask.Description, Script: macTask.Script},
+			{Name: captureTask.Name, CanonicalName: "Packet Capture Analysis", Description: captureTask.Description, Script: captureTask.Script},
+		},
+	}
+
+	insertIdx := findInsertIndex(newTasks, firstIdx, "Network Capture")
+	newTasks = append(newTasks[:insertIdx:insertIdx], append([]Task{composite}, newTasks[insertIdx:]...)...)
+	return newTasks
+}
+
+// findInsertIndex returns the position after the task with afterCanonicalName,
+// or falls back to defaultIdx clamped to the slice length.
+func findInsertIndex(tasks []Task, defaultIdx int, afterCanonicalName string) int {
+	for ti, t := range tasks {
+		if t.CanonicalName == afterCanonicalName {
+			return ti + 1
+		}
+	}
+	if defaultIdx > len(tasks) {
+		return len(tasks)
+	}
+	return defaultIdx
 }
 
 // ensureTrueColor sets COLORTERM=truecolor if not already set, enabling
@@ -851,6 +872,35 @@ func (t *TUI) setupUI() {
 	t.setActiveFocus(t.categoryPane)
 }
 
+
+// handleGlobalCtrlShortcuts processes global Ctrl+key shortcuts that work on every page
+// (including the output viewer). Returns true if the event was consumed.
+func (t *TUI) handleGlobalCtrlShortcuts(event *tcell.EventKey) bool {
+	if event.Key() == tcell.KeyCtrlJ {
+		// Global Job Manager access - works even during script execution
+		t.showJobsManager()
+		return true
+	}
+	if event.Key() == tcell.KeyCtrlD {
+		// Global Dashboard access
+		t.showDashboard()
+		return true
+	}
+	if event.Key() == tcell.KeyCtrlN {
+		// Global Host view access
+		t.showCorrelationViewer()
+		return true
+	}
+	// Ctrl+Z: tcell puts the terminal in raw mode (ISIG cleared),
+	// so the kernel never converts Ctrl+Z to SIGTSTP — safe to use as a keybind.
+	if event.Key() == tcell.KeyCtrlZ {
+		// Global return to main TUI from anywhere
+		t.returnToMain()
+		return true
+	}
+	return false
+}
+
 func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 	// Consume Ctrl+C to prevent tview's built-in handler from stopping the application.
 	// tview calls a.Stop() on unhandled Ctrl+C (application.go ~L433). All pages handle
@@ -864,26 +914,7 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 	}
 
 	// Handle global Ctrl+key shortcuts that work everywhere (including output viewer)
-	if event.Key() == tcell.KeyCtrlJ {
-		// Global Job Manager access - works even during script execution
-		t.showJobsManager()
-		return nil
-	}
-	if event.Key() == tcell.KeyCtrlD {
-		// Global Dashboard access
-		t.showDashboard()
-		return nil
-	}
-	if event.Key() == tcell.KeyCtrlN {
-		// Global Host view access
-		t.showCorrelationViewer()
-		return nil
-	}
-	// Ctrl+Z: tcell puts the terminal in raw mode (ISIG cleared),
-	// so the kernel never converts Ctrl+Z to SIGTSTP — safe to use as a keybind.
-	if event.Key() == tcell.KeyCtrlZ {
-		// Global return to main TUI from anywhere
-		t.returnToMain()
+	if t.handleGlobalCtrlShortcuts(event) {
 		return nil
 	}
 

@@ -995,13 +995,7 @@ func (cv *CorrelationViewer) showScreenshotModal() {
 				}
 				return nil
 			case 'o':
-				ss := screenshots[currentIdx]
-				cv.app.Suspend(func() {
-					cmd := exec.Command("xdg-open", ss.File)
-					if err := cmd.Run(); err != nil {
-						fmt.Fprintf(os.Stderr, "failed to open %s: %v\n", ss.File, err)
-					}
-				})
+				cv.openScreenshotExternally(screenshots[currentIdx].File)
 				return nil
 			}
 		}
@@ -1012,6 +1006,15 @@ func (cv *CorrelationViewer) showScreenshotModal() {
 	cv.app.SetFocus(modal)
 	updateView()
 	cv.app.ForceDraw()
+}
+
+func (cv *CorrelationViewer) openScreenshotExternally(filePath string) {
+	cv.app.Suspend(func() {
+		cmd := exec.Command("xdg-open", filePath)
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open %s: %v\n", filePath, err)
+		}
+	})
 }
 
 // tcellCell holds a single character cell with foreground and background colors.
