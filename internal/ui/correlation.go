@@ -454,24 +454,10 @@ func (cv *CorrelationViewer) updateHostsList() {
 	}
 }
 
-// updateDetailsPanel renders host identity, classification, and port data for the selected host.
-func (cv *CorrelationViewer) updateDetailsPanel() {
-	if cv.selectedHost == "" {
-		cv.detailsPanel.SetText(cv.str.HostDetailsSelectPrompt)
-		return
-	}
-
-	result, exists := cv.correlator.GetCorrelationForHost(cv.selectedHost)
-	if !exists {
-		cv.detailsPanel.SetText(cv.str.HostDetailsNoData)
-		return
-	}
-
-	var b strings.Builder
-
-	// --- Identity ---
+// writeIdentitySection renders the host identity block (IP, MAC, hostname, NetBIOS, OS).
+func (cv *CorrelationViewer) writeIdentitySection(b *strings.Builder, result *correlation.CorrelationResult) {
 	b.WriteString(cv.str.HostDetailsIdentity)
-	fmt.Fprintf(&b, "IP:       [white]%s[::-]\n", result.Host)
+	fmt.Fprintf(b, "IP:       [white]%s[::-]\n", result.Host)
 	mac := "-"
 	hostname := "-"
 	netbios := "-"
@@ -492,13 +478,15 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			osStr = result.HostInfo.OS
 		}
 	}
-	fmt.Fprintf(&b, "MAC:      [white]%s[::-]\n", mac)
-	fmt.Fprintf(&b, "Hostname: [white]%s[::-]\n", hostname)
-	fmt.Fprintf(&b, "NetBIOS:  [white]%s[::-]\n", netbios)
-	fmt.Fprintf(&b, "OS:       [white]%s[::-]\n", osStr)
+	fmt.Fprintf(b, "MAC:      [white]%s[::-]\n", mac)
+	fmt.Fprintf(b, "Hostname: [white]%s[::-]\n", hostname)
+	fmt.Fprintf(b, "NetBIOS:  [white]%s[::-]\n", netbios)
+	fmt.Fprintf(b, "OS:       [white]%s[::-]\n", osStr)
 	b.WriteString("\n")
+}
 
-	// --- Classification ---
+// writeClassificationSection renders the host classification block (category, vendor, confidence, TTL).
+func (cv *CorrelationViewer) writeClassificationSection(b *strings.Builder, result *correlation.CorrelationResult) {
 	b.WriteString(cv.str.HostDetailsClassification)
 	cat := hostCategory(result)
 	vendor := hostVendor(result)
@@ -512,21 +500,23 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			score = s
 		}
 	}
-	fmt.Fprintf(&b, "Category:   [%s]%s[::-]\n", categoryTviewColor(cat), cat)
-	fmt.Fprintf(&b, "Vendor:     [white]%s[::-]\n", vendor)
+	fmt.Fprintf(b, "Category:   [%s]%s[::-]\n", categoryTviewColor(cat), cat)
+	fmt.Fprintf(b, "Vendor:     [white]%s[::-]\n", vendor)
 	if score != "-" {
-		fmt.Fprintf(&b, "Confidence: [white]%s[::-]  (score %s)\n", confidence, score)
+		fmt.Fprintf(b, "Confidence: [white]%s[::-]  (score %s)\n", confidence, score)
 	} else {
-		fmt.Fprintf(&b, "Confidence: [white]%s[::-]\n", confidence)
+		fmt.Fprintf(b, "Confidence: [white]%s[::-]\n", confidence)
 	}
 	if result.HostInfo != nil {
 		if ttl, ok := result.HostInfo.Attributes["ttl_normalized"]; ok && ttl != "" {
-			fmt.Fprintf(&b, "TTL:        [white]%s[::-]\n", ttl)
+			fmt.Fprintf(b, "TTL:        [white]%s[::-]\n", ttl)
 		}
 	}
 	b.WriteString("\n")
+}
 
-	// --- Ports & Services ---
+// writePortsSection renders the open ports and services block.
+func (cv *CorrelationViewer) writePortsSection(b *strings.Builder, result *correlation.CorrelationResult) {
 	var openPorts []correlation.Port
 	if result.HostInfo != nil {
 		for _, p := range result.HostInfo.Ports {
@@ -535,7 +525,7 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			}
 		}
 	}
-	fmt.Fprintf(&b, cv.str.FmtHostDetailsPorts, len(openPorts))
+	fmt.Fprintf(b, cv.str.FmtHostDetailsPorts, len(openPorts))
 	if len(openPorts) == 0 {
 		b.WriteString(cv.str.HostDetailsNoOpenPorts)
 	} else {
@@ -548,14 +538,16 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			if ver == "" {
 				ver = "-"
 			}
-			fmt.Fprintf(&b, "[white]%d/%s[::-]  %-8s  %s\n",
+			fmt.Fprintf(b, "[white]%d/%s[::-]  %-8s  %s\n",
 				p.Number, p.Protocol, svc, ver)
 		}
 	}
+}
 
-	// --- Screenshots ---
+// writeScreenshotsSection renders the screenshots block.
+func (cv *CorrelationViewer) writeScreenshotsSection(b *strings.Builder, result *correlation.CorrelationResult) {
 	screenshots := correlation.GetScreenshotsForHost(result)
-	fmt.Fprintf(&b, cv.str.FmtHostDetailsScreenshots, len(screenshots))
+	fmt.Fprintf(b, cv.str.FmtHostDetailsScreenshots, len(screenshots))
 	if len(screenshots) == 0 {
 		b.WriteString(cv.str.HostDetailsNoScreenshots)
 	} else {
@@ -564,12 +556,31 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			if ss.StatusCode != "200" {
 				statusColor = colorYellow
 			}
-			fmt.Fprintf(&b, "[%s]%d.[:-] [white]%s[::-]  [gray](%s)[::-]\n",
+			fmt.Fprintf(b, "[%s]%d.[:-] [white]%s[::-]  [gray](%s)[::-]\n",
 				statusColor, i+1, ss.URL, ss.StatusCode)
 		}
 		b.WriteString(cv.str.HostDetailsPressS)
 	}
+}
 
+// updateDetailsPanel renders host identity, classification, and port data for the selected host.
+func (cv *CorrelationViewer) updateDetailsPanel() {
+	if cv.selectedHost == "" {
+		cv.detailsPanel.SetText(cv.str.HostDetailsSelectPrompt)
+		return
+	}
+
+	result, exists := cv.correlator.GetCorrelationForHost(cv.selectedHost)
+	if !exists {
+		cv.detailsPanel.SetText(cv.str.HostDetailsNoData)
+		return
+	}
+
+	var b strings.Builder
+	cv.writeIdentitySection(&b, result)
+	cv.writeClassificationSection(&b, result)
+	cv.writePortsSection(&b, result)
+	cv.writeScreenshotsSection(&b, result)
 	cv.detailsPanel.SetText(b.String())
 }
 

@@ -815,79 +815,84 @@ func (rp *ResultParser) parseNmapXML(result *ScanResult, content string) (*ScanR
 		}
 		result.Targets = append(result.Targets, ip)
 
-		// Extract OS detection from nmap -O scan (osmatch).
-		// Store the best match as host OS and os_match attribute.
-		if h.OS != nil && len(h.OS.Matches) > 0 {
-			best := h.OS.Matches[0]
-			host.OS = best.Name
-			host.OSDetails = best.Name
-			host.Attributes["os_match"] = best.Name
-			if best.Accuracy != "" {
-				host.Attributes["os_match_accuracy"] = best.Accuracy
-			}
-			// Extract device type from osclass if available
-			for _, cls := range best.Classes {
-				if cls.Type != "" {
-					host.Attributes["device_type"] = cls.Type
-					break
-				}
-			}
-		}
+		extractNmapOSDetection(&host, h.OS)
+		rp.processNmapPorts(result, &host, ip, h.Ports)
 
-		if h.Ports == nil {
-			result.Hosts = append(result.Hosts, host)
-			continue
-		}
-
-		for _, p := range h.Ports.Ports {
-			port := Port{
-				Number:   p.PortID,
-				Protocol: p.Protocol,
-				State:    p.State.State,
-			}
-			if p.Service != nil {
-				port.Service = p.Service.Name
-				port.Version = p.Service.Version
-				if p.Service.Product != "" {
-					port.Banner = p.Service.Product
-					if p.Service.Version != "" {
-						port.Banner += " " + p.Service.Version
-					}
-				}
-			}
-			host.Ports = append(host.Ports, port)
-
-			if p.State.State == "open" {
-				svc := Service{
-					Host:     ip,
-					Port:     p.PortID,
-					Protocol: p.Protocol,
-					Name:     port.Service,
-				}
-				if p.Service != nil {
-					svc.Version = p.Service.Version
-					svc.Product = p.Service.Product
-					svc.ExtraInfo = p.Service.ExtraInfo
-					svc.Confidence = p.Service.Conf
-				}
-				result.Services = append(result.Services, svc)
-			}
-
-			// Process NSE scripts for vulnerabilities.
-			for _, script := range p.Scripts {
-				// Skip vulners script — it's a CPE database lookup, not findings.
-				if script.ID == "vulners" {
-					continue
-				}
-
-				rp.extractScriptFindings(result, ip, p.PortID, script)
-			}
-		}
 
 		result.Hosts = append(result.Hosts, host)
 	}
 
 	return result, nil
+}
+
+// extractNmapOSDetection extracts OS detection from nmap -O scan results
+// and populates host attributes accordingly.
+func extractNmapOSDetection(host *Host, os *nmapOS) {
+	if os == nil || len(os.Matches) == 0 {
+		return
+	}
+	best := os.Matches[0]
+	host.OS = best.Name
+	host.OSDetails = best.Name
+	host.Attributes["os_match"] = best.Name
+	if best.Accuracy != "" {
+		host.Attributes["os_match_accuracy"] = best.Accuracy
+	}
+	for _, cls := range best.Classes {
+		if cls.Type != "" {
+			host.Attributes["device_type"] = cls.Type
+			break
+		}
+	}
+}
+
+// processNmapPorts processes port entries from an nmap host, populating
+// the host's port list, open services in the result, and script findings.
+func (rp *ResultParser) processNmapPorts(result *ScanResult, host *Host, ip string, ports *nmapPorts) {
+	if ports == nil {
+		return
+	}
+	for _, p := range ports.Ports {
+		port := Port{
+			Number:   p.PortID,
+			Protocol: p.Protocol,
+			State:    p.State.State,
+		}
+		if p.Service != nil {
+			port.Service = p.Service.Name
+			port.Version = p.Service.Version
+			if p.Service.Product != "" {
+				port.Banner = p.Service.Product
+				if p.Service.Version != "" {
+					port.Banner += " " + p.Service.Version
+				}
+			}
+		}
+		host.Ports = append(host.Ports, port)
+
+		if p.State.State == "open" {
+			svc := Service{
+				Host:     ip,
+				Port:     p.PortID,
+				Protocol: p.Protocol,
+				Name:     port.Service,
+			}
+			if p.Service != nil {
+				svc.Version = p.Service.Version
+				svc.Product = p.Service.Product
+				svc.ExtraInfo = p.Service.ExtraInfo
+				svc.Confidence = p.Service.Conf
+			}
+			result.Services = append(result.Services, svc)
+		}
+
+		for _, script := range p.Scripts {
+			if script.ID == "vulners" {
+				continue
+			}
+			rp.extractScriptFindings(result, ip, p.PortID, script)
+		}
+	}
 }
 
 // extractScriptFindings processes a single NSE script element and extracts
