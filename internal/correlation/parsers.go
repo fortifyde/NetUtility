@@ -436,13 +436,9 @@ func (rp *ResultParser) parseNetworkCapture(result *ScanResult, content string) 
 			}
 		}
 
-		// Parse protocols and services from packet captures
-		if strings.Contains(strings.ToLower(line), "http") {
-			// Extract HTTP traffic details
-		}
-		if strings.Contains(strings.ToLower(line), "ssh") {
-			// Extract SSH traffic details
-		}
+		// TODO: parse HTTP/SSH traffic details from packet captures
+		_ = strings.Contains(strings.ToLower(line), "http")
+		_ = strings.Contains(strings.ToLower(line), "ssh")
 	}
 
 	// Create host entries for discovered IPs
@@ -891,9 +887,10 @@ func (rp *ResultParser) extractScriptFindings(result *ScanResult, hostIP string,
 					rp.addVulnFromTable(result, hostIP, portNum, script.ID, child)
 				}
 			}
+			// No state at all — informational script (e.g., http-cookie-flags, http-server-header).
+			// Skip: these are not vulnerability findings.
 			if !foundChild && state == "" {
-				// No state at all — informational script (e.g., http-cookie-flags, http-server-header).
-				// Skip: these are not vulnerability findings.
+				continue
 			}
 			continue
 		}
