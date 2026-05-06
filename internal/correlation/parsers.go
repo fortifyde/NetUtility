@@ -94,83 +94,41 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 		return ScanTypeHostCategorization
 	}
 
-	// Nmap XML detection — check before generic name patterns
+	if t := rp.detectScanTypeByContent(contentLower, scriptName, outputContent); t != ScanTypePortScan {
+		return t
+	}
+	if t := rp.detectScanTypeByScriptName(scriptName, scriptPath); t != ScanTypePortScan {
+		return t
+	}
+	return ScanTypePortScan // Default fallback
+}
+
+// detectScanTypeByContent inspects output content to identify the scan type.
+func (rp *ResultParser) detectScanTypeByContent(contentLower, scriptName, outputContent string) ScanType {
+	// Nmap XML detection
 	if strings.Contains(contentLower, "<nmaprun") {
 		return ScanTypeNmapXML
 	}
-
-	// Nikto XML detection — check content before generic name patterns
+	// Nikto XML detection
 	if strings.Contains(contentLower, "<niktoscan") {
 		return ScanTypeNikto
 	}
-	// sslscan XML detection — check before text-based sslscan
+	// sslscan XML detection
 	if strings.Contains(contentLower, "sslscan results") && strings.Contains(contentLower, "<document") {
 		return ScanTypeSSLScanXML
 	}
-	// LLDP/CDP XML detection
-	if strings.Contains(contentLower, "<lldp_cdp_results") {
-		return ScanTypeLLDP
+	if t := rp.detectSupplementaryXML(contentLower); t != ScanTypePortScan {
+		return t
 	}
-
-	// SNMP results XML detection
-	if strings.Contains(contentLower, "<snmp_results") {
-		return ScanTypeSNMP
-	}
-
-	// Exploit search XML detection
-	if strings.Contains(contentLower, "<exploit_results") {
-		return ScanTypeExploitSearch
-	}
-
-	// Passive fingerprint XML detection
-	if strings.Contains(contentLower, "<fingerprint_results") {
-		return ScanTypeFingerprint
-	}
-
-	// ARP results XML detection
-	if strings.Contains(contentLower, "<arp_results") {
-		return ScanTypeARP
-	}
-	// testssl.sh JSON detection — real -oj output is a flat JSON array of findings
-	// each with "id", "ip", "port", "severity", "finding" fields.
-	if strings.HasPrefix(strings.TrimSpace(outputContent), "[") &&
-		strings.Contains(contentLower, "\"severity\"") &&
-		strings.Contains(contentLower, "\"finding\"") &&
-		(strings.Contains(scriptName, "testssl") ||
-			(strings.Contains(contentLower, "\"ip\"") && strings.Contains(contentLower, "\"port\""))) {
+	// testssl.sh JSON detection
+	if rp.isTestSSLJSON(contentLower, scriptName, outputContent) {
 		return ScanTypeTestSSL
 	}
-
 	// SSLscan text detection (must be after XML check)
-	// sslscan detection — check filename and content
 	if strings.Contains(scriptName, "sslscan") {
 		return ScanTypeSSLScan
 	}
-
-	// .nmap text files are parsed for port/service data (the companion .xml
-	// file provides authoritative vulnerability findings). Without this guard,
-	// "vuln_results.nmap" would route to ScanTypeVulnerability and produce
-	// false positives from NSE output like "ROCA: Vulnerable RSA generation".
-	ext := filepath.Ext(scriptName)
-	if ext == ".nmap" {
-		return ScanTypePortScan
-	}
-
-	// Remaining script name patterns.
-	if strings.Contains(scriptName, "enum") || strings.Contains(scriptName, "discovery") {
-		return ScanTypeNetworkEnum
-	}
-	if strings.Contains(scriptName, "vuln") || strings.Contains(scriptName, "nse") {
-		return ScanTypeVulnerability
-	}
-	if strings.Contains(scriptName, "capture") || strings.Contains(scriptName, "tshark") {
-		return ScanTypeCapture
-	}
-	if strings.Contains(scriptName, "service") || strings.Contains(scriptName, "version") {
-		return ScanTypeServiceScan
-	}
-
-	// Check output content patterns
+	// Output content patterns
 	if strings.Contains(contentLower, "nmap scan report") {
 		return ScanTypePortScan
 	}
@@ -183,12 +141,60 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 	if strings.Contains(contentLower, "host is up") || strings.Contains(contentLower, "ping statistics") {
 		return ScanTypeNetworkEnum
 	}
-	// Default to network enumeration for network-related scripts
+	return ScanTypePortScan
+}
+
+// detectSupplementaryXML detects structured XML scan types by root element.
+func (rp *ResultParser) detectSupplementaryXML(contentLower string) ScanType {
+	xmlRoots := []struct {
+		pattern  string
+		scanType ScanType
+	}{
+		{"<lldp_cdp_results", ScanTypeLLDP},
+		{"<snmp_results", ScanTypeSNMP},
+		{"<exploit_results", ScanTypeExploitSearch},
+		{"<fingerprint_results", ScanTypeFingerprint},
+		{"<arp_results", ScanTypeARP},
+	}
+	for _, xr := range xmlRoots {
+		if strings.Contains(contentLower, xr.pattern) {
+			return xr.scanType
+		}
+	}
+	return ScanTypePortScan
+}
+
+// isTestSSLJSON detects testssl.sh JSON output.
+func (rp *ResultParser) isTestSSLJSON(contentLower, scriptName, outputContent string) bool {
+	return strings.HasPrefix(strings.TrimSpace(outputContent), "[") &&
+		strings.Contains(contentLower, "\"severity\"") &&
+		strings.Contains(contentLower, "\"finding\"") &&
+		(strings.Contains(scriptName, "testssl") ||
+			(strings.Contains(contentLower, "\"ip\"") && strings.Contains(contentLower, "\"port\"")))
+}
+
+// detectScanTypeByScriptName uses the script filename to identify the scan type.
+func (rp *ResultParser) detectScanTypeByScriptName(scriptName, scriptPath string) ScanType {
+	ext := filepath.Ext(scriptName)
+	if ext == ".nmap" {
+		return ScanTypePortScan
+	}
+	if strings.Contains(scriptName, "enum") || strings.Contains(scriptName, "discovery") {
+		return ScanTypeNetworkEnum
+	}
+	if strings.Contains(scriptName, "vuln") || strings.Contains(scriptName, "nse") {
+		return ScanTypeVulnerability
+	}
+	if strings.Contains(scriptName, "capture") || strings.Contains(scriptName, "tshark") {
+		return ScanTypeCapture
+	}
+	if strings.Contains(scriptName, "service") || strings.Contains(scriptName, "version") {
+		return ScanTypeServiceScan
+	}
 	if strings.Contains(scriptPath, "network") {
 		return ScanTypeNetworkEnum
 	}
-
-	return ScanTypePortScan // Default fallback
+	return ScanTypePortScan
 }
 
 // parseNetworkEnumeration parses network enumeration output (ping, arp, etc.)

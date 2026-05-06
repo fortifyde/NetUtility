@@ -636,6 +636,116 @@ func severityTviewColor(severity string) string {
 	}
 }
 
+// renderRiskScore writes the risk score tier and breakdown to details.
+func (d *Dashboard) renderRiskScore(details *strings.Builder, corr *correlation.CorrelationResult) {
+	var tierLabel, tierColor string
+	for _, tier := range riskTiers {
+		if corr.RiskScore >= tier.minScore {
+			tierLabel = tier.label
+			tierColor = tier.tviewColor
+			break
+		}
+	}
+	fmt.Fprintf(details, d.str.FmtRiskScore, tierColor, corr.RiskScore, tierColor, d.str.RiskLabel(tierLabel))
+
+	// Risk breakdown
+	bd := corr.RiskDetails
+	fmt.Fprintf(details, d.str.FmtRiskBreakdownVulns, bd.VulnerabilityScore)
+	fmt.Fprintf(details, d.str.FmtRiskBreakdownService, bd.ServiceExposure)
+	fmt.Fprintf(details, d.str.FmtRiskBreakdownSSL, bd.SSLIssues)
+	fmt.Fprintf(details, d.str.FmtRiskBreakdownPorts, bd.OpenPortScore)
+
+	// Risk factors by category
+	factorCategories := []struct {
+		key   string
+		label string
+	}{{"vulnerability", "Vulnerabilities"}, {"ssl", "SSL/TLS"}, {"service", "Service Exposure"}, {"port", "Open Ports"}}
+
+	for _, cat := range factorCategories {
+		var catFactors []correlation.RiskFactorDetail
+		for _, f := range bd.Factors {
+			if f.Category == cat.key {
+				catFactors = append(catFactors, f)
+			}
+		}
+		if len(catFactors) == 0 {
+			continue
+		}
+		fmt.Fprintf(details, d.str.FmtRiskFactorCategory, cat.label, len(catFactors))
+		maxFactors := len(catFactors)
+		if maxFactors > 15 {
+			maxFactors = 15
+		}
+		for i := 0; i < maxFactors; i++ {
+			f := catFactors[i]
+			source := ""
+			if f.Source != "" {
+				source = fmt.Sprintf(" (%s)", f.Source)
+			}
+			fmt.Fprintf(details, d.str.FmtRiskFactorLine, f.Title, f.Score, source)
+		}
+		if len(catFactors) > maxFactors {
+			fmt.Fprintf(details, d.str.FmtAndMore, len(catFactors)-maxFactors)
+		}
+	}
+}
+
+// renderVulnerabilities writes vulnerabilities grouped by severity to details.
+func (d *Dashboard) renderVulnerabilities(details *strings.Builder, corr *correlation.CorrelationResult) {
+	severities := []struct {
+		sev   string
+		color string
+	}{{"critical", "red"}, {"high", "orange"}, {"medium", colorYellow}, {"low", colorGreen}, {"info", colorGray}}
+
+	for _, s := range severities {
+		var sevVulns []correlation.Vulnerability
+		for _, v := range corr.Vulnerabilities {
+			if strings.ToLower(v.Severity) == s.sev {
+				sevVulns = append(sevVulns, v)
+			}
+		}
+		if len(sevVulns) == 0 {
+			continue
+		}
+		fmt.Fprintf(details, d.str.FmtSevFindings, s.color, d.str.SeverityLabel(s.sev))
+		maxShow := len(sevVulns)
+		if maxShow > 15 {
+			maxShow = 15
+		}
+		for i := 0; i < maxShow; i++ {
+			v := sevVulns[i]
+			line := fmt.Sprintf("  ● %s", v.Title)
+			if v.Source != "" {
+				line += fmt.Sprintf(" (%s", v.Source)
+				if v.Port > 0 {
+					line += fmt.Sprintf(", port %d", v.Port)
+				}
+				line += ")"
+			}
+			fmt.Fprintf(details, "%s\n", line)
+		}
+		if len(sevVulns) > maxShow {
+			fmt.Fprintf(details, d.str.FmtAndMore, len(sevVulns)-maxShow)
+		}
+		details.WriteString("\n")
+	}
+}
+
+// renderOpenPorts writes the open ports summary to details.
+func (d *Dashboard) renderOpenPorts(details *strings.Builder, corr *correlation.CorrelationResult) {
+	var openPorts []string
+	if corr.HostInfo != nil {
+		for _, p := range corr.HostInfo.Ports {
+			if p.State == "open" {
+				openPorts = append(openPorts, fmt.Sprintf("%d", p.Number))
+			}
+		}
+	}
+	if len(openPorts) > 0 {
+		fmt.Fprintf(details, d.str.FmtHostOpenPorts, strings.Join(openPorts, ", "))
+	}
+}
+
 // showHostDetailsModal displays a scrollable vulnerability-focused detail view for the selected host.
 func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.CorrelationResult) {
 	cat := hostCategory(corr)
@@ -666,108 +776,12 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 	details.WriteString("\n\n")
 
 	// Risk score with tier
-	var tierLabel, tierColor string
-	for _, tier := range riskTiers {
-		if corr.RiskScore >= tier.minScore {
-			tierLabel = tier.label
-			tierColor = tier.tviewColor
-			break
-		}
-	}
-	fmt.Fprintf(&details, d.str.FmtRiskScore, tierColor, corr.RiskScore, tierColor, d.str.RiskLabel(tierLabel))
-
-	// Risk breakdown
-	bd := corr.RiskDetails
-	fmt.Fprintf(&details, d.str.FmtRiskBreakdownVulns, bd.VulnerabilityScore)
-	fmt.Fprintf(&details, d.str.FmtRiskBreakdownService, bd.ServiceExposure)
-	fmt.Fprintf(&details, d.str.FmtRiskBreakdownSSL, bd.SSLIssues)
-	fmt.Fprintf(&details, d.str.FmtRiskBreakdownPorts, bd.OpenPortScore)
-
-	// Risk factors by category
-	factorCategories := []struct {
-		key   string
-		label string
-	}{{"vulnerability", "Vulnerabilities"}, {"ssl", "SSL/TLS"}, {"service", "Service Exposure"}, {"port", "Open Ports"}}
-
-	for _, cat := range factorCategories {
-		var catFactors []correlation.RiskFactorDetail
-		for _, f := range bd.Factors {
-			if f.Category == cat.key {
-				catFactors = append(catFactors, f)
-			}
-		}
-		if len(catFactors) == 0 {
-			continue
-		}
-		fmt.Fprintf(&details, d.str.FmtRiskFactorCategory, cat.label, len(catFactors))
-		maxFactors := len(catFactors)
-		if maxFactors > 15 {
-			maxFactors = 15
-		}
-		for i := 0; i < maxFactors; i++ {
-			f := catFactors[i]
-			source := ""
-			if f.Source != "" {
-				source = fmt.Sprintf(" (%s)", f.Source)
-			}
-			fmt.Fprintf(&details, d.str.FmtRiskFactorLine, f.Title, f.Score, source)
-		}
-		if len(catFactors) > maxFactors {
-			fmt.Fprintf(&details, d.str.FmtAndMore, len(catFactors)-maxFactors)
-		}
-	}
-
+	d.renderRiskScore(&details, corr)
 	// Vulnerabilities by severity
-	severities := []struct {
-		sev   string
-		color string
-	}{{"critical", "red"}, {"high", "orange"}, {"medium", colorYellow}, {"low", colorGreen}, {"info", colorGray}}
-
-	for _, s := range severities {
-		var sevVulns []correlation.Vulnerability
-		for _, v := range corr.Vulnerabilities {
-			if strings.ToLower(v.Severity) == s.sev {
-				sevVulns = append(sevVulns, v)
-			}
-		}
-		if len(sevVulns) == 0 {
-			continue
-		}
-		fmt.Fprintf(&details, d.str.FmtSevFindings, s.color, d.str.SeverityLabel(s.sev))
-		maxShow := len(sevVulns)
-		if maxShow > 15 {
-			maxShow = 15
-		}
-		for i := 0; i < maxShow; i++ {
-			v := sevVulns[i]
-			line := fmt.Sprintf("  ● %s", v.Title)
-			if v.Source != "" {
-				line += fmt.Sprintf(" (%s", v.Source)
-				if v.Port > 0 {
-					line += fmt.Sprintf(", port %d", v.Port)
-				}
-				line += ")"
-			}
-			fmt.Fprintf(&details, "%s\n", line)
-		}
-		if len(sevVulns) > maxShow {
-			fmt.Fprintf(&details, d.str.FmtAndMore, len(sevVulns)-maxShow)
-		}
-		details.WriteString("\n")
-	}
+	d.renderVulnerabilities(&details, corr)
 
 	// Open ports summary
-	var openPorts []string
-	if corr.HostInfo != nil {
-		for _, p := range corr.HostInfo.Ports {
-			if p.State == "open" {
-				openPorts = append(openPorts, fmt.Sprintf("%d", p.Number))
-			}
-		}
-	}
-	if len(openPorts) > 0 {
-		fmt.Fprintf(&details, d.str.FmtHostOpenPorts, strings.Join(openPorts, ", "))
-	}
+	d.renderOpenPorts(&details, corr)
 
 	// Build scrollable view
 	textView := tview.NewTextView().

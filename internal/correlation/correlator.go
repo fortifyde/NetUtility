@@ -316,76 +316,13 @@ func (c *Correlator) correlateHost(hostIP string) {
 			}
 
 			// Merge screenshot metadata
-			if screenshotsData, ok := result.Metadata["screenshots"]; ok {
-				var screenshots []ScreenshotInfo
-				switch v := screenshotsData.(type) {
-				case []ScreenshotInfo:
-					screenshots = v
-				case []map[string]string:
-					// Produced by MergeScreenshotsIntoCorrelation on a second pass
-					for _, ss := range v {
-						screenshots = append(screenshots, ScreenshotInfo{
-							IP:         hostIP,
-							URL:        ss["url"],
-							File:       ss["file"],
-							StatusCode: ss["status_code"],
-						})
-					}
-				case []interface{}:
-					for _, item := range v {
-						switch s := item.(type) {
-						case ScreenshotInfo:
-							screenshots = append(screenshots, s)
-						case map[string]interface{}:
-							ss := ScreenshotInfo{
-								IP:         getStringFromMap(s, "ip"),
-								URL:        getStringFromMap(s, "url"),
-								File:       getStringFromMap(s, "file"),
-								StatusCode: getStringFromMap(s, "status_code"),
-							}
-							screenshots = append(screenshots, ss)
-						}
-					}
-				}
-
-				var hostScreenshots []ScreenshotInfo
-				for _, ss := range screenshots {
-					if ss.IP == hostIP {
-						hostScreenshots = append(hostScreenshots, ss)
-					}
-				}
-
-				if len(hostScreenshots) > 0 {
-					MergeScreenshotsIntoCorrelation(correlation, hostScreenshots)
-				}
-			}
+			c.mergeScreenshotsFromResult(correlation, result, hostIP)
 
 			// Collect services (merge across multiple scan results, prefer more detail)
-			for _, service := range result.Services {
-				if service.Host != hostIP {
-					continue
-				}
-				key := service.Host + "|" + strconv.Itoa(service.Port) + "|" + service.Protocol
-				if idx, exists := seenServices[key]; exists {
-					c.mergeService(&correlation.Services[idx], service)
-					continue
-				}
-				seenServices[key] = len(correlation.Services)
-				correlation.Services = append(correlation.Services, service)
-			}
+			c.collectServices(correlation, result, hostIP, seenServices)
 
 			// Collect vulnerabilities (deduplicate across multiple scan results)
-			for _, vuln := range result.Vulnerabilities {
-				if vuln.Host != hostIP {
-					continue
-				}
-				key := vuln.Host + "|" + vuln.Title + "|" + vuln.Source + "|" + strconv.Itoa(vuln.Port)
-				if seenVulns[key] {
-					continue
-				}
-				seenVulns[key] = true
-				correlation.Vulnerabilities = append(correlation.Vulnerabilities, vuln)
-			}
+			c.collectVulnerabilities(correlation, result, hostIP, seenVulns)
 		}
 	}
 
@@ -405,6 +342,90 @@ func (c *Correlator) correlateHost(hostIP string) {
 
 	c.correlations[hostIP] = correlation
 	c.applyManualOverrides()
+}
+
+// mergeScreenshotsFromResult extracts screenshot metadata from a scan result
+// and merges any matching the target host into the correlation.
+func (c *Correlator) mergeScreenshotsFromResult(correlation *CorrelationResult, result *ScanResult, hostIP string) {
+	screenshotsData, ok := result.Metadata["screenshots"]
+	if !ok {
+		return
+	}
+
+	var screenshots []ScreenshotInfo
+	switch v := screenshotsData.(type) {
+	case []ScreenshotInfo:
+		screenshots = v
+	case []map[string]string:
+		// Produced by MergeScreenshotsIntoCorrelation on a second pass
+		for _, ss := range v {
+			screenshots = append(screenshots, ScreenshotInfo{
+				IP:         hostIP,
+				URL:        ss["url"],
+				File:       ss["file"],
+				StatusCode: ss["status_code"],
+			})
+		}
+	case []interface{}:
+		for _, item := range v {
+			switch s := item.(type) {
+			case ScreenshotInfo:
+				screenshots = append(screenshots, s)
+			case map[string]interface{}:
+				ss := ScreenshotInfo{
+					IP:         getStringFromMap(s, "ip"),
+					URL:        getStringFromMap(s, "url"),
+					File:       getStringFromMap(s, "file"),
+					StatusCode: getStringFromMap(s, "status_code"),
+				}
+				screenshots = append(screenshots, ss)
+			}
+		}
+	}
+
+	var hostScreenshots []ScreenshotInfo
+	for _, ss := range screenshots {
+		if ss.IP == hostIP {
+			hostScreenshots = append(hostScreenshots, ss)
+		}
+	}
+
+	if len(hostScreenshots) > 0 {
+		MergeScreenshotsIntoCorrelation(correlation, hostScreenshots)
+	}
+}
+
+// collectServices merges services from a scan result into the correlation,
+// deduplicating by host+port+protocol.
+func (c *Correlator) collectServices(correlation *CorrelationResult, result *ScanResult, hostIP string, seenServices map[string]int) {
+	for _, service := range result.Services {
+		if service.Host != hostIP {
+			continue
+		}
+		key := service.Host + "|" + strconv.Itoa(service.Port) + "|" + service.Protocol
+		if idx, exists := seenServices[key]; exists {
+			c.mergeService(&correlation.Services[idx], service)
+			continue
+		}
+		seenServices[key] = len(correlation.Services)
+		correlation.Services = append(correlation.Services, service)
+	}
+}
+
+// collectVulnerabilities deduplicates and appends vulnerabilities from a scan
+// result into the correlation.
+func (c *Correlator) collectVulnerabilities(correlation *CorrelationResult, result *ScanResult, hostIP string, seenVulns map[string]bool) {
+	for _, vuln := range result.Vulnerabilities {
+		if vuln.Host != hostIP {
+			continue
+		}
+		key := vuln.Host + "|" + vuln.Title + "|" + vuln.Source + "|" + strconv.Itoa(vuln.Port)
+		if seenVulns[key] {
+			continue
+		}
+		seenVulns[key] = true
+		correlation.Vulnerabilities = append(correlation.Vulnerabilities, vuln)
+	}
 }
 
 // resultContainsHost checks if a scan result contains information about a host
