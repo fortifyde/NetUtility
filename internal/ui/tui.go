@@ -1268,6 +1268,169 @@ func (t *TUI) Stop() {
 	})
 }
 
+// searchState holds mutable state for an active search modal session.
+type searchState struct {
+	tui        *TUI
+	results    []SearchResult
+	continuations []bool
+	resultIdx    []int
+	resultList   *tview.List
+	inputField   *tview.InputField
+	prevFocus    *tview.List
+}
+
+// isContinuation reports whether list item at idx is a wrapped description line.
+func (s *searchState) isContinuation(idx int) bool {
+	return idx >= 0 && idx < len(s.continuations) && s.continuations[idx]
+}
+
+// resultIndex maps a list item index to its results[] index, or -1.
+func (s *searchState) resultIndex(idx int) int {
+	if idx < 0 || idx >= len(s.resultIdx) {
+		return -1
+	}
+	return s.resultIdx[idx]
+}
+
+// moveDown advances past continuation lines.
+func (s *searchState) moveDown() {
+	cur := s.resultList.GetCurrentItem()
+	count := s.resultList.GetItemCount()
+	next := cur + 1
+	for next < count && s.isContinuation(next) {
+		next++
+	}
+	if next < count {
+		s.resultList.SetCurrentItem(next)
+	}
+}
+
+// moveUp retreats past continuation lines, returning false if at top.
+func (s *searchState) moveUp() bool {
+	cur := s.resultList.GetCurrentItem()
+	prev := cur - 1
+	for prev >= 0 && s.isContinuation(prev) {
+		prev--
+	}
+	if prev < 0 {
+		s.tui.app.SetFocus(s.inputField)
+		return false
+	}
+	s.resultList.SetCurrentItem(prev)
+	return true
+}
+
+// populateSearchResults clears and repopulates the result list for query.
+func (s *searchState) populateSearchResults(query string) {
+	s.resultList.Clear()
+	s.continuations = s.continuations[:0]
+	s.resultIdx = s.resultIdx[:0]
+	s.results = s.tui.searchAllCategories(query)
+
+	_, _, listWidth, _ := s.resultList.GetInnerRect()
+	if listWidth <= 0 {
+		listWidth = 36
+	}
+
+	for i, r := range s.results {
+		header := fmt.Sprintf("%s  [%s]", r.Task.Name, r.CategoryName)
+		s.resultList.AddItem(header, "", 0, nil)
+		s.continuations = append(s.continuations, false)
+		s.resultIdx = append(s.resultIdx, i)
+		for _, line := range wrapText(r.Task.Description, listWidth) {
+			s.resultList.AddItem("[green]  "+line+"[white]", "", 0, nil)
+			s.continuations = append(s.continuations, true)
+			s.resultIdx = append(s.resultIdx, i)
+		}
+	}
+}
+
+// inputCapture handles key events on the search input field.
+func (s *searchState) inputCapture(event *tcell.EventKey) *tcell.EventKey {
+	switch event.Key() {
+	case tcell.KeyDown, tcell.KeyEnter:
+		if s.resultList.GetItemCount() > 0 {
+			s.tui.app.SetFocus(s.resultList)
+			s.resultList.SetCurrentItem(0)
+		}
+		return nil
+	case tcell.KeyEscape:
+		s.close()
+		return nil
+	}
+	return event
+}
+
+// listCapture handles key events on the search result list.
+func (s *searchState) listCapture(event *tcell.EventKey) *tcell.EventKey {
+	switch event.Key() {
+	case tcell.KeyEscape:
+		s.close()
+		return nil
+	case tcell.KeyUp:
+		s.moveUp()
+		return nil
+	case tcell.KeyDown:
+		s.moveDown()
+		return nil
+	case tcell.KeyRune:
+		switch event.Rune() {
+		case 'j':
+			s.moveDown()
+			return nil
+		case 'k':
+			s.moveUp()
+			return nil
+		}
+	}
+	return event
+}
+
+// selected handles activation of a search result.
+func (s *searchState) selected(index int, _, _ string, _ rune) {
+	ri := s.resultIndex(index)
+	if ri < 0 || ri >= len(s.results) {
+		return
+	}
+	r := s.results[ri]
+	s.close()
+	s.tui.currentCategory = r.CategoryName
+	if len(r.Task.SubTasks) > 0 {
+		s.tui.showSubTaskMenu(r.Task)
+	} else {
+		s.tui.executeTaskWithStreaming(r.Task.Script, r.Task.Name)
+	}
+}
+
+// close dismisses the search modal.
+func (s *searchState) close() {
+	s.tui.pages.RemovePage("search")
+	s.tui.setActiveFocus(s.prevFocus)
+}
+
+// buildSearchModal constructs the centered search modal layout.
+func (s *searchState) buildSearchModal() tview.Primitive {
+	s.inputField.SetChangedFunc(s.populateSearchResults)
+	s.inputField.SetInputCapture(s.inputCapture)
+	s.resultList.SetInputCapture(s.listCapture)
+	s.resultList.SetSelectedFunc(s.selected)
+
+	contentBox := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(s.inputField, 3, 0, true).
+		AddItem(s.resultList, 0, 1, false)
+	contentBox.SetBorder(true).SetTitle(s.tui.str.PaneTitleSearch)
+
+	centerRow := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(nil, 0, 3, false).
+		AddItem(contentBox, 0, 4, true).
+		AddItem(nil, 0, 3, false)
+
+	return tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).
+		AddItem(centerRow, 0, 3, true).
+		AddItem(nil, 0, 1, false)
+}
+
 // startSearch opens a compact centered modal for searching tasks across all categories.
 func (t *TUI) startSearch() {
 	prevFocus := t.categoryPane
@@ -1275,173 +1438,15 @@ func (t *TUI) startSearch() {
 		prevFocus = t.taskPane
 	}
 
-	var results []SearchResult
-
-	closeModal := func() {
-		t.pages.RemovePage("search")
-		t.setActiveFocus(prevFocus)
+	s := &searchState{
+		tui:        t,
+		prevFocus:  prevFocus,
+		inputField: tview.NewInputField().SetLabel(t.str.SearchLabel).SetFieldWidth(0),
+		resultList: tview.NewList().ShowSecondaryText(false),
 	}
 
-	inputField := tview.NewInputField().
-		SetLabel(t.str.SearchLabel).
-		SetFieldWidth(0)
-
-	resultList := tview.NewList().ShowSecondaryText(false)
-
-	// searchContinuations[i] == true means list item i is a wrapped description line, not a result
-	var searchContinuations []bool
-	// searchResultIdx[i] is the results[] index for list item i (-1 for continuation items)
-	var searchResultIdx []int
-
-	isCont := func(idx int) bool {
-		return idx >= 0 && idx < len(searchContinuations) && searchContinuations[idx]
-	}
-	resultForIdx := func(idx int) int {
-		if idx < 0 || idx >= len(searchResultIdx) {
-			return -1
-		}
-		return searchResultIdx[idx]
-	}
-
-	moveSearchDown := func() {
-		cur := resultList.GetCurrentItem()
-		count := resultList.GetItemCount()
-		next := cur + 1
-		for next < count && isCont(next) {
-			next++
-		}
-		if next < count {
-			resultList.SetCurrentItem(next)
-		}
-	}
-	moveSearchUp := func() {
-		cur := resultList.GetCurrentItem()
-		prev := cur - 1
-		for prev >= 0 && isCont(prev) {
-			prev--
-		}
-		if prev >= 0 {
-			resultList.SetCurrentItem(prev)
-		}
-	}
-
-	updateResults := func(query string) {
-		resultList.Clear()
-		searchContinuations = searchContinuations[:0]
-		searchResultIdx = searchResultIdx[:0]
-		results = t.searchAllCategories(query)
-
-		_, _, listWidth, _ := resultList.GetInnerRect()
-		if listWidth <= 0 {
-			listWidth = 36 // fallback before first draw (40% of 80col - borders)
-		}
-
-		for i, r := range results {
-			header := fmt.Sprintf("%s  [%s]", r.Task.Name, r.CategoryName)
-			resultList.AddItem(header, "", 0, nil)
-			searchContinuations = append(searchContinuations, false)
-			searchResultIdx = append(searchResultIdx, i)
-			for _, line := range wrapText(r.Task.Description, listWidth) {
-				resultList.AddItem("[green]  "+line+"[white]", "", 0, nil)
-				searchContinuations = append(searchContinuations, true)
-				searchResultIdx = append(searchResultIdx, i)
-			}
-		}
-	}
-
-	inputField.SetChangedFunc(updateResults)
-
-	inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyDown, tcell.KeyEnter:
-			if resultList.GetItemCount() > 0 {
-				t.app.SetFocus(resultList)
-				resultList.SetCurrentItem(0)
-			}
-			return nil
-		case tcell.KeyEscape:
-			closeModal()
-			return nil
-		}
-		return event
-	})
-
-	resultList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyEscape:
-			closeModal()
-			return nil
-		case tcell.KeyUp:
-			cur := resultList.GetCurrentItem()
-			prev := cur - 1
-			for prev >= 0 && isCont(prev) {
-				prev--
-			}
-			if prev < 0 {
-				t.app.SetFocus(inputField)
-				return nil
-			}
-			moveSearchUp()
-			return nil
-		case tcell.KeyDown:
-			moveSearchDown()
-			return nil
-		case tcell.KeyRune:
-			switch event.Rune() {
-			case 'j':
-				moveSearchDown()
-				return nil
-			case 'k':
-				cur := resultList.GetCurrentItem()
-				prev := cur - 1
-				for prev >= 0 && isCont(prev) {
-					prev--
-				}
-				if prev < 0 {
-					t.app.SetFocus(inputField)
-					return nil
-				}
-				moveSearchUp()
-				return nil
-			}
-		}
-		return event
-	})
-
-	resultList.SetSelectedFunc(func(index int, _, _ string, _ rune) {
-		ri := resultForIdx(index)
-		if ri < 0 || ri >= len(results) {
-			return
-		}
-		r := results[ri]
-		closeModal()
-		t.currentCategory = r.CategoryName
-		if len(r.Task.SubTasks) > 0 {
-			t.showSubTaskMenu(r.Task)
-		} else {
-			t.executeTaskWithStreaming(r.Task.Script, r.Task.Name)
-		}
-	})
-
-	// Content box: input on top, results list below
-	contentBox := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(inputField, 3, 0, true).
-		AddItem(resultList, 0, 1, false)
-	contentBox.SetBorder(true).SetTitle(t.str.PaneTitleSearch)
-
-	// Center: 40% wide (3:4:3), 60% tall (1:3:1)
-	centerRow := tview.NewFlex().SetDirection(tview.FlexColumn).
-		AddItem(nil, 0, 3, false).
-		AddItem(contentBox, 0, 4, true).
-		AddItem(nil, 0, 3, false)
-
-	modal := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(nil, 0, 1, false).
-		AddItem(centerRow, 0, 3, true).
-		AddItem(nil, 0, 1, false)
-
-	t.pages.AddPage("search", modal, true, true)
-	t.app.SetFocus(inputField)
+	t.pages.AddPage("search", s.buildSearchModal(), true, true)
+	t.app.SetFocus(s.inputField)
 }
 
 // showHelp displays help information

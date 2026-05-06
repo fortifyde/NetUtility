@@ -1286,112 +1286,6 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 			continue
 		}
 
-		lineLower := strings.ToLower(line)
-
-		// Detect SSLv2/SSLv3 — critical
-		if (strings.Contains(lineLower, "sslv2") || strings.Contains(lineLower, "sslv3")) &&
-			strings.Contains(lineLower, "enabled") {
-			proto := "SSLv3"
-			if strings.Contains(lineLower, "sslv2") {
-				proto = "SSLv2"
-			}
-			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-				Host:        currentIP,
-				Port:        currentPort,
-				Title:       fmt.Sprintf("%s enabled", proto),
-				Description: line,
-				Severity:    "critical",
-				Source:      "sslscan",
-				Discovery:   result.Timestamp,
-			})
-		}
-
-		// Detect TLS 1.0/1.1 — medium
-		if (strings.Contains(lineLower, "tlsv1.0") || strings.Contains(lineLower, "tlsv1.1") ||
-			strings.Contains(lineLower, "tls 1.0") || strings.Contains(lineLower, "tls 1.1")) &&
-			strings.Contains(lineLower, "enabled") {
-			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-				Host:        currentIP,
-				Port:        currentPort,
-				Title:       "Deprecated TLS version enabled",
-				Description: line,
-				Severity:    severityMedium,
-				Source:      "sslscan",
-				Discovery:   result.Timestamp,
-			})
-		}
-
-		// Detect weak ciphers — high
-		weakCiphers := []string{"des", "rc4", "export", "null"}
-		for _, weak := range weakCiphers {
-			if strings.Contains(lineLower, weak) && !strings.Contains(lineLower, "not ") && !strings.Contains(lineLower, "disabled") {
-				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-					Host:        currentIP,
-					Port:        currentPort,
-					Title:       fmt.Sprintf("Weak cipher: %s", strings.ToUpper(weak)),
-					Description: line,
-				Severity:    severityHigh,
-					Source:      "sslscan",
-					Discovery:   result.Timestamp,
-				})
-				break
-			}
-		}
-
-		// Detect weak DH groups (1024 bits or less) — deduplicate per host.
-		if currentIP != "" && strings.Contains(line, "DHE") && strings.Contains(line, "bits") {
-			bitRegex := regexp.MustCompile(`DHE\s+(\d+)\s+bits`)
-			if matches := bitRegex.FindStringSubmatch(line); len(matches) > 1 {
-				bits, _ := strconv.Atoi(matches[1])
-				if bits <= 1024 {
-					key := fmt.Sprintf("%s:%d", currentIP, bits)
-					if !seenDH[key] {
-						seenDH[key] = true
-						result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-							Host:        currentIP,
-							Port:        currentPort,
-							Title:       fmt.Sprintf("Weak DH key exchange group (%d bits)", bits),
-							Description: line,
-							Severity:    severityMedium,
-							Source:      "sslscan",
-							Discovery:   result.Timestamp,
-						})
-					}
-				}
-			}
-		}
-
-		// Detect certificate issues — medium
-		certIssues := []string{"self-signed", "expired", "weak key"}
-		for _, issue := range certIssues {
-			if strings.Contains(lineLower, issue) {
-				result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-					Host:        currentIP,
-					Port:        currentPort,
-					Title:       fmt.Sprintf("Certificate issue: %s", issue),
-					Description: line,
-				Severity:    severityMedium,
-					Source:      "sslscan",
-					Discovery:   result.Timestamp,
-				})
-				break
-			}
-		}
-		
-		// Detect self-signed certificate from issuer line
-		if currentIP != "" && strings.Contains(lineLower, "issuer") &&
-			strings.Contains(lineLower, "self-signed") {
-			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
-				Host:        currentIP,
-				Port:        currentPort,
-				Title:       "Self-signed SSL certificate",
-				Description: line,
-				Severity:    severityMedium,
-				Source:      "sslscan",
-				Discovery:   result.Timestamp,
-			})
-		}
-
 		// Detect port from sslscan output
 		if strings.Contains(line, "SSL/TLS") && strings.Contains(line, ":") {
 			portRegex := regexp.MustCompile(`(\d+)`)
@@ -1399,9 +1293,132 @@ func (rp *ResultParser) parseSSLScanResult(result *ScanResult, content string) (
 				currentPort, _ = strconv.Atoi(matches[1])
 			}
 		}
+
+		rp.parseSSLScanProtocolLine(result, currentIP, currentPort, line)
+		rp.parseSSLScanCipherLine(result, currentIP, currentPort, line, seenDH)
+		rp.parseSSLScanCertLine(result, currentIP, currentPort, line)
 	}
 
 	return result, nil
+}
+
+// parseSSLScanProtocolLine detects SSLv2/SSLv3 and deprecated TLS protocol lines.
+func (rp *ResultParser) parseSSLScanProtocolLine(result *ScanResult, ip string, port int, line string) {
+	lineLower := strings.ToLower(line)
+
+	// Detect SSLv2/SSLv3 — critical
+	if (strings.Contains(lineLower, "sslv2") || strings.Contains(lineLower, "sslv3")) &&
+		strings.Contains(lineLower, "enabled") {
+		proto := "SSLv3"
+		if strings.Contains(lineLower, "sslv2") {
+			proto = "SSLv2"
+		}
+		result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+			Host:        ip,
+			Port:        port,
+			Title:       fmt.Sprintf("%s enabled", proto),
+			Description: line,
+			Severity:    "critical",
+			Source:      "sslscan",
+			Discovery:   result.Timestamp,
+		})
+	}
+
+	// Detect TLS 1.0/1.1 — medium
+	if (strings.Contains(lineLower, "tlsv1.0") || strings.Contains(lineLower, "tlsv1.1") ||
+		strings.Contains(lineLower, "tls 1.0") || strings.Contains(lineLower, "tls 1.1")) &&
+		strings.Contains(lineLower, "enabled") {
+		result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+			Host:        ip,
+			Port:        port,
+			Title:       "Deprecated TLS version enabled",
+			Description: line,
+			Severity:    severityMedium,
+			Source:      "sslscan",
+			Discovery:   result.Timestamp,
+		})
+	}
+}
+
+// parseSSLScanCipherLine detects weak ciphers and weak DH key-exchange groups.
+func (rp *ResultParser) parseSSLScanCipherLine(result *ScanResult, ip string, port int, line string, seenDH map[string]bool) {
+	lineLower := strings.ToLower(line)
+
+	// Detect weak ciphers — high
+	weakCiphers := []string{"des", "rc4", "export", "null"}
+	for _, weak := range weakCiphers {
+		if strings.Contains(lineLower, weak) && !strings.Contains(lineLower, "not ") && !strings.Contains(lineLower, "disabled") {
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:        ip,
+				Port:        port,
+				Title:       fmt.Sprintf("Weak cipher: %s", strings.ToUpper(weak)),
+				Description: line,
+				Severity:    severityHigh,
+				Source:      "sslscan",
+				Discovery:   result.Timestamp,
+			})
+			break
+		}
+	}
+
+	// Detect weak DH groups (1024 bits or less) — deduplicate per host.
+	if ip != "" && strings.Contains(line, "DHE") && strings.Contains(line, "bits") {
+		bitRegex := regexp.MustCompile(`DHE\s+(\d+)\s+bits`)
+		if matches := bitRegex.FindStringSubmatch(line); len(matches) > 1 {
+			bits, _ := strconv.Atoi(matches[1])
+			if bits <= 1024 {
+				key := fmt.Sprintf("%s:%d", ip, bits)
+				if !seenDH[key] {
+					seenDH[key] = true
+					result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+						Host:        ip,
+						Port:        port,
+						Title:       fmt.Sprintf("Weak DH key exchange group (%d bits)", bits),
+						Description: line,
+						Severity:    severityMedium,
+						Source:      "sslscan",
+						Discovery:   result.Timestamp,
+					})
+				}
+			}
+		}
+	}
+}
+
+// parseSSLScanCertLine detects certificate issues from sslscan text output.
+func (rp *ResultParser) parseSSLScanCertLine(result *ScanResult, ip string, port int, line string) {
+	lineLower := strings.ToLower(line)
+
+	// Detect certificate issues — medium
+	certIssues := []string{"self-signed", "expired", "weak key"}
+	for _, issue := range certIssues {
+		if strings.Contains(lineLower, issue) {
+			result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+				Host:        ip,
+				Port:        port,
+				Title:       fmt.Sprintf("Certificate issue: %s", issue),
+				Description: line,
+				Severity:    severityMedium,
+				Source:      "sslscan",
+				Discovery:   result.Timestamp,
+			})
+			break
+		}
+	}
+
+	// Detect self-signed certificate from issuer line
+	if ip != "" && strings.Contains(lineLower, "issuer") &&
+		strings.Contains(lineLower, "self-signed") {
+		result.Vulnerabilities = append(result.Vulnerabilities, Vulnerability{
+			Host:        ip,
+			Port:        port,
+			Title:       "Self-signed SSL certificate",
+			Description: line,
+			Severity:    severityMedium,
+			Source:      "sslscan",
+			Discovery:   result.Timestamp,
+		})
+	}
 }
 
 // --- sslscan XML types ---
