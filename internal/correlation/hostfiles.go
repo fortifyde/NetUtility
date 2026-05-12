@@ -103,7 +103,7 @@ func moveHostInSession(hostfilesDir, ip, targetPlainFile, category string) error
 	}
 
 	target := filepath.Join(hostfilesDir, targetPlainFile)
-	f, err := os.OpenFile(target, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600) //nolint:gosec // G304: path from trusted workspace
+	f, err := os.OpenFile(target, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //nolint:gosec // G304,G306: workspace output — user must be able to read/edit
 	if err != nil {
 		return fmt.Errorf("opening %s: %w", target, err)
 	}
@@ -119,7 +119,7 @@ func moveHostInSession(hostfilesDir, ip, targetPlainFile, category string) error
 			return fmt.Errorf("expected .txt suffix in plain file %q", targetPlainFile)
 		}
 		targetEnriched := filepath.Join(hostfilesDir, base+"_enriched.txt")
-		f2, err := os.OpenFile(targetEnriched, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600) //nolint:gosec // G304: path from trusted workspace
+	f2, err := os.OpenFile(targetEnriched, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //nolint:gosec // G304,G306: workspace output — user must be able to read/edit
 		if err != nil {
 			return fmt.Errorf("opening %s: %w", targetEnriched, err)
 		}
@@ -182,7 +182,7 @@ func removeIPFromFile(path, ip string) (bool, error) {
 	if len(keep) > 0 {
 		out += "\n"
 	}
-	return true, os.WriteFile(path, []byte(out), 0600)
+	return true, os.WriteFile(path, []byte(out), 0644) //nolint:gosec // G306: workspace output — user must be able to read/edit
 }
 
 // extractEnrichedDataForIP reads an enriched file and returns the line for a specific IP.

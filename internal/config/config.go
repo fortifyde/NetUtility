@@ -567,7 +567,7 @@ func (c *Config) EnsureWorkspaceWritable() error {
 
 	// Test write access by creating a temporary file
 	testFile := filepath.Join(c.WorkspaceDir, ".netutil_write_test")
-	if err := os.WriteFile(testFile, []byte("test"), 0600); err != nil {
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil { //nolint:gosec // G306: temp file immediately deleted
 		return fmt.Errorf("workspace not writable: %w", err)
 	}
 

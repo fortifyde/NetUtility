@@ -149,7 +149,7 @@ func (tg *TopologyGenerator) GenerateHTMLViewer(correlations map[string]*Correla
 
 	ts := time.Now().Format("20060102_150405")
 	htmlPath := filepath.Join(outDir, "topology_viewer_"+ts+".html")
-	if err := os.WriteFile(htmlPath, []byte(html), 0o600); err != nil {
+	if err := os.WriteFile(htmlPath, []byte(html), 0644); err != nil { //nolint:gosec // G306: workspace output — user must be able to read/edit
 		return "", fmt.Errorf("writing HTML viewer: %w", err)
 	}
 

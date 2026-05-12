@@ -1122,7 +1122,7 @@ func (c *Correlator) saveResults() error {
 		return fmt.Errorf("failed to marshal correlations: %w", err)
 	}
 
-	if err := os.WriteFile(correlationFile, data, 0600); err != nil {
+	if err := os.WriteFile(correlationFile, data, 0644); err != nil { //nolint:gosec // G306: workspace output — user must be able to read/edit
 		return fmt.Errorf("failed to write correlations: %w", err)
 	}
 
@@ -1220,7 +1220,7 @@ func (c *Correlator) saveManualOverrides() error {
 	if err != nil {
 		return fmt.Errorf("marshalling manual overrides: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0644); err != nil { //nolint:gosec // G306: workspace output — user must be able to read/edit
 		return err
 	}
 	c.fixCorrelationsOwnership()
@@ -1271,7 +1271,7 @@ func (c *Correlator) saveExcludedHosts() error {
 	if err != nil {
 		return fmt.Errorf("marshalling excluded hosts: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(path, data, 0644); err != nil { //nolint:gosec // G306: workspace output — user must be able to read/edit
 		return err
 	}
 	c.fixCorrelationsOwnership()
