@@ -423,7 +423,7 @@ HelpText: `[yellow]Navigation:[white]
 	BtnClose:         "Close",
 	BtnYes:           "Yes",
 	BtnNo:            "No",
-	BtnViewInventory: "View Inventory",
+	BtnViewInventory: "View Host in Inventory",
 
 	// Job queue modals
 	TitleJobQueued:       "Job Queued",
@@ -634,10 +634,9 @@ OutputViewerHelp: `[yellow]Controls:[white]
 
 	// Correlation viewer
 	FmtCorrControlsText: `[yellow]Navigation[white]                    [yellow]Actions[white]
-[aqua]Enter[white]  View host details       [aqua]s[white]  View screenshot
-[aqua]/[white]      Search hosts            [aqua]p[white]  Create Hostfile Package
-[aqua]Space[white]  Categorize host         [aqua]t[white]  Generate Network Topology
-[aqua]f[white]      %s
+[aqua]/[white]      Search hosts            [aqua]s[white]  View screenshot
+[aqua]Space[white]  Categorize host         [aqua]p[white]  Create Hostfile Package
+[aqua]f[white]      %s                      [aqua]t[white]  Generate Network Topology
 [aqua]Esc/q[white]  Close
 
 [gray]Ctrl+J[white] Jobs  [gray]Ctrl+D[white] Dashboard  [gray]Ctrl+N[white] Hosts  [gray]Ctrl+Z[white] Main`,
@@ -776,7 +775,7 @@ HelpText: `[yellow]Navigation:[white]
 	BtnClose:         "Schließen",
 	BtnYes:           "Ja",
 	BtnNo:            "Nein",
-	BtnViewInventory: "Inventar anzeigen",
+	BtnViewInventory: "Host im Inventar anzeigen",
 
 	// Job queue modals
 	TitleJobQueued:       "Job eingereiht",
@@ -979,10 +978,9 @@ OutputViewerHelp: `[yellow]Steuerung:[white]
 
 	// Correlation viewer
 	FmtCorrControlsText: `[yellow]Navigation[white]                     [yellow]Aktionen[white]
-[aqua]Enter[white]  Host-Details anzeigen   [aqua]s[white]  Screenshot anzeigen
-[aqua]/[white]      Hosts suchen            [aqua]p[white]  Hostfile-Paket erstellen
-[aqua]Space[white]  Host kategorisieren     [aqua]t[white]  Netzwerktopologie erstellen
-[aqua]f[white]      %s
+[aqua]/[white]      Hosts suchen            [aqua]s[white]  Screenshot anzeigen
+[aqua]Space[white]  Host kategorisieren     [aqua]p[white]  Hostfile-Paket erstellen
+[aqua]f[white]      %s                      [aqua]t[white]  Netzwerktopologie erstellen
 [aqua]Esc/q[white]  Schließen
 
 [gray]Ctrl+J[white] Jobs  [gray]Ctrl+D[white] Dashboard  [gray]Ctrl+N[white] Hosts  [gray]Ctrl+Z[white] Hauptmenü`,

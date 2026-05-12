@@ -296,9 +296,6 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 		case tcell.KeyEscape:
 			cv.Close()
 			return nil
-		case tcell.KeyEnter:
-			cv.showHostDetails()
-			return nil
 		case tcell.KeyRune:
 			switch event.Rune() {
 			case 'q':
@@ -333,10 +330,6 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 		return event
 	})
 
-	// Selection handler
-	cv.hostsList.SetSelectedFunc(func(row, column int) {
-		cv.showHostDetails()
-	})
 
 	cv.hostsList.SetSelectionChangedFunc(func(row, column int) {
 		if row > 0 { // Skip header row
@@ -693,11 +686,6 @@ func (cv *CorrelationViewer) openCategorizationModal() {
 	cv.app.SetFocus(list)
 }
 
-// showHostDetails updates the details panel for the selected host
-func (cv *CorrelationViewer) showHostDetails() {
-	cv.updateDetailsPanel()
-}
-
 // generatePackage creates a distribution archive and shows a result modal.
 // If a package is already being generated, the call is a no-op.
 func (cv *CorrelationViewer) generatePackage() {
@@ -842,17 +830,14 @@ func (cv *CorrelationViewer) Close() {
 
 // ShowCorrelationViewer creates and displays a correlation viewer page.
 // For the main TUI use showCorrelationViewer() which passes a proper returnToMain callback.
-// If focusHost is non-empty, the viewer pre-selects that host and opens the screenshot modal.
+// If focusHost is non-empty, the viewer pre-selects that host in the inventory list.
 func ShowCorrelationViewer(app *tview.Application, pages *tview.Pages, correlator *correlation.Correlator, returnToMainCallback func(), workspaceDir string, str *Strings, focusHost ...string) {
 	correlationViewer := NewCorrelationViewer(app, pages, correlator, returnToMainCallback, workspaceDir, str)
 	pages.AddPage("correlation", correlationViewer, true, true)
-	app.SetFocus(correlationViewer.hostsList)
-
-	// Pre-select host and open screenshot modal if requested
 	if len(focusHost) > 0 && focusHost[0] != "" {
 		correlationViewer.selectHostByIP(focusHost[0])
-		correlationViewer.showScreenshotModal()
 	}
+	app.SetFocus(correlationViewer.hostsList)
 }
 
 // selectHostByIP finds and selects a host in the table by its IP address.
