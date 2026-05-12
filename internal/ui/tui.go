@@ -1469,7 +1469,7 @@ func helpDialog(app *tview.Application, pages *tview.Pages, pageName, title, hel
 			pages.RemovePage(pageName)
 		})
 	closeBtn.SetLabelColor(tcell.ColorWhite)
-	closeBtn.Box.SetBackgroundColor(tcell.ColorSteelBlue)
+	closeBtn.SetBackgroundColor(tcell.ColorSteelBlue)
 
 	// Button row: center the button horizontally
 	btnRow := tview.NewFlex().SetDirection(tview.FlexColumn).
