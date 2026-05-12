@@ -789,7 +789,9 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 		SetScrollable(true).
 		SetWrap(true).
 		SetText(details.String())
-	textView.SetBorder(true).SetTitle(fmt.Sprintf(d.str.FmtRiskDetailTitle, hostIP))
+	textView.SetBorder(true).SetTitle(fmt.Sprintf(d.str.FmtRiskDetailTitle, hostIP)).
+		SetTitleColor(tcell.ColorWhite).
+		SetBorderColor(tcell.ColorCornflowerBlue)
 
 	// Button row
 	buttonRow := tview.NewFlex().SetDirection(tview.FlexColumn)
@@ -797,12 +799,16 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 		d.pages.RemovePage("host-details")
 		ShowCorrelationViewer(d.app, d.pages, d.correlator, func() {
 			d.app.SetFocus(d.topFindingsTable)
-		}, "", d.str)
+		}, "", d.str, hostIP)
 	})
 	btnClose := tview.NewButton(d.str.BtnClose).SetSelectedFunc(func() {
 		d.pages.RemovePage("host-details")
 		d.app.SetFocus(d.topFindingsTable)
 	})
+	btnInventory.SetStyle(tcell.StyleDefault.Background(tcell.ColorSteelBlue).Foreground(tcell.ColorGray)).
+		SetActivatedStyle(tcell.StyleDefault.Background(tcell.ColorCornflowerBlue).Foreground(tcell.ColorWhite))
+	btnClose.SetStyle(tcell.StyleDefault.Background(tcell.ColorSteelBlue).Foreground(tcell.ColorGray)).
+		SetActivatedStyle(tcell.StyleDefault.Background(tcell.ColorCornflowerBlue).Foreground(tcell.ColorWhite))
 	buttonRow.AddItem(btnInventory, 0, 1, true)
 	buttonRow.AddItem(btnClose, 0, 1, true)
 
@@ -819,6 +825,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 			AddItem(modal, 0, 5, true).
 			AddItem(nil, 0, 1, false), 0, 3, true).
 		AddItem(nil, 0, 1, false)
+	centerFlex.SetBackgroundColor(tcell.NewRGBColor(16, 16, 16))
 
 	centerFlex.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
@@ -826,15 +833,16 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 			d.pages.RemovePage("host-details")
 			d.app.SetFocus(d.topFindingsTable)
 			return nil
-		case tcell.KeyTab:
-			// Cycle focus between text view and buttons
+		case tcell.KeyTab, tcell.KeyLeft, tcell.KeyRight:
 			switch d.app.GetFocus() {
 			case textView:
-				d.app.SetFocus(btnInventory)
+				d.app.SetFocus(btnClose)
 			case btnInventory:
 				d.app.SetFocus(btnClose)
+			case btnClose:
+				d.app.SetFocus(btnInventory)
 			default:
-				d.app.SetFocus(textView)
+				d.app.SetFocus(btnClose)
 			}
 			return nil
 		}
@@ -842,7 +850,7 @@ func (d *Dashboard) showHostDetailsModal(hostIP string, corr *correlation.Correl
 	})
 
 	d.pages.AddPage("host-details", centerFlex, true, true)
-	d.app.SetFocus(textView)
+	d.app.SetFocus(btnClose)
 }
 
 // refresh updates all dashboard data
