@@ -48,7 +48,9 @@ type Strings struct {
 	SubtaskSelectOp string
 
 	// ── Help ──────────────────────────────────────────────────────────────────
-	HelpText string
+	HelpText         string
+	HelpTitle        string
+	OutputHelpTitle  string
 
 	// ── Buttons ───────────────────────────────────────────────────────────────
 	BtnOK            string
@@ -381,37 +383,37 @@ var stringsEN = &Strings{
 	SubtaskSelectOp: "Select a script:",
 
 	// Help
-	HelpText: `NetUtility TUI Help
+HelpText: `[yellow]Navigation:[white]
+  [aqua]Tab[white]          Switch between categories and scripts
+  [aqua]Enter[white]        Select category or execute script
+  [aqua]Escape, q[white]    Quit application
 
-Navigation:
-  Tab          Switch between categories and scripts
-  Enter        Select category or execute script
-  Escape, q    Quit application
+[yellow]Vim-like Keys:[white]
+  [aqua]h[white]            Focus categories (left panel)
+  [aqua]l[white]            Focus scripts (right panel)
+  [aqua]j[white]            Move down in current panel
+  [aqua]k[white]            Move up in current panel
 
-Vim-like Keys:
-  h            Focus categories (left panel)
-  l            Focus scripts (right panel)
-  j            Move down in current panel
-  k            Move up in current panel
+[yellow]Search:[white]
+  [aqua]/[white]            Start search mode
 
-Search:
-  /            Start search mode
+[yellow]Global (work from any view):[white]
+  [aqua]Ctrl+J[white]       Job manager
+  [aqua]Ctrl+D[white]       Dashboard
+  [aqua]Ctrl+N[white]       Host inventory
+  [aqua]Ctrl+Z[white]       Return to main screen
 
-Global (work from any view):
-  Ctrl+J       Job manager
-  Ctrl+D       Dashboard
-  Ctrl+N       Host inventory
-  Ctrl+Z       Return to main screen
+[yellow]Advanced Features:[white]
+  [white]- Up to 3 scripts can run concurrently
+  [white]- Additional scripts are queued automatically
+  [white]- Use [aqua]Ctrl+J[white] to view running, queued, and completed jobs
+  [white]- Use [aqua]Ctrl+N[white] to view correlated host inventory
 
-Advanced Features:
-  - Up to 3 scripts can run concurrently
-  - Additional scripts are queued automatically
-  - Use Ctrl+J to view running, queued, and completed jobs
-  - Use Ctrl+N to view correlated host inventory
-
-Mouse:
-  Click        Select items
-  Scroll       Navigate lists`,
+[yellow]Mouse:[white]
+  [aqua]Click[white]        Select items
+  [aqua]Scroll[white]       Navigate lists`,
+	HelpTitle:       "Help",
+	OutputHelpTitle: "Output Viewer Help",
 
 	// Buttons
 	BtnOK:            "OK",
@@ -522,9 +524,9 @@ Mouse:
 	FmtShowErrorPrefix:  "Error: %s",
 
 	// Output viewer
-	StatusReady:         "[green]Ready[white] — [aqua]Space[white] Pause  [aqua]f[white] Follow  [aqua]t[white] Time  [aqua]s[white] Source  [aqua]/[white] Search  [aqua]g/G[white] Scroll",
+	StatusReady:         "[green]Ready[white] — [aqua]Space[white] Pause  [aqua]f[white] Follow  [aqua]t[white] Time  [aqua]s[white] Source  [aqua]/[white] Search  [aqua]g/G[white] Scroll  [aqua]?[white] Help",
 	StatusInputMode:     "[yellow]Input Mode[white] — [aqua]Enter[white] Submit  [aqua]Tab[white] View",
-	StatusViewMode:      "[green]View Mode[white] — [aqua]Tab[white] Input  [aqua]Space[white] Pause  [aqua]f[white] Follow  [aqua]t[white] Time  [aqua]s[white] Source  [aqua]/[white] Search  [aqua]g/G[white] Scroll",
+	StatusViewMode:      "[green]View Mode[white] — [aqua]Tab[white] Input  [aqua]Space[white] Pause  [aqua]f[white] Follow  [aqua]t[white] Time  [aqua]s[white] Source  [aqua]/[white] Search  [aqua]g/G[white] Scroll  [aqua]?[white] Help",
 	StatusWaitingInput:  "[yellow]Waiting for input[white] — [aqua]Enter[white] Submit  [aqua]Tab[white] View",
 	StatusPasswordInput: "[yellow]Password input[white] — [aqua]Enter[white] Submit  [aqua]Tab[white] View",
 	StatusInputSent:     "[green]Input sent[white] — Waiting for response...",
@@ -533,34 +535,32 @@ Mouse:
 	FmtScriptCompleted:  "Script %s - Duration: %v",
 	FmtTitleWithJobs:    "Script Output %s - %s [%s]",
 	FmtTitleNoJobs:      "Script Output - %s [%s]",
-	OutputViewerHelp: `Output Viewer Help
+OutputViewerHelp: `[yellow]Controls:[white]
+  [aqua]Esc[white]          Cancel job and return to main
+  [aqua]q[white]            Return to main (job keeps running)
+  [aqua]Ctrl+C[white]       Stop script execution
+  [aqua]Space[white]        Pause/resume output display
+  [aqua]f[white]            Toggle auto-scroll (following)
+  [aqua]t[white]            Toggle timestamp display
+  [aqua]s[white]            Toggle source (stdout/stderr) display
+  [aqua]/[white]            Search output
+  [aqua]c[white]            Clear display
+  [aqua]G[white]            Go to end
+  [aqua]g[white]            Go to beginning
 
-Controls:
-  Esc          Cancel job and return to main
-  q            Return to main (job keeps running)
-  Ctrl+C       Stop script execution
-  Space        Pause/resume output display
-  f            Toggle auto-scroll (following)
-  t            Toggle timestamp display
-  s            Toggle source (stdout/stderr) display
-  /            Search output
-  c            Clear display
-  G            Go to end
-  g            Go to beginning
+[yellow]Display Features:[white]
+  [white]- Real-time streaming output
+  [white]- Color-coded stderr (red) and stdout (green)
+  [white]- Automatic highlighting of errors/warnings
+  [white]- Search and filter capabilities
+  [white]- Pause/resume without stopping script
+  [white]- Timestamp and source information
 
-Display Features:
-  - Real-time streaming output
-  - Color-coded stderr (red) and stdout (green)
-  - Automatic highlighting of errors/warnings
-  - Search and filter capabilities
-  - Pause/resume without stopping script
-  - Timestamp and source information
-
-Script Control:
-  - Scripts can be cancelled with Esc (kills the job)
-  - Press q to return to main while keeping the job running
-  - Input can be sent to interactive scripts
-  - Full execution history is maintained`,
+[yellow]Script Control:[white]
+  [white]- Scripts can be cancelled with [aqua]Esc[white] (kills the job)
+  [white]- Press [aqua]q[white] to return to main while keeping the job running
+  [white]- Input can be sent to interactive scripts
+  [white]- Full execution history is maintained`,
 	FmtHistoricalStatus: "[%s]%s - read-only[::-] | Esc=Close | Enter=Close",
 	FmtReconnected:      "──── Reconnected - showing last %d of %d total lines ────",
 	OutputGlobalLine:    "[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Main   [aqua]Esc/q[white] Back",
@@ -737,33 +737,33 @@ var stringsDE = &Strings{
 	SubtaskSelectOp: "Skript auswählen:",
 
 	// Help
-	HelpText: `NetUtility TUI Hilfe
+HelpText: `[yellow]Navigation:[white]
+  [aqua]Tab[white]          Zwischen Kategorien und Skripten wechseln
+  [aqua]Enter[white]        Kategorie auswählen oder Skript ausführen
+  [aqua]Escape, q[white]    Anwendung beenden
 
-Navigation:
-  Tab          Zwischen Kategorien und Skripten wechseln
-  Enter        Kategorie auswählen oder Skript ausführen
-  Escape, q    Anwendung beenden
+[yellow]Vim-Tasten:[white]
+  [aqua]h[white]            Kategorien fokussieren (linkes Panel)
+  [aqua]l[white]            Skripte fokussieren (rechtes Panel)
+  [aqua]j[white]            Im aktuellen Panel nach unten
+  [aqua]k[white]            Im aktuellen Panel nach oben
 
-Vim-Tasten:
-  h            Kategorien fokussieren (linkes Panel)
-  l            Skripte fokussieren (rechtes Panel)
-  j            Im aktuellen Panel nach unten
-  k            Im aktuellen Panel nach oben
+[yellow]Suche:[white]
+  [aqua]/[white]            Suchmodus starten
 
-Suche:
-  /            Suchmodus starten
+[yellow]Global (von überall):[white]
+  [aqua]Ctrl+J[white]       Job-Verwaltung
+  [aqua]Ctrl+D[white]       Dashboard
+  [aqua]Ctrl+N[white]       Host-Inventar
+  [aqua]Ctrl+Z[white]       Zurück zum Hauptmenü
 
-Global (von überall):
-  Ctrl+J       Job-Verwaltung
-  Ctrl+D       Dashboard
-  Ctrl+N       Host-Inventar
-  Ctrl+Z       Zurück zum Hauptmenü
-
-Erweiterte Funktionen:
-  - Bis zu 3 Skripte können gleichzeitig laufen
-  - Weitere Skripte werden automatisch eingereiht
-  - Ctrl+J zum Anzeigen laufender, wartender und abgeschlossener Jobs
-  - Ctrl+N zum Anzeigen des Host-Inventars`,
+[yellow]Erweiterte Funktionen:[white]
+  [white]- Bis zu 3 Skripte können gleichzeitig laufen
+  [white]- Weitere Skripte werden automatisch eingereiht
+  [white]- [aqua]Ctrl+J[white] zum Anzeigen laufender, wartender und abgeschlossener Jobs
+  [white]- [aqua]Ctrl+N[white] zum Anzeigen des Host-Inventars`,
+	HelpTitle:       "Hilfe",
+	OutputHelpTitle: "Ausgabe-Hilfe",
 
 	// Buttons
 	BtnOK:            "OK",
@@ -874,9 +874,9 @@ Erweiterte Funktionen:
 	FmtShowErrorPrefix:  "Fehler: %s",
 
 	// Output viewer
-	StatusReady:         "[green]Bereit[white] — [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen  [aqua]t[white] Zeit  [aqua]s[white] Quelle  [aqua]/[white] Suchen  [aqua]g/G[white] Scrollen",
+	StatusReady:         "[green]Bereit[white] — [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen  [aqua]t[white] Zeit  [aqua]s[white] Quelle  [aqua]/[white] Suchen  [aqua]g/G[white] Scrollen  [aqua]?[white] Hilfe",
 	StatusInputMode:     "[yellow]Eingabemodus[white] — [aqua]Enter[white] Senden  [aqua]Tab[white] Ausgabe",
-	StatusViewMode:      "[green]Ausgabemodus[white] — [aqua]Tab[white] Eingabe  [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen  [aqua]t[white] Zeit  [aqua]s[white] Quelle  [aqua]/[white] Suchen  [aqua]g/G[white] Scrollen",
+	StatusViewMode:      "[green]Ausgabemodus[white] — [aqua]Tab[white] Eingabe  [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen  [aqua]t[white] Zeit  [aqua]s[white] Quelle  [aqua]/[white] Suchen  [aqua]g/G[white] Scrollen  [aqua]?[white] Hilfe",
 	StatusWaitingInput:  "[yellow]Wartet auf Eingabe[white] — [aqua]Enter[white] Senden  [aqua]Tab[white] Ausgabe",
 	StatusPasswordInput: "[yellow]Passworteingabe[white] — [aqua]Enter[white] Senden  [aqua]Tab[white] Ausgabe",
 	StatusInputSent:     "[green]Eingabe gesendet[white] — Warte auf Antwort...",
@@ -885,26 +885,24 @@ Erweiterte Funktionen:
 	FmtScriptCompleted:  "Skript %s – Dauer: %v",
 	FmtTitleWithJobs:    "Skriptausgabe %s – %s [%s]",
 	FmtTitleNoJobs:      "Skriptausgabe – %s [%s]",
-	OutputViewerHelp: `Ausgabe-Anzeige Hilfe
+OutputViewerHelp: `[yellow]Steuerung:[white]
+  [aqua]Esc[white]          Skript abbrechen und zurück zum Hauptmenü
+  [aqua]q[white]            Zurück (Skript läuft weiter)
+  [aqua]Ctrl+C[white]       Skriptausführung stoppen
+  [aqua]Leertaste[white]    Ausgabe pausieren/fortsetzen
+  [aqua]f[white]            Auto-Scrollen toggle
+  [aqua]t[white]            Zeitstempel toggle
+  [aqua]s[white]            Quelle (stdout/stderr) toggle
+  [aqua]/[white]            Ausgabe durchsuchen
+  [aqua]c[white]            Anzeige leeren
+  [aqua]G[white]            Zum Ende springen
+  [aqua]g[white]            Zum Anfang springen
 
-Steuerung:
-  Esc          Skript abbrechen und zurück zum Hauptmenü
-  q            Zurück (Skript läuft weiter)
-  Ctrl+C       Skriptausführung stoppen
-  Leertaste    Ausgabe pausieren/fortsetzen
-  f            Auto-Scrollen toggle
-  t            Zeitstempel toggle
-  s            Quelle (stdout/stderr) toggle
-  /            Ausgabe durchsuchen
-  c            Anzeige leeren
-  G            Zum Ende springen
-  g            Zum Anfang springen
-
-Skriptsteuerung:
-  - Skripte können mit Esc abgebrochen werden
-  - q kehrt zurück, während das Skript weiterläuft
-  - Eingaben können an interaktive Skripte gesendet werden
-  - Vollständiger Ausführungsverlauf wird gespeichert`,
+[yellow]Skriptsteuerung:[white]
+  [white]- Skripte können mit [aqua]Esc[white] abgebrochen werden
+  [white]- [aqua]q[white] kehrt zurück, während das Skript weiterläuft
+  [white]- Eingaben können an interaktive Skripte gesendet werden
+  [white]- Vollständiger Ausführungsverlauf wird gespeichert`,
 	FmtHistoricalStatus: "[%s]%s – schreibgeschützt[::-] | Esc=Schließen | Enter=Schließen",
 	FmtReconnected:      "──── Reconnected – zeige letzte %d von %d Zeilen ────",
 	OutputGlobalLine:    "[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Hauptmenü   [aqua]Esc/q[white] Zurück",

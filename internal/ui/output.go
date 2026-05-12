@@ -129,6 +129,9 @@ func (ov *OutputViewer) setupKeyBindings() {
 
 		if event.Key() == tcell.KeyRune {
 			switch event.Rune() {
+			case '?':
+				ov.ShowHelp()
+				return nil
 			case 'q':
 				ov.Stop()
 				if ov.returnToMainCallback != nil {
@@ -804,14 +807,8 @@ func (ov *OutputViewer) GetOutputLines() []executor.OutputLine {
 }
 
 func (ov *OutputViewer) ShowHelp() {
-	helpModal := tview.NewModal().
-		SetText(ov.str.OutputViewerHelp).
-		AddButtons([]string{ov.str.BtnClose}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			ov.pages.RemovePage("output-help")
-		})
-
-	ov.pages.AddPage("output-help", helpModal, true, true)
+	dialog := helpDialog(ov.app, ov.pages, "output-help", ov.str.OutputHelpTitle, ov.str.OutputViewerHelp, ov.str.BtnClose)
+	ov.pages.AddPage("output-help", dialog, true, true)
 }
 
 func (ov *OutputViewer) FocusView() {

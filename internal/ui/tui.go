@@ -1449,16 +1449,72 @@ func (t *TUI) startSearch() {
 	t.app.SetFocus(s.inputField)
 }
 
+// helpDialog creates a centered, left-aligned help dialog using tview primitives
+// instead of tview.Modal (which center-aligns text and cannot left-align).
+func helpDialog(app *tview.Application, pages *tview.Pages, pageName, title, helpText, btnLabel string) tview.Primitive {
+	textView := tview.NewTextView().
+		SetDynamicColors(true).
+		SetScrollable(true).
+		SetWrap(true).
+		SetText(helpText).
+		SetTextAlign(tview.AlignLeft)
+	textView.
+		SetBorder(true).
+		SetTitle(title).
+		SetTitleColor(tcell.ColorWhite).
+		SetBorderColor(tcell.ColorCornflowerBlue)
+
+	closeBtn := tview.NewButton(btnLabel).
+		SetSelectedFunc(func() {
+			pages.RemovePage(pageName)
+		})
+	closeBtn.SetLabelColor(tcell.ColorWhite)
+	closeBtn.Box.SetBackgroundColor(tcell.ColorSteelBlue)
+
+	// Button row: center the button horizontally
+	btnRow := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(nil, 0, 1, false).
+		AddItem(closeBtn, 10, 0, true).
+		AddItem(nil, 0, 1, false)
+
+	// Inner container: text on top, button row on bottom
+	inner := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(textView, 0, 1, true).
+		AddItem(btnRow, 1, 0, false)
+
+	// Center the dialog horizontally (~40% width)
+	dialog := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(nil, 0, 3, false).
+		AddItem(inner, 0, 4, true).
+		AddItem(nil, 0, 3, false)
+
+	// Center the dialog vertically (~60% height)
+	root := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).
+		AddItem(dialog, 0, 3, true).
+		AddItem(nil, 0, 1, false)
+
+	// Close on Esc, Enter, or q
+	root.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyEscape, tcell.KeyEnter:
+			pages.RemovePage(pageName)
+			return nil
+		}
+		if event.Key() == tcell.KeyRune && event.Rune() == 'q' {
+			pages.RemovePage(pageName)
+			return nil
+		}
+		return event
+	})
+
+	return root
+}
+
 // showHelp displays help information
 func (t *TUI) showHelp() {
-	helpModal := tview.NewModal().
-		SetText(t.str.HelpText).
-		AddButtons([]string{t.str.BtnClose}).
-		SetDoneFunc(func(buttonIndex int, buttonLabel string) {
-			t.pages.RemovePage("help")
-		})
-
-	t.pages.AddPage("help", helpModal, true, true)
+	dialog := helpDialog(t.app, t.pages, "help", t.str.HelpTitle, t.str.HelpText, t.str.BtnClose)
+	t.pages.AddPage("help", dialog, true, true)
 }
 
 // updateInfoPanel updates the informational panel with context-sensitive content
@@ -1472,7 +1528,7 @@ func (t *TUI) updateInfoPanel() {
 		content.WriteString(t.str.InfoCatLine2)
 	case t.taskPane:
 		if t.currentCategory != "" {
-		fmt.Fprintf(&content, t.str.FmtInfoTaskLine1, t.currentCategory)
+		content.WriteString(t.str.FmtInfoTaskLine1)
 		} else {
 			content.WriteString(t.str.InfoTaskNoCatLine1)
 		}
