@@ -2,10 +2,7 @@
 
 <div align="center">
 
-<a href="https://github.com/fortifyde/NetUtility/actions/workflows/ci.yml"><img src="https://github.com/fortifyde/NetUtility/actions/workflows/ci.yml/badge.svg" alt="Build"></a>
-<img src="https://img.shields.io/github/go-mod/go-version/fortifyde/NetUtility" alt="Go">
-<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
-
+<a href="https://github.com/fortifyde/NetUtility/actions/workflows/ci.yml"><img src="https://github.com/fortifyde/NetUtility/actions/workflows/ci.yml/badge.svg" alt="Build"></a> <img src="https://img.shields.io/github/go-mod/go-version/fortifyde/NetUtility" alt="Go"> <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
 </div>
 
 Terminal-based network assessment toolkit for Linux — traffic capture, VLAN discovery, host categorization, port/service enumeration, and vulnerability scanning through an interactive TUI and CLI.
