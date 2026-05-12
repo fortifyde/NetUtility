@@ -384,34 +384,33 @@ var stringsEN = &Strings{
 
 	// Help
 HelpText: `[yellow]Navigation:[white]
-  [aqua]Tab[white]          Switch between categories and scripts
-  [aqua]Enter[white]        Select category or execute script
-  [aqua]Escape, q[white]    Quit application
+  [aqua]↑/↓ or j/k[white]    Move within current panel
+  [aqua]←/→ or h/l[white]    Switch panels
 
-[yellow]Vim-like Keys:[white]
-  [aqua]h[white]            Focus categories (left panel)
-  [aqua]l[white]            Focus scripts (right panel)
-  [aqua]j[white]            Move down in current panel
-  [aqua]k[white]            Move up in current panel
+[yellow]Actions:[white]
+  [aqua]Enter[white]          Execute selected script
+  [aqua]Esc[white] / [aqua]q[white]       Quit
+  [aqua]/[white]              Search scripts
+  [aqua]?[white]              Toggle this help
 
-[yellow]Search:[white]
-  [aqua]/[white]            Start search mode
+[yellow]Global (any view):[white]
+  [aqua]Ctrl+J[white]         Job manager
+  [aqua]Ctrl+D[white]         Dashboard
+  [aqua]Ctrl+N[white]         Host inventory
+  [aqua]Ctrl+Z[white]         Return to main
 
-[yellow]Global (work from any view):[white]
-  [aqua]Ctrl+J[white]       Job manager
-  [aqua]Ctrl+D[white]       Dashboard
-  [aqua]Ctrl+N[white]       Host inventory
-  [aqua]Ctrl+Z[white]       Return to main screen
+[yellow]Host Inventory ([aqua]Ctrl+N[white]):[white]
+  [white][aqua]Space[white]  Categorize host   [aqua]/[white] Search   [aqua]f[white] Filter
+  [white][aqua]p[white]      Package hostfiles  [aqua]t[white] Topology map
 
-[yellow]Advanced Features:[white]
-  [white]- Up to 3 scripts can run concurrently
-  [white]- Additional scripts are queued automatically
-  [white]- Use [aqua]Ctrl+J[white] to view running, queued, and completed jobs
-  [white]- Use [aqua]Ctrl+N[white] to view correlated host inventory
+[yellow]Job Manager ([aqua]Ctrl+J[white]):[white]
+  [white][aqua]1-9[white]    Set concurrency   [aqua]c[white] Cancel   [aqua]C[white] Clear done
 
-[yellow]Mouse:[white]
-  [aqua]Click[white]        Select items
-  [aqua]Scroll[white]       Navigate lists`,
+[yellow]Tips:[white]
+  [white]- Scripts run concurrently (adjust with [aqua]1-9[white] in Job Manager)
+  [white]- Excess scripts queue automatically
+  [white]- Scripts are auto-discovered from .meta.yaml files
+  [white]- The Assessment Checklist scans script results to provide a workflow overview of typical assessment tasks`,
 	HelpTitle:       "Help",
 	OutputHelpTitle: "Output Viewer Help",
 
@@ -675,7 +674,7 @@ OutputViewerHelp: `[yellow]Controls:[white]
 	TopoNoData:    "No correlation data available.\nRun discovery scans first.",
 
 	// Main view panels
-	PaneTitleAssessment:        "Assessment",
+	PaneTitleAssessment:        "Assessment Checklist",
 	AssessmentPhaseCapture:     "Capture",
 	AssessmentPhaseSysConfig:   "System Configuration",
 	AssessmentPhaseDiscovery:   "Discovery Scans",
@@ -738,30 +737,33 @@ var stringsDE = &Strings{
 
 	// Help
 HelpText: `[yellow]Navigation:[white]
-  [aqua]Tab[white]          Zwischen Kategorien und Skripten wechseln
-  [aqua]Enter[white]        Kategorie auswählen oder Skript ausführen
-  [aqua]Escape, q[white]    Anwendung beenden
+  [aqua]↑/↓ oder j/k[white]    Im aktuellen Panel bewegen
+  [aqua]←/→ oder h/l[white]    Panels wechseln
 
-[yellow]Vim-Tasten:[white]
-  [aqua]h[white]            Kategorien fokussieren (linkes Panel)
-  [aqua]l[white]            Skripte fokussieren (rechtes Panel)
-  [aqua]j[white]            Im aktuellen Panel nach unten
-  [aqua]k[white]            Im aktuellen Panel nach oben
+[yellow]Aktionen:[white]
+  [aqua]Enter[white]            Ausgewähltes Skript ausführen
+  [aqua]Esc[white] / [aqua]q[white]         Beenden
+  [aqua]/[white]                Skripte suchen
+  [aqua]?[white]                Diese Hilfe anzeigen
 
-[yellow]Suche:[white]
-  [aqua]/[white]            Suchmodus starten
+[yellow]Global (jede Ansicht):[white]
+  [aqua]Ctrl+J[white]           Job-Verwaltung
+  [aqua]Ctrl+D[white]           Dashboard
+  [aqua]Ctrl+N[white]           Host-Inventar
+  [aqua]Ctrl+Z[white]           Zurück zum Hauptmenü
 
-[yellow]Global (von überall):[white]
-  [aqua]Ctrl+J[white]       Job-Verwaltung
-  [aqua]Ctrl+D[white]       Dashboard
-  [aqua]Ctrl+N[white]       Host-Inventar
-  [aqua]Ctrl+Z[white]       Zurück zum Hauptmenü
+[yellow]Host-Inventar ([aqua]Ctrl+N[white]):[white]
+  [white][aqua]Leertaste[white]  Host kategorisieren   [aqua]/[white] Suchen   [aqua]f[white] Filter
+  [white][aqua]p[white]          Hostdateienpaket erstellen  [aqua]t[white] Topologieplan erstellen
 
-[yellow]Erweiterte Funktionen:[white]
-  [white]- Bis zu 3 Skripte können gleichzeitig laufen
-  [white]- Weitere Skripte werden automatisch eingereiht
-  [white]- [aqua]Ctrl+J[white] zum Anzeigen laufender, wartender und abgeschlossener Jobs
-  [white]- [aqua]Ctrl+N[white] zum Anzeigen des Host-Inventars`,
+[yellow]Job-Verwaltung ([aqua]Ctrl+J[white]):[white]
+  [white][aqua]1-9[white]    Parallelität setzen   [aqua]c[white] Abbrechen   [aqua]C[white] Fertige löschen
+
+[yellow]Tipps:[white]
+  [white]- Skripte laufen parallel (einstellbar mit [aqua]1-9[white] in Job-Verwaltung)
+  [white]- Zusätzliche Skripte werden automatisch eingereiht
+  [white]- Skripte werden aus .meta.yaml-Dateien automatisch erkannt
+  [white]- Die Prüfungs-Checkliste wertet Skriptergebnisse aus und bietet eine Workflow-Übersicht typischer Prüfungsaufgaben`,
 	HelpTitle:       "Hilfe",
 	OutputHelpTitle: "Ausgabe-Hilfe",
 
@@ -1017,7 +1019,7 @@ OutputViewerHelp: `[yellow]Steuerung:[white]
 	TopoNoData:    "Keine Korrelationsdaten vorhanden.\nZuerst Discovery-Scans ausführen.",
 
 	// Main view panels
-	PaneTitleAssessment:        "Assessment",
+	PaneTitleAssessment:        "Prüfungs-Checkliste",
 	AssessmentPhaseCapture:     "Mitschnitt",
 	AssessmentPhaseSysConfig:   "Systemkonfiguration",
 	AssessmentPhaseDiscovery:   "Discovery-Scans",
