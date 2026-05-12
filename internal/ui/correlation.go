@@ -262,7 +262,7 @@ func (cv *CorrelationViewer) setupUI() {
 	// Layout: Left panel (hosts table), Right panel (details + controls)
 	rightPanel := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(cv.detailsPanel, 0, 1, false).
-		AddItem(cv.controlsText, 8, 0, false)
+		AddItem(cv.controlsText, 10, 0, false)
 
 	cv.SetDirection(tview.FlexColumn).
 		AddItem(cv.hostsList, 0, 3, true).

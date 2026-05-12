@@ -118,7 +118,7 @@ func (d *Dashboard) setupUI() {
 	d.SetDirection(tview.FlexRow).
 		AddItem(topRow, 0, 2, false).
 		AddItem(middleRow, 0, 2, false).
-		AddItem(bottomRow, 3, 0, false)
+		AddItem(bottomRow, 4, 0, false)
 
 	d.setupKeyBindings()
 	d.updateDashboard()

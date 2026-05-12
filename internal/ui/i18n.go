@@ -165,6 +165,7 @@ type Strings struct {
 	OutputViewerHelp    string
 	FmtHistoricalStatus string // Sprintf(fmt, colorName, statusStr)
 	FmtReconnected      string // Sprintf(fmt, maxLines, totalLines)
+	OutputGlobalLine     string
 
 	// ── Dashboard ─────────────────────────────────────────────────────────────
 	DashControlsText     string
@@ -362,13 +363,13 @@ var stringsEN = &Strings{
 	FmtHeaderText: "[cyan::b]%s[white::-] [green]%s[white]\n[gray]Network Assessment Toolkit[-]\n\n[yellow]Keys:[white] [cyan]Tab[white]=Switch [cyan]hjkl[white]=Navigate [cyan]/[white]=Search [cyan]Ctrl+J[white]=Jobs [cyan]Ctrl+N[white]=Hosts [cyan]Ctrl+D[white]=Dashboard [cyan]q[white]=Quit",
 
 	// Info panel
-	InfoCatLine1:       "[yellow]Categories:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Select [white]Tab/l[::-]=Scripts [white]/[::-]=Search [white]?[::-]=Help [white]q[::-]=Quit\n",
-	InfoCatLine2:       "[yellow]Global:[::-]     [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Main",
-	FmtInfoTaskLine1:   "[yellow]%s:[::-] [white]↑↓/jk[::-]=Navigate [white]Enter[::-]=Execute [white]Tab/h[::-]=Categories [white]/[::-]=Search\n",
-	InfoTaskNoCatLine1: "[yellow]Scripts:[::-] Select a category first  [white]Tab/h[::-]=Categories [white]/[::-]=Search\n",
-	InfoGlobalLine:     "[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Main [white]q[::-]=Quit",
-	InfoDefaultLine1:   "[yellow]Navigate:[::-] [white]Tab[::-]=Switch [white]h[::-]=Categories [white]l[::-]=Scripts [white]j/k[::-]=Move [white]/[::-]=Search [white]?[::-]=Help\n",
-	InfoDefaultLine2:   "[yellow]Global:[::-]   [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Main [white]q[::-]=Quit",
+	InfoCatLine1:       "[aqua]↑↓←→/hjkl[white] Navigate  [aqua]Enter[white] Select  [aqua]Tab[white] Switch  [aqua]/[white] Search  [aqua]?[white] Help  [aqua]Esc/q[white] Quit\n",
+	InfoCatLine2:       "[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Main",
+	FmtInfoTaskLine1:   "[aqua]↑↓←→/hjkl[white] Navigate  [aqua]Enter[white] Execute  [aqua]Tab[white] Switch  [aqua]/[white] Search  [aqua]?[white] Help  [aqua]Esc/q[white] Quit\n",
+	InfoTaskNoCatLine1: "[aqua]Tab[white] Switch to categories  [aqua]/[white] Search  [aqua]?[white] Help  [aqua]Esc/q[white] Quit\n",
+	InfoGlobalLine:     "[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Main",
+	InfoDefaultLine1:   "[aqua]↑↓←→/hjkl[white] Move  [aqua]Tab[white] Switch  [aqua]/[white] Search  [aqua]?[white] Help\n",
+	InfoDefaultLine2:   "[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Main   [aqua]Esc/q[white] Quit",
 
 	// Task pane
 	FmtTasksTitle: "Scripts - %s",
@@ -377,7 +378,7 @@ var stringsEN = &Strings{
 	SearchLabel: "Search: ",
 
 	// Subtask modal
-	SubtaskSelectOp: "Select an operation:",
+	SubtaskSelectOp: "Select a script:",
 
 	// Help
 	HelpText: `NetUtility TUI Help
@@ -494,13 +495,8 @@ Mouse:
 	JobsHeaderStatus:   "Status",
 	JobsHeaderDuration: "Duration",
 	JobsHeaderProgress: "Progress",
-	JobsControlsText: `[yellow]Controls:[::-]
-[white]Enter[::-]    View job output
-[white]c[::-]        Cancel selected job
-[white]C[::-]        Clear completed jobs
-[white]1-9[::-]      Set max concurrent jobs
-[white]q[::-]        Close
-[yellow]Global:[::-] [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+N[::-]=Hosts  [white]Ctrl+Z[::-]=Main`,
+	JobsControlsText: `[aqua]↑↓[white] Navigate  [aqua]Enter[white] View Output  [aqua]c[white] Cancel  [aqua]C[white] Clear Done  [aqua]1-9[white] Max Jobs  [aqua]Esc/q[white] Close
+[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Main`,
 	FmtJobStats: `[white]Total Jobs:[::-]      %d
 [green]Running:[::-]         %d/%d
 [blue]Pending:[::-]         %d
@@ -526,14 +522,14 @@ Mouse:
 	FmtShowErrorPrefix:  "Error: %s",
 
 	// Output viewer
-	StatusReady:         "[green]Ready[::-] - Space=Pause f=Follow t=Time s=Source /=Search g/G=Scroll | q=Back Esc=Cancel",
-	StatusInputMode:     "[yellow]Input Mode[::-] - Enter=Submit Tab=View | q=Back Esc=Cancel",
-	StatusViewMode:      "[green]View Mode[::-] - Tab=Input Space=Pause f=Follow t=Time s=Source /=Search g/G=Scroll | q=Back Esc=Cancel",
-	StatusWaitingInput:  "[yellow]Waiting for input[::-] - Enter=Submit Tab=View | q=Back Esc=Cancel",
-	StatusPasswordInput: "[yellow]Password input[::-] - Enter=Submit Tab=View | q=Back Esc=Cancel",
-	StatusInputSent:     "[green]Input sent[::-] - Waiting for response... | q=Back Esc=Cancel",
-	FmtStatusProgress:   "[cyan]%s[white] | q=Back Esc=Cancel",
-	FmtStatusCompletion: "[%s]Enter=Continue | q=Back Esc=Close[::-]",
+	StatusReady:         "[green]Ready[white] — [aqua]Space[white] Pause  [aqua]f[white] Follow  [aqua]t[white] Time  [aqua]s[white] Source  [aqua]/[white] Search  [aqua]g/G[white] Scroll",
+	StatusInputMode:     "[yellow]Input Mode[white] — [aqua]Enter[white] Submit  [aqua]Tab[white] View",
+	StatusViewMode:      "[green]View Mode[white] — [aqua]Tab[white] Input  [aqua]Space[white] Pause  [aqua]f[white] Follow  [aqua]t[white] Time  [aqua]s[white] Source  [aqua]/[white] Search  [aqua]g/G[white] Scroll",
+	StatusWaitingInput:  "[yellow]Waiting for input[white] — [aqua]Enter[white] Submit  [aqua]Tab[white] View",
+	StatusPasswordInput: "[yellow]Password input[white] — [aqua]Enter[white] Submit  [aqua]Tab[white] View",
+	StatusInputSent:     "[green]Input sent[white] — Waiting for response...",
+	FmtStatusProgress:   "[cyan]%s[white] — [aqua]Space[white] Pause  [aqua]f[white] Follow",
+	FmtStatusCompletion: "[%s][aqua]Enter[white] Continue",
 	FmtScriptCompleted:  "Script %s - Duration: %v",
 	FmtTitleWithJobs:    "Script Output %s - %s [%s]",
 	FmtTitleNoJobs:      "Script Output - %s [%s]",
@@ -567,9 +563,10 @@ Script Control:
   - Full execution history is maintained`,
 	FmtHistoricalStatus: "[%s]%s - read-only[::-] | Esc=Close | Enter=Close",
 	FmtReconnected:      "──── Reconnected - showing last %d of %d total lines ────",
+	OutputGlobalLine:    "[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Main   [aqua]Esc/q[white] Back",
 
 	// Dashboard
-	DashControlsText:     "[yellow]Dashboard:[::-] [white]Enter[::-]=Risk Details  [white]q[::-]=Close  [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+N[::-]=Hosts  [white]Ctrl+Z[::-]=Main",
+	DashControlsText:     "[aqua]Enter[white] Risk Details  [aqua]Esc/q[white] Close\n[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Main",
 	DashHeaderScore:      "Score",
 	DashHeaderIP:         "IP",
 	DashHeaderHostname:   "Hostname",
@@ -630,24 +627,24 @@ Script Control:
 	FmtRiskBreakdownService:   "  Service Exposure: [white]%d pts[::-]\n",
 	FmtRiskBreakdownSSL:       "  SSL/TLS Issues:   [white]%d pts[::-]\n",
 	FmtRiskBreakdownPorts:     "  Open Ports:       [white]%d pts[::-]\n\n",
-	FmtRiskFactorCategory:    "\n[white]%s (%d factors):[::-]\n",
+	FmtRiskFactorCategory:    "\n[white]%s (%d findings):[::-]\n",
 	FmtRiskFactorLine:        "  [gray]●[::-] %s [darkgray](%d pts)%s[::-]\n",
 	FmtHostRiskDetailWithHost: "[yellow]Host Risk Details: %s (%s)[::-]%s",
 	FmtHostRiskDetail:         "[yellow]Host Risk Details: %s[::-]%s",
 	FmtRiskDetailTitle:        "Risk Details: %s",
 
 	// Correlation viewer
-	FmtCorrControlsText: `[yellow]Navigation                    Actions[::-]
-[white]Enter[::-]  View host details       [white]s[::-]  View screenshot
-[white]/[::-]      Search hosts            [white]p[::-]  Create Hostfile Package
-[white]Space[::-]  Categorize host         [white]t[::-]  Generate Network Topology
-[white]q[::-]      Close
-%s
+	FmtCorrControlsText: `[yellow]Navigation[white]                    [yellow]Actions[white]
+[aqua]Enter[white]  View host details       [aqua]s[white]  View screenshot
+[aqua]/[white]      Search hosts            [aqua]p[white]  Create Hostfile Package
+[aqua]Space[white]  Categorize host         [aqua]t[white]  Generate Network Topology
+[aqua]f[white]      %s
+[aqua]Esc/q[white]  Close
 
-[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Main`,
-	CorrResetSearch:            "[yellow]f[::-]      Reset search",
-	FmtCorrFilterActiveCat:     "[yellow]f[::-]      Cycle filter: %s",
-	CorrCycleFilter:            "[white]f[::-]      Cycle category filter",
+[gray]Ctrl+J[white] Jobs  [gray]Ctrl+D[white] Dashboard  [gray]Ctrl+N[white] Hosts  [gray]Ctrl+Z[white] Main`,
+	CorrResetSearch:            "Reset search",
+	FmtCorrFilterActiveCat:     "Cycle filter: %s",
+	CorrCycleFilter:            "Cycle category filter",
 	HostColIP:                  "IP",
 	HostColCategory:            "Category",
 	HostColHostname:            "Hostname",
@@ -722,13 +719,13 @@ var stringsDE = &Strings{
 	FmtHeaderText: "[cyan::b]%s[white::-] [green]%s[white]\n[gray]Netzwerk-Analyse-Toolkit[-]\n\n[yellow]Tasten:[white] [cyan]Tab[white]=Wechseln [cyan]hjkl[white]=Navigieren [cyan]/[white]=Suchen [cyan]Ctrl+J[white]=Jobs [cyan]Ctrl+N[white]=Hosts [cyan]Ctrl+D[white]=Dashboard [cyan]q[white]=Beenden",
 
 	// Info panel
-	InfoCatLine1:       "[yellow]Kategorien:[::-] [white]↑↓/jk[::-]=Navigieren [white]Enter[::-]=Auswählen [white]Tab/l[::-]=Skripte [white]/[::-]=Suchen [white]?[::-]=Hilfe [white]q[::-]=Beenden\n",
-	InfoCatLine2:       "[yellow]Global:[::-]     [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Hauptmenü",
-	FmtInfoTaskLine1:   "[yellow]%s:[::-] [white]↑↓/jk[::-]=Navigieren [white]Enter[::-]=Ausführen [white]Tab/h[::-]=Kategorien [white]/[::-]=Suchen\n",
-	InfoTaskNoCatLine1: "[yellow]Skripte:[::-] Zuerst Kategorie auswählen  [white]Tab/h[::-]=Kategorien [white]/[::-]=Suchen\n",
-	InfoGlobalLine:     "[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Hauptmenü [white]q[::-]=Beenden",
-	InfoDefaultLine1:   "[yellow]Navigation:[::-] [white]Tab[::-]=Wechseln [white]h[::-]=Kategorien [white]l[::-]=Skripte [white]j/k[::-]=Bewegen [white]/[::-]=Suchen [white]?[::-]=Hilfe\n",
-	InfoDefaultLine2:   "[yellow]Global:[::-]   [white]Ctrl+J[::-]=Jobs [white]Ctrl+D[::-]=Dashboard [white]Ctrl+N[::-]=Hosts [white]Ctrl+Z[::-]=Hauptmenü [white]q[::-]=Beenden",
+	InfoCatLine1:       "[aqua]↑↓←→/hjkl[white] Navigieren  [aqua]Enter[white] Auswählen  [aqua]Tab[white] Wechseln  [aqua]/[white] Suchen  [aqua]?[white] Hilfe  [aqua]Esc/q[white] Beenden\n",
+	InfoCatLine2:       "[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Hauptmenü",
+	FmtInfoTaskLine1:   "[aqua]↑↓←→/hjkl[white] Navigieren  [aqua]Enter[white] Ausführen  [aqua]Tab[white] Wechseln  [aqua]/[white] Suchen  [aqua]?[white] Hilfe  [aqua]Esc/q[white] Beenden\n",
+	InfoTaskNoCatLine1: "[aqua]Tab[white] Zu Kategorien wechseln  [aqua]/[white] Suchen  [aqua]?[white] Hilfe  [aqua]Esc/q[white] Beenden\n",
+	InfoGlobalLine:     "[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Hauptmenü",
+	InfoDefaultLine1:   "[aqua]↑↓←→/hjkl[white] Bewegen  [aqua]Tab[white] Wechseln  [aqua]/[white] Suchen  [aqua]?[white] Hilfe\n",
+	InfoDefaultLine2:   "[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Hauptmenü   [aqua]Esc/q[white] Beenden",
 
 	// Task pane
 	FmtTasksTitle: "Skripte – %s",
@@ -800,7 +797,7 @@ Erweiterte Funktionen:
 	CatCaptureAnalysis:  "Analyse",
 	CatPortScanning:     "Port-Scans",
 	CatReconnaissance:   "Reconnaissance",
-	CatConfigGathering:  "Konfiguration",
+	CatConfigGathering:  "Konfig-Erfassung",
 
 	// Hardcoded task names
 	TaskSelectWorkDir:              "Arbeitsverzeichnis wählen",
@@ -839,7 +836,7 @@ Erweiterte Funktionen:
 	TaskWebScreenshotDesc:       "Screenshots von erkannten Webdiensten erstellen",
 	TaskExploitSearch:           "Exploit-Suche",
 	TaskExploitSearchDesc:       "Exploit-Datenbanken nach Schwachstellen für erkannte Dienste durchsuchen",
-	TaskDeviceConfigGathering:      "Netzwerkgeräte-Gatherer",
+	TaskDeviceConfigGathering:      "Netzwerkgeräte-Konfig-Erfassung",
 	TaskDeviceConfigGatheringDesc:  "Per SSH zum Gerät verbinden, Hersteller erkennen und Konfiguration sammeln",
 	TaskNetworkCaptureAnalysis:     "Netzwerkmitschnitt-Analyse",
 	TaskNetworkCaptureAnalysisDesc: "VLANs, MAC-Adressen oder Paketmitschnitte analysieren",
@@ -850,13 +847,8 @@ Erweiterte Funktionen:
 	JobsHeaderStatus:   "Status",
 	JobsHeaderDuration: "Dauer",
 	JobsHeaderProgress: "Fortschritt",
-	JobsControlsText: `[yellow]Steuerung:[::-]
-[white]Enter[::-]    Ausgabe anzeigen
-[white]c[::-]        Gewählten Job abbrechen
-[white]C[::-]        Abgeschlossene Jobs löschen
-[white]1-9[::-]      Max. gleichzeitige Jobs setzen
-[white]q[::-]        Schließen
-[yellow]Global:[::-] [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+N[::-]=Hosts  [white]Ctrl+Z[::-]=Hauptmenü`,
+	JobsControlsText: `[aqua]↑↓[white] Navigieren  [aqua]Enter[white] Ausgabe  [aqua]c[white] Abbrechen  [aqua]C[white] Fertige löschen  [aqua]1-9[white] Max Jobs  [aqua]Esc/q[white] Schließen
+[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Hauptmenü`,
 	FmtJobStats: `[white]Jobs gesamt:[::-]      %d
 [green]Laufend:[::-]          %d/%d
 [blue]Ausstehend:[::-]       %d
@@ -882,14 +874,14 @@ Erweiterte Funktionen:
 	FmtShowErrorPrefix:  "Fehler: %s",
 
 	// Output viewer
-	StatusReady:         "[green]Bereit[::-] - Leertaste=Pause f=Folgen t=Zeit s=Quelle /=Suchen g/G=Scrollen | q=Zurück Esc=Abbrechen",
-	StatusInputMode:     "[yellow]Eingabemodus[::-] - Enter=Senden Tab=Ausgabe | q=Zurück Esc=Abbrechen",
-	StatusViewMode:      "[green]Ausgabemodus[::-] - Tab=Eingabe Leertaste=Pause f=Folgen t=Zeit s=Quelle /=Suchen g/G=Scrollen | q=Zurück Esc=Abbrechen",
-	StatusWaitingInput:  "[yellow]Wartet auf Eingabe[::-] - Enter=Senden Tab=Ausgabe | q=Zurück Esc=Abbrechen",
-	StatusPasswordInput: "[yellow]Passworteingabe[::-] - Enter=Senden Tab=Ausgabe | q=Zurück Esc=Abbrechen",
-	StatusInputSent:     "[green]Eingabe gesendet[::-] - Warte auf Antwort... | q=Zurück Esc=Abbrechen",
-	FmtStatusProgress:   "[cyan]%s[white] | q=Zurück Esc=Abbrechen",
-	FmtStatusCompletion: "[%s]Enter=Weiter | q=Zurück Esc=Schließen[::-]",
+	StatusReady:         "[green]Bereit[white] — [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen  [aqua]t[white] Zeit  [aqua]s[white] Quelle  [aqua]/[white] Suchen  [aqua]g/G[white] Scrollen",
+	StatusInputMode:     "[yellow]Eingabemodus[white] — [aqua]Enter[white] Senden  [aqua]Tab[white] Ausgabe",
+	StatusViewMode:      "[green]Ausgabemodus[white] — [aqua]Tab[white] Eingabe  [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen  [aqua]t[white] Zeit  [aqua]s[white] Quelle  [aqua]/[white] Suchen  [aqua]g/G[white] Scrollen",
+	StatusWaitingInput:  "[yellow]Wartet auf Eingabe[white] — [aqua]Enter[white] Senden  [aqua]Tab[white] Ausgabe",
+	StatusPasswordInput: "[yellow]Passworteingabe[white] — [aqua]Enter[white] Senden  [aqua]Tab[white] Ausgabe",
+	StatusInputSent:     "[green]Eingabe gesendet[white] — Warte auf Antwort...",
+	FmtStatusProgress:   "[cyan]%s[white] — [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen",
+	FmtStatusCompletion: "[%s][aqua]Enter[white] Weiter",
 	FmtScriptCompleted:  "Skript %s – Dauer: %v",
 	FmtTitleWithJobs:    "Skriptausgabe %s – %s [%s]",
 	FmtTitleNoJobs:      "Skriptausgabe – %s [%s]",
@@ -915,9 +907,10 @@ Skriptsteuerung:
   - Vollständiger Ausführungsverlauf wird gespeichert`,
 	FmtHistoricalStatus: "[%s]%s – schreibgeschützt[::-] | Esc=Schließen | Enter=Schließen",
 	FmtReconnected:      "──── Reconnected – zeige letzte %d von %d Zeilen ────",
+	OutputGlobalLine:    "[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Hauptmenü   [aqua]Esc/q[white] Zurück",
 
 	// Dashboard
-	DashControlsText:     "[yellow]Dashboard:[::-] [white]Enter[::-]=Risikodetails  [white]q[::-]=Schließen  [yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+N[::-]=Hosts  [white]Ctrl+Z[::-]=Hauptmenü",
+	DashControlsText:     "[aqua]Enter[white] Risikodetails  [aqua]Esc/q[white] Schließen\n[gray]Ctrl+J[white] Jobs   [gray]Ctrl+D[white] Dashboard   [gray]Ctrl+N[white] Hosts   [gray]Ctrl+Z[white] Hauptmenü",
 	DashHeaderScore:      "Punkte",
 	DashHeaderIP:         "IP",
 	DashHeaderHostname:   "Hostname",
@@ -943,7 +936,7 @@ Skriptsteuerung:
 	DashNoActivityYet:           "[gray]Noch keine Jobs ausgeführt.[::-]\n[gray]Starte Discovery-Scan[::-]\n[gray]über das Skripte-Menü.[::-]\n",
 	DashNoHostsDiscovered:       "[gray]Noch keine Hosts erkannt.[::-]\n",
 	DashRiskDistHeading:         "[yellow]Risikoverteilung[::-]\n",
-	DashSevSummaryHeading:       "\n[yellow]Severity-Übersicht[::-]\n",
+	DashSevSummaryHeading:       "\n[yellow]Schweregrad-Übersicht[::-]\n",
 	DashBySourceHeading:         "\n[yellow]Weitere Tools:[::-]\n",
 	FmtDashNiktoFindings:        "  Nikto:     [white]%d Befunde[::-]\n",
 	FmtDashSSLIssues:            "  SSL/TLS:   [white]%d Probleme[::-]\n",
@@ -985,17 +978,17 @@ Skriptsteuerung:
 	FmtRiskDetailTitle:        "Risikodetails: %s",
 
 	// Correlation viewer
-	FmtCorrControlsText: `[yellow]Navigation                     Aktionen[::-]
-[white]Enter[::-]  Host-Details anzeigen   [white]s[::-]  Screenshot anzeigen
-[white]/[::-]      Hosts suchen            [white]p[::-]  Hostfile-Paket erstellen
-[white]Space[::-]  Host kategorisieren     [white]t[::-]  Netzwerktopologie erstellen
-[white]q[::-]      Schließen
-%s
+	FmtCorrControlsText: `[yellow]Navigation[white]                     [yellow]Aktionen[white]
+[aqua]Enter[white]  Host-Details anzeigen   [aqua]s[white]  Screenshot anzeigen
+[aqua]/[white]      Hosts suchen            [aqua]p[white]  Hostfile-Paket erstellen
+[aqua]Space[white]  Host kategorisieren     [aqua]t[white]  Netzwerktopologie erstellen
+[aqua]f[white]      %s
+[aqua]Esc/q[white]  Schließen
 
-[yellow]Global:[::-] [white]Ctrl+J[::-]=Jobs  [white]Ctrl+D[::-]=Dashboard  [white]Ctrl+Z[::-]=Hauptmenü`,
-	CorrResetSearch:            "[yellow]f[::-]      Suche zurücksetzen",
-	FmtCorrFilterActiveCat:     "[yellow]f[::-]      Filter wechseln: %s",
-	CorrCycleFilter:            "[white]f[::-]      Kategoriefilter wechseln",
+[gray]Ctrl+J[white] Jobs  [gray]Ctrl+D[white] Dashboard  [gray]Ctrl+N[white] Hosts  [gray]Ctrl+Z[white] Hauptmenü`,
+	CorrResetSearch:            "Suche zurücksetzen",
+	FmtCorrFilterActiveCat:     "Filter wechseln: %s",
+	CorrCycleFilter:            "Kategoriefilter wechseln",
 	HostColIP:                  "IP",
 	HostColCategory:            "Kategorie",
 	HostColHostname:            "Hostname",
@@ -1032,7 +1025,7 @@ Skriptsteuerung:
 	AssessmentPhaseDiscovery:   "Discovery-Scans",
 	AssessmentPhaseCategorize:  "Host-Kategorisierung",
 	AssessmentPhasePortVuln:    "Port/Vuln-Scans",
-	AssessmentPhaseDevConfig:   "Gerätekonfiguration",
+	AssessmentPhaseDevConfig:   "Geräte-Konfig-Erfassung",
 	FmtAssessmentUncategorized: "(%d unkategorisiert)",
 
 	PaneTitleActiveJobsPanel: "Aktive Jobs",

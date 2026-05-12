@@ -82,14 +82,17 @@ func (jv *JobsViewer) setupUI() {
 	jv.controlsText.SetBorder(true).SetTitle(jv.str.PaneTitleControls)
 	jv.controlsText.SetText(jv.str.JobsControlsText)
 
-	// Layout: Left panel (table), Right panel (stats + controls)
+	// Layout: Left panel (table), Right panel (stats), Bottom bar (controls)
 	rightPanel := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(jv.statsText, 0, 1, false).
-		AddItem(jv.controlsText, 9, 0, false)
+		AddItem(jv.statsText, 0, 1, false)
 
-	jv.SetDirection(tview.FlexColumn).
+	contentRow := tview.NewFlex().SetDirection(tview.FlexColumn).
 		AddItem(jv.jobsList, 0, 2, true).
 		AddItem(rightPanel, 30, 0, false)
+
+	jv.SetDirection(tview.FlexRow).
+		AddItem(contentRow, 0, 1, true).
+		AddItem(jv.controlsText, 4, 0, false)
 
 	// Setup key bindings
 	jv.setupKeyBindings()

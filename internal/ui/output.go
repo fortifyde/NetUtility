@@ -23,6 +23,7 @@ type OutputViewer struct {
 	outputView *tview.TextView
 	inputField *tview.InputField
 	statusLine *tview.TextView
+	globalLine *tview.TextView
 
 	executor     *executor.StreamingExecutor
 	result       *executor.StreamingResult
@@ -69,11 +70,16 @@ func NewOutputViewer(app *tview.Application, pages *tview.Pages, jobManager *job
 		SetDynamicColors(true).
 		SetText(str.StatusReady)
 
+	globalLine := tview.NewTextView().
+		SetDynamicColors(true).
+		SetText(str.OutputGlobalLine)
+
 	flex := tview.NewFlex().
 		SetDirection(tview.FlexRow).
 		AddItem(outputView, 0, 1, true).
 		AddItem(statusLine, 1, 0, false).
-		AddItem(inputField, 1, 0, false)
+		AddItem(inputField, 1, 0, false).
+		AddItem(globalLine, 1, 0, false)
 
 	ov := &OutputViewer{
 		Flex:                 flex,
@@ -83,6 +89,7 @@ func NewOutputViewer(app *tview.Application, pages *tview.Pages, jobManager *job
 		outputView:           outputView,
 		inputField:           inputField,
 		statusLine:           statusLine,
+		globalLine:           globalLine,
 		showTimestamp:        true,
 		showSource:           false,
 		maxLines:             1000,
