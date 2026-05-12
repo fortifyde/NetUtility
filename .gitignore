@@ -16,3 +16,6 @@ lab/.terraform/
 .worktrees/
 bin/
 fileserver
+
+# Demo recording helper (local-use script)
+/scripts/record_demo.sh

@@ -8,7 +8,11 @@
 
 </div>
 
-Terminal-based network assessment toolkit for Linux. Handles traffic capture, VLAN discovery, host categorization, port/service enumeration, and vulnerability scanning with an interactive TUI and CLI interface.
+Terminal-based network assessment toolkit for Linux — traffic capture, VLAN discovery, host categorization, port/service enumeration, and vulnerability scanning through an interactive TUI and CLI.
+
+<div align="center">
+<img src="assets/demo.gif" alt="NetUtility TUI demo" width="800">
+</div>
 
 ## TUI Features
 
