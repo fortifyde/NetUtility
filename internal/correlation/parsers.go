@@ -402,8 +402,8 @@ func (rp *ResultParser) parseVulnerabilityScan(result *ScanResult, content strin
 			title := line
 
 			// Determine severity from keywords
-			if strings.Contains(lineLower, "critical") {
-				severity = "critical"
+			if strings.Contains(lineLower, severityCritical) {
+				severity = severityCritical
 			} else if strings.Contains(lineLower, "high") {
 			severity = severityHigh
 			} else if strings.Contains(lineLower, "low") {
@@ -1236,7 +1236,7 @@ func commonPrefix(a, b string) string {
 // severityRank returns a numeric rank for comparing severities.
 func severityRank(sev string) int {
 	switch strings.ToLower(sev) {
-	case "critical":
+	case severityCritical:
 		return 4
 	case severityHigh:
 		return 3
@@ -1318,7 +1318,7 @@ func (rp *ResultParser) parseSSLScanProtocolLine(result *ScanResult, ip string, 
 			Port:        port,
 			Title:       fmt.Sprintf("%s enabled", proto),
 			Description: line,
-			Severity:    "critical",
+			Severity:    severityCritical,
 			Source:      "sslscan",
 			Discovery:   result.Timestamp,
 		})
@@ -1536,7 +1536,7 @@ func (rp *ResultParser) detectSSLProtocolVulns(result *ScanResult, ip string, po
 				Host:        ip,
 				Port:        port,
 				Title:       fmt.Sprintf("%s enabled", name),
-				Severity:    "critical",
+				Severity:    severityCritical,
 				Source:      "sslscan",
 				Discovery:   result.Timestamp,
 			})

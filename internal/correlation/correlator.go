@@ -18,9 +18,10 @@ import (
 const scanTypeSSLScan = "sslscan"
 
 const (
-	severityHigh   = "high"
-	severityMedium = "medium"
-	subtypeSwitch  = "switch"
+	severityCritical = "critical"
+	severityHigh     = "high"
+	severityMedium   = "medium"
+	subtypeSwitch    = "switch"
 )
 
 // ScanType represents different types of network scans
@@ -635,7 +636,7 @@ func (c *Correlator) scoreVulnerabilities(correlation *CorrelationResult, factor
 		var pts int
 		sev := strings.ToLower(vuln.Severity)
 		switch sev {
-		case "critical":
+		case severityCritical:
 			if criticalCount < 2 {
 				pts = 150
 			}
@@ -680,7 +681,7 @@ func (c *Correlator) scoreSSLIssues(correlation *CorrelationResult, factors *[]R
 		var pts int
 		sev := strings.ToLower(vuln.Severity)
 		switch sev {
-		case "critical":
+		case severityCritical:
 			pts = 100
 		case severityHigh:
 			pts = 50
@@ -804,7 +805,7 @@ func (c *Correlator) generateRecommendations(correlation *CorrelationResult) []s
 	for _, vuln := range correlation.Vulnerabilities {
 		sev := strings.ToLower(vuln.Severity)
 		switch sev {
-		case "critical":
+		case severityCritical:
 			if vuln.Source == scanTypeSSLScan || vuln.Source == string(ScanTypeTestSSL) {
 			} else {
 				criticalCount++

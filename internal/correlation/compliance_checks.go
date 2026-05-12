@@ -36,8 +36,8 @@ func worstSeverity(findings []ComplianceFinding) string {
 	worst := ""
 	for _, f := range findings {
 		switch f.Severity {
-		case "critical":
-			return "critical"
+		case severityCritical:
+			return severityCritical
 		case "warning":
 			worst = "warning"
 		case "ok":
@@ -72,7 +72,7 @@ var reTelnetEnabled = regexp.MustCompile(`(?m)^\s*transport input\s+(telnet|all)
 
 func checkTelnet(cfg string) ComplianceFinding {
 	if reTelnetEnabled.MatchString(cfg) {
-		return ComplianceFinding{"Telnet enabled", "critical", "VTY line allows telnet (transport input telnet/all)"}
+		return ComplianceFinding{"Telnet enabled", severityCritical, "VTY line allows telnet (transport input telnet/all)"}
 	}
 	return ComplianceFinding{"Telnet disabled", "ok", ""}
 }
@@ -84,7 +84,7 @@ func checkHTTPServer(cfg string) ComplianceFinding {
 	for _, l := range lines {
 		t := strings.TrimSpace(l)
 		if t == "ip http server" {
-			return ComplianceFinding{"HTTP management server enabled", "critical", "\"ip http server\" enables unencrypted management access"}
+			return ComplianceFinding{"HTTP management server enabled", severityCritical, "\"ip http server\" enables unencrypted management access"}
 		}
 	}
 	return ComplianceFinding{"HTTP management server disabled", "ok", ""}
@@ -95,7 +95,7 @@ var reDefaultSNMP = regexp.MustCompile(`(?mi)^\s*snmp-server community\s+(public
 
 func checkDefaultSNMP(cfg string) ComplianceFinding {
 	if reDefaultSNMP.MatchString(cfg) {
-		return ComplianceFinding{"Default SNMP community", "critical", "SNMP community \"public\" or \"private\" configured"}
+		return ComplianceFinding{"Default SNMP community", severityCritical, "SNMP community \"public\" or \"private\" configured"}
 	}
 	return ComplianceFinding{"SNMP community strings", "ok", ""}
 }
@@ -237,13 +237,13 @@ func checkHPComware(cfg string) []ComplianceFinding {
 	var out []ComplianceFinding
 	// Telnet: look for "user-interface vty" block with "protocol inbound telnet"
 	if reComwareTelnet.MatchString(cfg) {
-		out = append(out, ComplianceFinding{"Telnet enabled", "critical", "\"protocol inbound telnet\" in user-interface vty"})
+		out = append(out, ComplianceFinding{"Telnet enabled", severityCritical, "\"protocol inbound telnet\" in user-interface vty"})
 	} else {
 		out = append(out, ComplianceFinding{"Telnet disabled", "ok", ""})
 	}
 	// SNMP default communities
 	if reComwareSNMP.MatchString(cfg) {
-		out = append(out, ComplianceFinding{"Default SNMP community", "critical", "SNMP community \"public\" or \"private\" configured"})
+		out = append(out, ComplianceFinding{"Default SNMP community", severityCritical, "SNMP community \"public\" or \"private\" configured"})
 	} else {
 		out = append(out, ComplianceFinding{"SNMP community strings", "ok", ""})
 	}
@@ -274,13 +274,13 @@ func checkArubaCX(cfg string) []ComplianceFinding {
 	var out []ComplianceFinding
 	// Telnet
 	if reArubaCXTelnet.MatchString(cfg) {
-		out = append(out, ComplianceFinding{"Telnet enabled", "critical", "\"telnet-server\" found in running config"})
+		out = append(out, ComplianceFinding{"Telnet enabled", severityCritical, "\"telnet-server\" found in running config"})
 	} else {
 		out = append(out, ComplianceFinding{"Telnet disabled", "ok", ""})
 	}
 	// SNMP default communities
 	if reArubaCXSNMP.MatchString(cfg) {
-		out = append(out, ComplianceFinding{"Default SNMP community", "critical", "SNMP community \"public\" or \"private\" configured"})
+		out = append(out, ComplianceFinding{"Default SNMP community", severityCritical, "SNMP community \"public\" or \"private\" configured"})
 	} else {
 		out = append(out, ComplianceFinding{"SNMP community strings", "ok", ""})
 	}
@@ -311,13 +311,13 @@ func checkArubaSwitch(cfg string) []ComplianceFinding {
 	var out []ComplianceFinding
 	// Telnet
 	if reArubaSwitchTelnet.MatchString(cfg) {
-		out = append(out, ComplianceFinding{"Telnet enabled", "critical", "\"telnet-server\" or \"ip telnet\" found in running config"})
+		out = append(out, ComplianceFinding{"Telnet enabled", severityCritical, "\"telnet-server\" or \"ip telnet\" found in running config"})
 	} else {
 		out = append(out, ComplianceFinding{"Telnet disabled", "ok", ""})
 	}
 	// SNMP default communities
 	if reArubaSwitchSNMP.MatchString(cfg) {
-		out = append(out, ComplianceFinding{"Default SNMP community", "critical", "SNMP community \"public\" or \"private\" configured"})
+		out = append(out, ComplianceFinding{"Default SNMP community", severityCritical, "SNMP community \"public\" or \"private\" configured"})
 	} else {
 		out = append(out, ComplianceFinding{"SNMP community strings", "ok", ""})
 	}
@@ -364,7 +364,7 @@ func checkGeneric(cfg string) []ComplianceFinding {
 	}
 	// Default SNMP communities (keyword pattern works across vendors)
 	if reGenericSNMP.MatchString(cfg) {
-		out = append(out, ComplianceFinding{"Default SNMP community", "critical", "\"public\" or \"private\" SNMP community string detected"})
+		out = append(out, ComplianceFinding{"Default SNMP community", severityCritical, "\"public\" or \"private\" SNMP community string detected"})
 	}
 	return out
 }
