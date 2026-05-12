@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -471,7 +472,9 @@ func (we *WorkflowEngine) executeScriptStep(workflow *Workflow, step *WorkflowSt
 			step.mu.Unlock()
 			return false, j.GetError()
 		case <-timer.C:
-			we.jobManager.CancelJob(job.ID)
+			if err := we.jobManager.CancelJob(job.ID); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: failed to cancel timed-out job %s: %v\n", job.ID, err)
+			}
 			return false, fmt.Errorf("step timed out after %v", timeout)
 		}
 	}

@@ -15,6 +15,15 @@ import (
 	"time"
 )
 
+const scanTypeSSLScan = "sslscan"
+
+const (
+	severityCritical = "critical"
+	severityHigh     = "high"
+	severityMedium   = "medium"
+	subtypeSwitch    = "switch"
+)
+
 // ScanType represents different types of network scans
 type ScanType string
 
@@ -308,76 +317,13 @@ func (c *Correlator) correlateHost(hostIP string) {
 			}
 
 			// Merge screenshot metadata
-			if screenshotsData, ok := result.Metadata["screenshots"]; ok {
-				var screenshots []ScreenshotInfo
-				switch v := screenshotsData.(type) {
-				case []ScreenshotInfo:
-					screenshots = v
-				case []map[string]string:
-					// Produced by MergeScreenshotsIntoCorrelation on a second pass
-					for _, ss := range v {
-						screenshots = append(screenshots, ScreenshotInfo{
-							IP:         hostIP,
-							URL:        ss["url"],
-							File:       ss["file"],
-							StatusCode: ss["status_code"],
-						})
-					}
-				case []interface{}:
-					for _, item := range v {
-						switch s := item.(type) {
-						case ScreenshotInfo:
-							screenshots = append(screenshots, s)
-						case map[string]interface{}:
-							ss := ScreenshotInfo{
-								IP:         getStringFromMap(s, "ip"),
-								URL:        getStringFromMap(s, "url"),
-								File:       getStringFromMap(s, "file"),
-								StatusCode: getStringFromMap(s, "status_code"),
-							}
-							screenshots = append(screenshots, ss)
-						}
-					}
-				}
-
-				var hostScreenshots []ScreenshotInfo
-				for _, ss := range screenshots {
-					if ss.IP == hostIP {
-						hostScreenshots = append(hostScreenshots, ss)
-					}
-				}
-
-				if len(hostScreenshots) > 0 {
-					MergeScreenshotsIntoCorrelation(correlation, hostScreenshots)
-				}
-			}
+			c.mergeScreenshotsFromResult(correlation, result, hostIP)
 
 			// Collect services (merge across multiple scan results, prefer more detail)
-			for _, service := range result.Services {
-				if service.Host != hostIP {
-					continue
-				}
-				key := service.Host + "|" + strconv.Itoa(service.Port) + "|" + service.Protocol
-				if idx, exists := seenServices[key]; exists {
-					c.mergeService(&correlation.Services[idx], service)
-					continue
-				}
-				seenServices[key] = len(correlation.Services)
-				correlation.Services = append(correlation.Services, service)
-			}
+			c.collectServices(correlation, result, hostIP, seenServices)
 
 			// Collect vulnerabilities (deduplicate across multiple scan results)
-			for _, vuln := range result.Vulnerabilities {
-				if vuln.Host != hostIP {
-					continue
-				}
-				key := vuln.Host + "|" + vuln.Title + "|" + vuln.Source + "|" + strconv.Itoa(vuln.Port)
-				if seenVulns[key] {
-					continue
-				}
-				seenVulns[key] = true
-				correlation.Vulnerabilities = append(correlation.Vulnerabilities, vuln)
-			}
+			c.collectVulnerabilities(correlation, result, hostIP, seenVulns)
 		}
 	}
 
@@ -397,6 +343,90 @@ func (c *Correlator) correlateHost(hostIP string) {
 
 	c.correlations[hostIP] = correlation
 	c.applyManualOverrides()
+}
+
+// mergeScreenshotsFromResult extracts screenshot metadata from a scan result
+// and merges any matching the target host into the correlation.
+func (c *Correlator) mergeScreenshotsFromResult(correlation *CorrelationResult, result *ScanResult, hostIP string) {
+	screenshotsData, ok := result.Metadata["screenshots"]
+	if !ok {
+		return
+	}
+
+	var screenshots []ScreenshotInfo
+	switch v := screenshotsData.(type) {
+	case []ScreenshotInfo:
+		screenshots = v
+	case []map[string]string:
+		// Produced by MergeScreenshotsIntoCorrelation on a second pass
+		for _, ss := range v {
+			screenshots = append(screenshots, ScreenshotInfo{
+				IP:         hostIP,
+				URL:        ss["url"],
+				File:       ss["file"],
+				StatusCode: ss["status_code"],
+			})
+		}
+	case []interface{}:
+		for _, item := range v {
+			switch s := item.(type) {
+			case ScreenshotInfo:
+				screenshots = append(screenshots, s)
+			case map[string]interface{}:
+				ss := ScreenshotInfo{
+					IP:         getStringFromMap(s, "ip"),
+					URL:        getStringFromMap(s, "url"),
+					File:       getStringFromMap(s, "file"),
+					StatusCode: getStringFromMap(s, "status_code"),
+				}
+				screenshots = append(screenshots, ss)
+			}
+		}
+	}
+
+	var hostScreenshots []ScreenshotInfo
+	for _, ss := range screenshots {
+		if ss.IP == hostIP {
+			hostScreenshots = append(hostScreenshots, ss)
+		}
+	}
+
+	if len(hostScreenshots) > 0 {
+		MergeScreenshotsIntoCorrelation(correlation, hostScreenshots)
+	}
+}
+
+// collectServices merges services from a scan result into the correlation,
+// deduplicating by host+port+protocol.
+func (c *Correlator) collectServices(correlation *CorrelationResult, result *ScanResult, hostIP string, seenServices map[string]int) {
+	for _, service := range result.Services {
+		if service.Host != hostIP {
+			continue
+		}
+		key := service.Host + "|" + strconv.Itoa(service.Port) + "|" + service.Protocol
+		if idx, exists := seenServices[key]; exists {
+			c.mergeService(&correlation.Services[idx], service)
+			continue
+		}
+		seenServices[key] = len(correlation.Services)
+		correlation.Services = append(correlation.Services, service)
+	}
+}
+
+// collectVulnerabilities deduplicates and appends vulnerabilities from a scan
+// result into the correlation.
+func (c *Correlator) collectVulnerabilities(correlation *CorrelationResult, result *ScanResult, hostIP string, seenVulns map[string]bool) {
+	for _, vuln := range result.Vulnerabilities {
+		if vuln.Host != hostIP {
+			continue
+		}
+		key := vuln.Host + "|" + vuln.Title + "|" + vuln.Source + "|" + strconv.Itoa(vuln.Port)
+		if seenVulns[key] {
+			continue
+		}
+		seenVulns[key] = true
+		correlation.Vulnerabilities = append(correlation.Vulnerabilities, vuln)
+	}
 }
 
 // resultContainsHost checks if a scan result contains information about a host
@@ -520,7 +550,7 @@ func (c *Correlator) mergePorts(existing []Port, new []Port) []Port {
 			if port.Banner != "" && existingPort.Banner == "" {
 				existingPort.Banner = port.Banner
 			}
-			if port.State == "open" {
+			if port.State == portStatusOpen {
 				existingPort.State = port.State
 			}
 			portMap[key] = existingPort
@@ -571,29 +601,52 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 	var breakdown RiskBreakdown
 	factors := make([]RiskFactorDetail, 0)
 
-	// --- Vulnerability factor (max 500) ---
-	// sslscan and testssl findings are handled separately in the SSL factor below.
-	vulnScore := 0
+	vulnScore := c.scoreVulnerabilities(correlation, &factors)
+	breakdown.VulnerabilityScore = vulnScore
+
+	sslScore := c.scoreSSLIssues(correlation, &factors)
+	breakdown.SSLIssues = sslScore
+
+	svcScore := c.scoreServiceExposure(correlation, &factors)
+	breakdown.ServiceExposure = svcScore
+
+	portScore := c.scoreOpenPorts(correlation, &factors)
+	breakdown.OpenPortScore = portScore
+
+	total := vulnScore + sslScore + svcScore + portScore
+	if total > 1000 {
+		total = 1000
+	}
+	breakdown.Total = total
+	breakdown.Factors = factors
+
+	return breakdown
+}
+
+// scoreVulnerabilities computes the vulnerability sub-score (max 500) from
+// non-SSL scan findings.
+func (c *Correlator) scoreVulnerabilities(correlation *CorrelationResult, factors *[]RiskFactorDetail) int {
+	score := 0
 	criticalCount := 0
 	highCount := 0
 	for _, vuln := range correlation.Vulnerabilities {
-		if vuln.Source == "sslscan" || vuln.Source == "testssl" {
+		if vuln.Source == scanTypeSSLScan || vuln.Source == string(ScanTypeTestSSL) {
 			continue
 		}
 		var pts int
 		sev := strings.ToLower(vuln.Severity)
 		switch sev {
-		case "critical":
+		case severityCritical:
 			if criticalCount < 2 {
 				pts = 150
 			}
 			criticalCount++
-		case "high":
+		case severityHigh:
 			if highCount < 4 {
 				pts = 80
 			}
 			highCount++
-		case "medium":
+		case severityMedium:
 			pts = 40
 		case "low":
 			pts = 15
@@ -601,8 +654,8 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 			pts = 5
 		}
 		if pts > 0 {
-			vulnScore += pts
-			factors = append(factors, RiskFactorDetail{
+			score += pts
+			*factors = append(*factors, RiskFactorDetail{
 				Category: "vulnerability",
 				Title:    vuln.Title,
 				Score:    pts,
@@ -611,30 +664,33 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 			})
 		}
 	}
-	if vulnScore > 500 {
-		vulnScore = 500
+	if score > 500 {
+		return 500
 	}
-	breakdown.VulnerabilityScore = vulnScore
+	return score
+}
 
-	// --- SSL/TLS factor (max 200) ---
-	slScore := 0
+// scoreSSLIssues computes the SSL/TLS sub-score (max 200) from sslscan and
+// testssl findings.
+func (c *Correlator) scoreSSLIssues(correlation *CorrelationResult, factors *[]RiskFactorDetail) int {
+	score := 0
 	for _, vuln := range correlation.Vulnerabilities {
-		if vuln.Source != "sslscan" && vuln.Source != "testssl" {
+		if vuln.Source != scanTypeSSLScan && vuln.Source != string(ScanTypeTestSSL) {
 			continue
 		}
 		var pts int
 		sev := strings.ToLower(vuln.Severity)
 		switch sev {
-		case "critical":
-			pts = 100 // SSLv2/SSLv3
-		case "high":
-			pts = 50 // weak cipher
-		case "medium":
-			pts = 30 // TLS 1.0/1.1 or cert issue
+		case severityCritical:
+			pts = 100
+		case severityHigh:
+			pts = 50
+		case severityMedium:
+			pts = 30
 		}
 		if pts > 0 {
-			slScore += pts
-			factors = append(factors, RiskFactorDetail{
+			score += pts
+			*factors = append(*factors, RiskFactorDetail{
 				Category: "ssl",
 				Title:    vuln.Title,
 				Score:    pts,
@@ -643,13 +699,16 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 			})
 		}
 	}
-	if slScore > 200 {
-		slScore = 200
+	if score > 200 {
+		return 200
 	}
-	breakdown.SSLIssues = slScore
+	return score
+}
 
-	// --- Service exposure factor (max 200) ---
-	svcScore := 0
+// scoreServiceExposure computes the service exposure sub-score (max 200) from
+// exposed risky services.
+func (c *Correlator) scoreServiceExposure(correlation *CorrelationResult, factors *[]RiskFactorDetail) int {
+	score := 0
 	serviceMap := make(map[string]bool)
 	for _, svc := range correlation.Services {
 		svcName := strings.ToLower(svc.Name)
@@ -670,20 +729,20 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 			pts = 40
 		}
 		if pts > 0 {
-			svcScore += pts
-			factors = append(factors, RiskFactorDetail{
+			score += pts
+			*factors = append(*factors, RiskFactorDetail{
 				Category: "service",
 				Title:    fmt.Sprintf("%s exposed (port %d)", svc.Name, svc.Port),
 				Score:    pts,
-				Severity: "medium",
+				Severity: severityMedium,
 				Source:   "service-scan",
 			})
 		}
 	}
 	// http without https
 	if serviceMap["http"] && !serviceMap["https"] {
-		svcScore += 30
-		factors = append(factors, RiskFactorDetail{
+		score += 30
+		*factors = append(*factors, RiskFactorDetail{
 			Category: "service",
 			Title:    "HTTP without HTTPS",
 			Score:    30,
@@ -691,55 +750,47 @@ func (c *Correlator) calculateRiskScore(correlation *CorrelationResult) RiskBrea
 			Source:   "service-scan",
 		})
 	}
-	if svcScore > 200 {
-		svcScore = 200
+	if score > 200 {
+		return 200
 	}
-	breakdown.ServiceExposure = svcScore
+	return score
+}
 
-	// --- Open port factor (max 100) ---
+// scoreOpenPorts computes the open-port sub-score (max 100) based on how many
+// ports are open on the host.
+func (c *Correlator) scoreOpenPorts(correlation *CorrelationResult, factors *[]RiskFactorDetail) int {
 	openCount := 0
 	if correlation.HostInfo != nil {
 		for _, port := range correlation.HostInfo.Ports {
-			if port.State == "open" {
+			if port.State == portStatusOpen {
 				openCount++
 			}
 		}
 	}
-	// Also count from services
 	if openCount == 0 {
 		openCount = len(correlation.Services)
 	}
-	var portScore int
+	var score int
 	switch {
 	case openCount > 50:
-		portScore = 100
+		score = 100
 	case openCount > 20:
-		portScore = 60
+		score = 60
 	case openCount > 5:
-		portScore = 30
+		score = 30
 	case openCount > 0:
-		portScore = 10
+		score = 10
 	}
-	if portScore > 0 {
-		factors = append(factors, RiskFactorDetail{
+	if score > 0 {
+		*factors = append(*factors, RiskFactorDetail{
 			Category: "port",
 			Title:    fmt.Sprintf("%d open ports", openCount),
-			Score:    portScore,
+			Score:    score,
 			Severity: "low",
 			Source:   "port-scan",
 		})
 	}
-	breakdown.OpenPortScore = portScore
-
-	// --- Total (cap 1000) ---
-	total := vulnScore + slScore + svcScore + portScore
-	if total > 1000 {
-		total = 1000
-	}
-	breakdown.Total = total
-	breakdown.Factors = factors
-
-	return breakdown
+	return score
 }
 
 // generateRecommendations generates security recommendations based on findings
@@ -754,13 +805,13 @@ func (c *Correlator) generateRecommendations(correlation *CorrelationResult) []s
 	for _, vuln := range correlation.Vulnerabilities {
 		sev := strings.ToLower(vuln.Severity)
 		switch sev {
-		case "critical":
-			if vuln.Source == "sslscan" || vuln.Source == "testssl" {
+		case severityCritical:
+			if vuln.Source == scanTypeSSLScan || vuln.Source == string(ScanTypeTestSSL) {
 			} else {
 				criticalCount++
 			}
-		case "high":
-			if vuln.Source == "sslscan" || vuln.Source == "testssl" {
+		case severityHigh:
+			if vuln.Source == scanTypeSSLScan || vuln.Source == string(ScanTypeTestSSL) {
 			} else {
 				highCount++
 			}
@@ -835,120 +886,151 @@ func (c *Correlator) inferHostSubtype(correlation *CorrelationResult) {
 		return
 	}
 
-	osMatch := attrs["os_match"]
-	osVal := correlation.HostInfo.OS
-	vendor := strings.ToLower(attrs["vendor"])
-	sysDesc := strings.ToLower(attrs["sys_description"])
-
 	var subtype string
-
 	switch cat {
 	case "windows":
-		// Use os_match first (from nmap -O), then fall back to OS field
-		osLower := strings.ToLower(osMatch)
-		if osLower == "" {
-			osLower = strings.ToLower(osVal)
-		}
-		if strings.Contains(osLower, "server") {
-			subtype = "server"
-		} else if strings.Contains(osLower, "windows 10") ||
-			strings.Contains(osLower, "windows 11") ||
-			strings.Contains(osLower, "professional") ||
-			strings.Contains(osLower, "windows 7") ||
-			strings.Contains(osLower, "windows 8") ||
-			strings.Contains(osLower, "windows xp") ||
-			strings.Contains(osLower, "vista") ||
-			strings.Contains(osLower, "workstation") {
-			subtype = "workstation"
-		}
-		// Domain controller: has LDAP ports
-		if subtype == "" {
-			hasLDAP := false
-			for _, p := range correlation.HostInfo.Ports {
-				if (p.Number == 389 || p.Number == 636 || p.Number == 3268 || p.Number == 3269) && p.State == "open" {
-					hasLDAP = true
-					break
-				}
-			}
-			if hasLDAP {
-				subtype = "domain controller"
-			}
-		}
-		// SQL Server: has port 1433
-		if subtype == "" {
-			for _, p := range correlation.HostInfo.Ports {
-				if p.Number == 1433 && p.State == "open" {
-					subtype = "sql server"
-					break
-				}
-			}
-		}
-
+		subtype = c.inferWindowsSubtype(attrs, correlation.HostInfo.OS, correlation.HostInfo.Ports)
 	case "network_device":
-		// Check vendor first — SNMP data is authoritative
-		if vendor == "printer" || strings.Contains(sysDesc, "printer") ||
-			strings.Contains(sysDesc, "laser") || strings.Contains(sysDesc, "inkjet") {
-			subtype = "printer"
-		}
-		// Check sys_description for known device types
-		if subtype == "" {
-			if strings.Contains(sysDesc, "switch") || strings.Contains(sysDesc, "nexus") {
-				subtype = "switch"
-			} else if strings.Contains(sysDesc, "asa") {
-				subtype = "firewall"
-			} else if strings.Contains(sysDesc, "router") {
-				subtype = "router"
-			} else if strings.Contains(sysDesc, "storage") || strings.Contains(sysDesc, "netapp") {
-				subtype = "storage"
-			} else if strings.Contains(vendor, "ubiquiti") {
-				// Ubiquiti devices with port 80/443 are typically switches/routers
-				subtype = "switch"
-			}
-		}
-		// OS-based inference for network devices
-		if subtype == "" && osVal != "" {
-			osLower := strings.ToLower(osVal)
-			if strings.Contains(osLower, "cisco") && (strings.Contains(osLower, "asa") || strings.Contains(osLower, "adaptive")) {
-				subtype = "firewall"
-			} else if strings.Contains(osLower, "cisco") && strings.Contains(osLower, "nexus") {
-				subtype = "switch"
-			} else if strings.Contains(osLower, "cisco") && strings.Contains(osLower, "router") {
-				subtype = "router"
-			} else if strings.Contains(osLower, "netapp") {
-				subtype = "storage"
-			} else if strings.Contains(osLower, "brocade") {
-				subtype = "switch"
-			} else if strings.Contains(osLower, "aruba") {
-				subtype = "switch"
-			}
-		}
-		// Port-based fallback only if nothing else worked
-		if subtype == "" {
-			for _, p := range correlation.HostInfo.Ports {
-				if p.Number == 9100 && p.State == "open" {
-					subtype = "printer"
-					break
-				}
-			}
-		}
-
+		subtype = c.inferNetworkDeviceSubtype(attrs, correlation.HostInfo.OS, correlation.HostInfo.Ports)
 	case "linux":
-		osLower := strings.ToLower(osMatch)
-		if osLower == "" {
-			osLower = strings.ToLower(osVal)
-		}
-		if strings.Contains(osLower, "openwrt") || strings.Contains(osLower, "mikrotik") {
-			subtype = "router"
-		} else if strings.Contains(osLower, "netapp") {
-			subtype = "storage"
-		} else if strings.Contains(osLower, "embedded") {
-			subtype = "embedded"
-		}
+		subtype = c.inferLinuxSubtype(attrs, correlation.HostInfo.OS)
 	}
 
 	if subtype != "" {
 		attrs["host_subtype"] = subtype
 	}
+}
+
+// inferWindowsSubtype classifies a Windows host as server, workstation,
+// domain controller, or SQL server based on OS match and open ports.
+func (c *Correlator) inferWindowsSubtype(attrs map[string]string, osVal string, ports []Port) string {
+	osLower := strings.ToLower(attrs["os_match"])
+	if osLower == "" {
+		osLower = strings.ToLower(osVal)
+	}
+	if strings.Contains(osLower, "server") {
+		return "server"
+	}
+	if strings.Contains(osLower, "windows 10") ||
+		strings.Contains(osLower, "windows 11") ||
+		strings.Contains(osLower, "professional") ||
+		strings.Contains(osLower, "windows 7") ||
+		strings.Contains(osLower, "windows 8") ||
+		strings.Contains(osLower, "windows xp") ||
+		strings.Contains(osLower, "vista") ||
+		strings.Contains(osLower, "workstation") {
+		return "workstation"
+	}
+	// Domain controller: has LDAP ports
+	for _, p := range ports {
+		if (p.Number == 389 || p.Number == 636 || p.Number == 3268 || p.Number == 3269) && p.State == portStatusOpen {
+			return "domain controller"
+		}
+	}
+	// SQL Server: has port 1433
+	for _, p := range ports {
+		if p.Number == 1433 && p.State == portStatusOpen {
+			return "sql server"
+		}
+	}
+	return ""
+}
+
+// inferNetworkDeviceSubtype classifies a network device using vendor info,
+// sys_description patterns, OS match, and port fallbacks.
+func (c *Correlator) inferNetworkDeviceSubtype(attrs map[string]string, osVal string, ports []Port) string {
+	vendor := strings.ToLower(attrs["vendor"])
+	sysDesc := strings.ToLower(attrs["sys_description"])
+
+	// Vendor/SNMP-based check
+	if vendor == "printer" || strings.Contains(sysDesc, "printer") ||
+		strings.Contains(sysDesc, "laser") || strings.Contains(sysDesc, "inkjet") {
+		return "printer"
+	}
+	if s := c.inferDeviceBySysDesc(sysDesc, vendor); s != "" {
+		return s
+	}
+	if s := c.inferDeviceByOS(osVal); s != "" {
+		return s
+	}
+	return c.inferDeviceByPorts(ports)
+}
+
+// inferDeviceBySysDesc matches known device types from sys_description and
+// vendor strings.
+func (c *Correlator) inferDeviceBySysDesc(sysDesc, vendor string) string {
+	if strings.Contains(sysDesc, "switch") || strings.Contains(sysDesc, "nexus") {
+		return subtypeSwitch
+	}
+	if strings.Contains(sysDesc, "asa") {
+		return "firewall"
+	}
+	if strings.Contains(sysDesc, "router") {
+		return "router"
+	}
+	if strings.Contains(sysDesc, "storage") || strings.Contains(sysDesc, "netapp") {
+		return "storage"
+	}
+	if strings.Contains(vendor, "ubiquiti") {
+		return subtypeSwitch
+	}
+	return ""
+}
+
+// inferDeviceByOS matches known device types from the OS string.
+func (c *Correlator) inferDeviceByOS(osVal string) string {
+	if osVal == "" {
+		return ""
+	}
+	osLower := strings.ToLower(osVal)
+	if strings.Contains(osLower, "cisco") && (strings.Contains(osLower, "asa") || strings.Contains(osLower, "adaptive")) {
+		return "firewall"
+	}
+	if strings.Contains(osLower, "cisco") && strings.Contains(osLower, "nexus") {
+		return subtypeSwitch
+	}
+	if strings.Contains(osLower, "cisco") && strings.Contains(osLower, "router") {
+		return "router"
+	}
+	if strings.Contains(osLower, "netapp") {
+		return "storage"
+	}
+	if strings.Contains(osLower, "brocade") {
+		return subtypeSwitch
+	}
+	if strings.Contains(osLower, "aruba") {
+		return subtypeSwitch
+	}
+	return ""
+}
+
+// inferDeviceByPorts uses port-based fallback to identify device type (e.g.
+// port 9100 → printer).
+func (c *Correlator) inferDeviceByPorts(ports []Port) string {
+	for _, p := range ports {
+		if p.Number == 9100 && p.State == portStatusOpen {
+			return "printer"
+		}
+	}
+	return ""
+}
+
+// inferLinuxSubtype classifies a Linux host based on OS match patterns.
+func (c *Correlator) inferLinuxSubtype(attrs map[string]string, osVal string) string {
+	osLower := strings.ToLower(attrs["os_match"])
+	if osLower == "" {
+		osLower = strings.ToLower(osVal)
+	}
+	if strings.Contains(osLower, "openwrt") || strings.Contains(osLower, "mikrotik") {
+		return "router"
+	}
+	if strings.Contains(osLower, "netapp") {
+		return "storage"
+	}
+	if strings.Contains(osLower, "embedded") {
+		return "embedded"
+	}
+	return ""
 }
 
 // GetCorrelationForHost returns correlation results for a specific host
@@ -1029,7 +1111,7 @@ func (c *Correlator) saveResults() error {
 	}
 
 	correlationDir := filepath.Join(c.dataDir, "correlations")
-	if err := os.MkdirAll(correlationDir, 0755); err != nil {
+	if err := os.MkdirAll(correlationDir, 0750); err != nil {
 		return fmt.Errorf("failed to create correlation directory: %w", err)
 	}
 
@@ -1040,7 +1122,7 @@ func (c *Correlator) saveResults() error {
 		return fmt.Errorf("failed to marshal correlations: %w", err)
 	}
 
-	if err := os.WriteFile(correlationFile, data, 0644); err != nil {
+	if err := os.WriteFile(correlationFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write correlations: %w", err)
 	}
 
@@ -1116,7 +1198,7 @@ func (c *Correlator) loadManualOverrides() error {
 	if path == "" {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path from trusted workspace
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -1131,14 +1213,14 @@ func (c *Correlator) saveManualOverrides() error {
 	if path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return fmt.Errorf("creating correlations directory: %w", err)
 	}
 	data, err := json.MarshalIndent(c.manualOverrides, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshalling manual overrides: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return err
 	}
 	c.fixCorrelationsOwnership()
@@ -1159,7 +1241,7 @@ func (c *Correlator) loadExcludedHosts() error {
 	if path == "" {
 		return nil
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path from trusted workspace
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -1182,14 +1264,14 @@ func (c *Correlator) saveExcludedHosts() error {
 	if path == "" {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return fmt.Errorf("creating correlations dir: %w", err)
 	}
 	data, err := json.MarshalIndent(c.excludedHosts, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshalling excluded hosts: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return err
 	}
 	c.fixCorrelationsOwnership()
@@ -1255,7 +1337,7 @@ func (c *Correlator) LoadResults() error {
 		return nil
 	}
 
-	data, err := os.ReadFile(correlationFile)
+	data, err := os.ReadFile(correlationFile) //nolint:gosec // G304: trusted workspace path
 	if err != nil {
 		return fmt.Errorf("failed to read correlations: %w", err)
 	}
@@ -1281,7 +1363,7 @@ func (c *Correlator) LoadResults() error {
 
 // ParseNmapOutput parses nmap output and creates a scan result
 func ParseNmapOutput(filePath, scanID string) (*ScanResult, error) {
-	content, err := os.ReadFile(filePath)
+	content, err := os.ReadFile(filePath) //nolint:gosec // G304: filePath from scan results
 	if err != nil {
 		return nil, err
 	}
@@ -1334,7 +1416,7 @@ func ParseNmapOutput(filePath, scanID string) (*ScanResult, error) {
 				currentHost.Ports = append(currentHost.Ports, port)
 
 				// Add to services
-				if port.State == "open" {
+				if port.State == portStatusOpen {
 					service := Service{
 						Host:     currentHost.IP,
 						Port:     portNum,

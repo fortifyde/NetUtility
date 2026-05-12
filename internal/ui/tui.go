@@ -297,7 +297,9 @@ func mergeInterfaceTasks(categories []Category, str *Strings) []Category {
 			ifaceIdx = len(newTasks)
 		}
 		newTasks = append(newTasks[:ifaceIdx:ifaceIdx], append([]Task{composite}, newTasks[ifaceIdx:]...)...)
-		categories[ci].Tasks = newTasks
+		if ci < len(categories) {
+			categories[ci].Tasks = newTasks
+		}
 		break
 	}
 	return categories
@@ -311,65 +313,88 @@ func mergeCaptureAnalysisTasks(categories []Category, str *Strings) []Category {
 		if cat.Name != str.CatNetworkDiscovery {
 			continue
 		}
-		var vlanTask, macTask, captureTask Task
-		firstIdx := -1
-		for ti, task := range cat.Tasks {
-			switch task.CanonicalName {
-			case "Extract VLANs":
-				vlanTask = task
-				if firstIdx == -1 {
-					firstIdx = ti
-				}
-			case "MAC Address Analysis":
-				macTask = task
-				if firstIdx == -1 {
-					firstIdx = ti
-				}
-			case "Packet Capture Analysis":
-				captureTask = task
-				if firstIdx == -1 {
-					firstIdx = ti
-				}
-			}
+		if newTasks := buildMergedCaptureTasks(cat.Tasks, str); newTasks != nil {
+			categories[ci].Tasks = newTasks
 		}
-		if firstIdx == -1 || vlanTask.CanonicalName == "" || macTask.CanonicalName == "" || captureTask.CanonicalName == "" {
-			continue
-		}
-		newTasks := make([]Task, 0, len(cat.Tasks)-2)
-		for _, t := range cat.Tasks {
-			if t.CanonicalName != "Extract VLANs" && t.CanonicalName != "MAC Address Analysis" && t.CanonicalName != "Packet Capture Analysis" {
-				newTasks = append(newTasks, t)
-			}
-		}
-		composite := Task{
-			Name:          str.TaskNetworkCaptureAnalysis,
-			CanonicalName: "Network Capture Analysis",
-			Description:   str.TaskNetworkCaptureAnalysisDesc,
-			SubTasks: []Task{
-				{Name: str.TaskExtractVLANIDs, CanonicalName: "Extract VLANs", Description: vlanTask.Description, Script: vlanTask.Script},
-				{Name: macTask.Name, CanonicalName: "MAC Address Analysis", Description: macTask.Description, Script: macTask.Script},
-				{Name: captureTask.Name, CanonicalName: "Packet Capture Analysis", Description: captureTask.Description, Script: captureTask.Script},
-			},
-		}
-		// Insert composite immediately after "Network Capture" if present, otherwise at firstIdx
-		insertIdx := -1
-		for ti, t := range newTasks {
-			if t.CanonicalName == "Network Capture" {
-				insertIdx = ti + 1
-				break
-			}
-		}
-		if insertIdx == -1 {
-			insertIdx = firstIdx
-			if insertIdx > len(newTasks) {
-				insertIdx = len(newTasks)
-			}
-		}
-		newTasks = append(newTasks[:insertIdx:insertIdx], append([]Task{composite}, newTasks[insertIdx:]...)...)
-		categories[ci].Tasks = newTasks
 		break
 	}
 	return categories
+}
+
+// mergeCaptureNames lists the canonical task names that get merged into the composite.
+var mergeCaptureNames = []string{"Extract VLANs", "MAC Address Analysis", "Packet Capture Analysis"}
+
+// buildMergedCaptureTasks merges the VLAN/MAC/PacketCapture tasks into a single
+// composite "Network Capture Analysis" task. Returns nil if the required tasks
+// are not all present.
+func buildMergedCaptureTasks(tasks []Task, str *Strings) []Task {
+	var vlanTask, macTask, captureTask Task
+	firstIdx := -1
+	for ti, task := range tasks {
+		switch task.CanonicalName {
+		case "Extract VLANs":
+			vlanTask = task
+			if firstIdx == -1 {
+				firstIdx = ti
+			}
+		case "MAC Address Analysis":
+			macTask = task
+			if firstIdx == -1 {
+				firstIdx = ti
+			}
+		case "Packet Capture Analysis":
+			captureTask = task
+			if firstIdx == -1 {
+				firstIdx = ti
+			}
+		}
+	}
+	if firstIdx == -1 || vlanTask.CanonicalName == "" || macTask.CanonicalName == "" || captureTask.CanonicalName == "" {
+		return nil
+	}
+
+	newTasks := make([]Task, 0, len(tasks)-2)
+	for _, t := range tasks {
+		isMergeTarget := false
+		for _, name := range mergeCaptureNames {
+			if t.CanonicalName == name {
+				isMergeTarget = true
+				break
+			}
+		}
+		if !isMergeTarget {
+			newTasks = append(newTasks, t)
+		}
+	}
+
+	composite := Task{
+		Name:          str.TaskNetworkCaptureAnalysis,
+		CanonicalName: "Network Capture Analysis",
+		Description:   str.TaskNetworkCaptureAnalysisDesc,
+		SubTasks: []Task{
+			{Name: str.TaskExtractVLANIDs, CanonicalName: "Extract VLANs", Description: vlanTask.Description, Script: vlanTask.Script},
+			{Name: macTask.Name, CanonicalName: "MAC Address Analysis", Description: macTask.Description, Script: macTask.Script},
+			{Name: captureTask.Name, CanonicalName: "Packet Capture Analysis", Description: captureTask.Description, Script: captureTask.Script},
+		},
+	}
+
+	insertIdx := findInsertIndex(newTasks, firstIdx, "Network Capture")
+	newTasks = append(newTasks[:insertIdx:insertIdx], append([]Task{composite}, newTasks[insertIdx:]...)...)
+	return newTasks
+}
+
+// findInsertIndex returns the position after the task with afterCanonicalName,
+// or falls back to defaultIdx clamped to the slice length.
+func findInsertIndex(tasks []Task, defaultIdx int, afterCanonicalName string) int {
+	for ti, t := range tasks {
+		if t.CanonicalName == afterCanonicalName {
+			return ti + 1
+		}
+	}
+	if defaultIdx > len(tasks) {
+		return len(tasks)
+	}
+	return defaultIdx
 }
 
 // ensureTrueColor sets COLORTERM=truecolor if not already set, enabling
@@ -538,7 +563,7 @@ func (t *TUI) updateJobsPanel() {
 		// Duration for running jobs
 		if status == jobs.JobStatusRunning {
 			dur := time.Since(job.StartTime).Round(time.Second)
-			sb.WriteString(fmt.Sprintf("  %v", dur))
+		fmt.Fprintf(&sb, "  %v", dur)
 		}
 		sb.WriteString("\n")
 
@@ -553,7 +578,7 @@ func (t *TUI) updateJobsPanel() {
 				sb.WriteString(renderProgressBar(current, total, desc))
 			} else {
 				idx := int(time.Now().Unix()) % len(indicatorChars)
-				sb.WriteString(fmt.Sprintf("  %s %s", indicatorChars[idx], t.str.ProgressRunning))
+			fmt.Fprintf(&sb, "  %s %s", indicatorChars[idx], t.str.ProgressRunning)
 			}
 		}
 		sb.WriteString("\n")
@@ -618,7 +643,7 @@ func (t *TUI) checkSysConfigDone() bool {
 		if name == "lo" {
 			continue
 		}
-		state, err := os.ReadFile(filepath.Join("/sys/class/net", name, "operstate"))
+		state, err := os.ReadFile(filepath.Join("/sys/class/net", name, "operstate")) //nolint:gosec // G304: kernel path
 		if err != nil || strings.TrimSpace(string(state)) != "up" {
 			continue
 		}
@@ -847,6 +872,35 @@ func (t *TUI) setupUI() {
 	t.setActiveFocus(t.categoryPane)
 }
 
+
+// handleGlobalCtrlShortcuts processes global Ctrl+key shortcuts that work on every page
+// (including the output viewer). Returns true if the event was consumed.
+func (t *TUI) handleGlobalCtrlShortcuts(event *tcell.EventKey) bool {
+	if event.Key() == tcell.KeyCtrlJ {
+		// Global Job Manager access - works even during script execution
+		t.showJobsManager()
+		return true
+	}
+	if event.Key() == tcell.KeyCtrlD {
+		// Global Dashboard access
+		t.showDashboard()
+		return true
+	}
+	if event.Key() == tcell.KeyCtrlN {
+		// Global Host view access
+		t.showCorrelationViewer()
+		return true
+	}
+	// Ctrl+Z: tcell puts the terminal in raw mode (ISIG cleared),
+	// so the kernel never converts Ctrl+Z to SIGTSTP — safe to use as a keybind.
+	if event.Key() == tcell.KeyCtrlZ {
+		// Global return to main TUI from anywhere
+		t.returnToMain()
+		return true
+	}
+	return false
+}
+
 func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 	// Consume Ctrl+C to prevent tview's built-in handler from stopping the application.
 	// tview calls a.Stop() on unhandled Ctrl+C (application.go ~L433). All pages handle
@@ -860,26 +914,7 @@ func (t *TUI) handleGlobalKeys(event *tcell.EventKey) *tcell.EventKey {
 	}
 
 	// Handle global Ctrl+key shortcuts that work everywhere (including output viewer)
-	if event.Key() == tcell.KeyCtrlJ {
-		// Global Job Manager access - works even during script execution
-		t.showJobsManager()
-		return nil
-	}
-	if event.Key() == tcell.KeyCtrlD {
-		// Global Dashboard access
-		t.showDashboard()
-		return nil
-	}
-	if event.Key() == tcell.KeyCtrlN {
-		// Global Host view access
-		t.showCorrelationViewer()
-		return nil
-	}
-	// Ctrl+Z: tcell puts the terminal in raw mode (ISIG cleared),
-	// so the kernel never converts Ctrl+Z to SIGTSTP — safe to use as a keybind.
-	if event.Key() == tcell.KeyCtrlZ {
-		// Global return to main TUI from anywhere
-		t.returnToMain()
+	if t.handleGlobalCtrlShortcuts(event) {
 		return nil
 	}
 
@@ -1075,7 +1110,9 @@ func (t *TUI) executeTaskWithStreaming(scriptPath, taskName string) {
 	job := t.jobManager.CreateJob(jobID, taskName, absPath)
 	if err := t.jobManager.StartJob(job.ID); err != nil {
 		// Unexpected failure — clean up the orphan and show options
-		t.jobManager.RemoveJob(job.ID)
+		if err := t.jobManager.RemoveJob(job.ID); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to remove failed job %s: %v\n", job.ID, err)
+		}
 		t.showExecutionOptions(absPath, taskName)
 		return
 	}
@@ -1231,6 +1268,169 @@ func (t *TUI) Stop() {
 	})
 }
 
+// searchState holds mutable state for an active search modal session.
+type searchState struct {
+	tui        *TUI
+	results    []SearchResult
+	continuations []bool
+	resultIdx    []int
+	resultList   *tview.List
+	inputField   *tview.InputField
+	prevFocus    *tview.List
+}
+
+// isContinuation reports whether list item at idx is a wrapped description line.
+func (s *searchState) isContinuation(idx int) bool {
+	return idx >= 0 && idx < len(s.continuations) && s.continuations[idx]
+}
+
+// resultIndex maps a list item index to its results[] index, or -1.
+func (s *searchState) resultIndex(idx int) int {
+	if idx < 0 || idx >= len(s.resultIdx) {
+		return -1
+	}
+	return s.resultIdx[idx]
+}
+
+// moveDown advances past continuation lines.
+func (s *searchState) moveDown() {
+	cur := s.resultList.GetCurrentItem()
+	count := s.resultList.GetItemCount()
+	next := cur + 1
+	for next < count && s.isContinuation(next) {
+		next++
+	}
+	if next < count {
+		s.resultList.SetCurrentItem(next)
+	}
+}
+
+// moveUp retreats past continuation lines, returning false if at top.
+func (s *searchState) moveUp() bool {
+	cur := s.resultList.GetCurrentItem()
+	prev := cur - 1
+	for prev >= 0 && s.isContinuation(prev) {
+		prev--
+	}
+	if prev < 0 {
+		s.tui.app.SetFocus(s.inputField)
+		return false
+	}
+	s.resultList.SetCurrentItem(prev)
+	return true
+}
+
+// populateSearchResults clears and repopulates the result list for query.
+func (s *searchState) populateSearchResults(query string) {
+	s.resultList.Clear()
+	s.continuations = s.continuations[:0]
+	s.resultIdx = s.resultIdx[:0]
+	s.results = s.tui.searchAllCategories(query)
+
+	_, _, listWidth, _ := s.resultList.GetInnerRect()
+	if listWidth <= 0 {
+		listWidth = 36
+	}
+
+	for i, r := range s.results {
+		header := fmt.Sprintf("%s  [%s]", r.Task.Name, r.CategoryName)
+		s.resultList.AddItem(header, "", 0, nil)
+		s.continuations = append(s.continuations, false)
+		s.resultIdx = append(s.resultIdx, i)
+		for _, line := range wrapText(r.Task.Description, listWidth) {
+			s.resultList.AddItem("[green]  "+line+"[white]", "", 0, nil)
+			s.continuations = append(s.continuations, true)
+			s.resultIdx = append(s.resultIdx, i)
+		}
+	}
+}
+
+// inputCapture handles key events on the search input field.
+func (s *searchState) inputCapture(event *tcell.EventKey) *tcell.EventKey {
+	switch event.Key() {
+	case tcell.KeyDown, tcell.KeyEnter:
+		if s.resultList.GetItemCount() > 0 {
+			s.tui.app.SetFocus(s.resultList)
+			s.resultList.SetCurrentItem(0)
+		}
+		return nil
+	case tcell.KeyEscape:
+		s.close()
+		return nil
+	}
+	return event
+}
+
+// listCapture handles key events on the search result list.
+func (s *searchState) listCapture(event *tcell.EventKey) *tcell.EventKey {
+	switch event.Key() {
+	case tcell.KeyEscape:
+		s.close()
+		return nil
+	case tcell.KeyUp:
+		s.moveUp()
+		return nil
+	case tcell.KeyDown:
+		s.moveDown()
+		return nil
+	case tcell.KeyRune:
+		switch event.Rune() {
+		case 'j':
+			s.moveDown()
+			return nil
+		case 'k':
+			s.moveUp()
+			return nil
+		}
+	}
+	return event
+}
+
+// selected handles activation of a search result.
+func (s *searchState) selected(index int, _, _ string, _ rune) {
+	ri := s.resultIndex(index)
+	if ri < 0 || ri >= len(s.results) {
+		return
+	}
+	r := s.results[ri]
+	s.close()
+	s.tui.currentCategory = r.CategoryName
+	if len(r.Task.SubTasks) > 0 {
+		s.tui.showSubTaskMenu(r.Task)
+	} else {
+		s.tui.executeTaskWithStreaming(r.Task.Script, r.Task.Name)
+	}
+}
+
+// close dismisses the search modal.
+func (s *searchState) close() {
+	s.tui.pages.RemovePage("search")
+	s.tui.setActiveFocus(s.prevFocus)
+}
+
+// buildSearchModal constructs the centered search modal layout.
+func (s *searchState) buildSearchModal() tview.Primitive {
+	s.inputField.SetChangedFunc(s.populateSearchResults)
+	s.inputField.SetInputCapture(s.inputCapture)
+	s.resultList.SetInputCapture(s.listCapture)
+	s.resultList.SetSelectedFunc(s.selected)
+
+	contentBox := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(s.inputField, 3, 0, true).
+		AddItem(s.resultList, 0, 1, false)
+	contentBox.SetBorder(true).SetTitle(s.tui.str.PaneTitleSearch)
+
+	centerRow := tview.NewFlex().SetDirection(tview.FlexColumn).
+		AddItem(nil, 0, 3, false).
+		AddItem(contentBox, 0, 4, true).
+		AddItem(nil, 0, 3, false)
+
+	return tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(nil, 0, 1, false).
+		AddItem(centerRow, 0, 3, true).
+		AddItem(nil, 0, 1, false)
+}
+
 // startSearch opens a compact centered modal for searching tasks across all categories.
 func (t *TUI) startSearch() {
 	prevFocus := t.categoryPane
@@ -1238,173 +1438,15 @@ func (t *TUI) startSearch() {
 		prevFocus = t.taskPane
 	}
 
-	var results []SearchResult
-
-	closeModal := func() {
-		t.pages.RemovePage("search")
-		t.setActiveFocus(prevFocus)
+	s := &searchState{
+		tui:        t,
+		prevFocus:  prevFocus,
+		inputField: tview.NewInputField().SetLabel(t.str.SearchLabel).SetFieldWidth(0),
+		resultList: tview.NewList().ShowSecondaryText(false),
 	}
 
-	inputField := tview.NewInputField().
-		SetLabel(t.str.SearchLabel).
-		SetFieldWidth(0)
-
-	resultList := tview.NewList().ShowSecondaryText(false)
-
-	// searchContinuations[i] == true means list item i is a wrapped description line, not a result
-	var searchContinuations []bool
-	// searchResultIdx[i] is the results[] index for list item i (-1 for continuation items)
-	var searchResultIdx []int
-
-	isCont := func(idx int) bool {
-		return idx >= 0 && idx < len(searchContinuations) && searchContinuations[idx]
-	}
-	resultForIdx := func(idx int) int {
-		if idx < 0 || idx >= len(searchResultIdx) {
-			return -1
-		}
-		return searchResultIdx[idx]
-	}
-
-	moveSearchDown := func() {
-		cur := resultList.GetCurrentItem()
-		count := resultList.GetItemCount()
-		next := cur + 1
-		for next < count && isCont(next) {
-			next++
-		}
-		if next < count {
-			resultList.SetCurrentItem(next)
-		}
-	}
-	moveSearchUp := func() {
-		cur := resultList.GetCurrentItem()
-		prev := cur - 1
-		for prev >= 0 && isCont(prev) {
-			prev--
-		}
-		if prev >= 0 {
-			resultList.SetCurrentItem(prev)
-		}
-	}
-
-	updateResults := func(query string) {
-		resultList.Clear()
-		searchContinuations = searchContinuations[:0]
-		searchResultIdx = searchResultIdx[:0]
-		results = t.searchAllCategories(query)
-
-		_, _, listWidth, _ := resultList.GetInnerRect()
-		if listWidth <= 0 {
-			listWidth = 36 // fallback before first draw (40% of 80col - borders)
-		}
-
-		for i, r := range results {
-			header := fmt.Sprintf("%s  [%s]", r.Task.Name, r.CategoryName)
-			resultList.AddItem(header, "", 0, nil)
-			searchContinuations = append(searchContinuations, false)
-			searchResultIdx = append(searchResultIdx, i)
-			for _, line := range wrapText(r.Task.Description, listWidth) {
-				resultList.AddItem("[green]  "+line+"[white]", "", 0, nil)
-				searchContinuations = append(searchContinuations, true)
-				searchResultIdx = append(searchResultIdx, i)
-			}
-		}
-	}
-
-	inputField.SetChangedFunc(updateResults)
-
-	inputField.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyDown, tcell.KeyEnter:
-			if resultList.GetItemCount() > 0 {
-				t.app.SetFocus(resultList)
-				resultList.SetCurrentItem(0)
-			}
-			return nil
-		case tcell.KeyEscape:
-			closeModal()
-			return nil
-		}
-		return event
-	})
-
-	resultList.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Key() {
-		case tcell.KeyEscape:
-			closeModal()
-			return nil
-		case tcell.KeyUp:
-			cur := resultList.GetCurrentItem()
-			prev := cur - 1
-			for prev >= 0 && isCont(prev) {
-				prev--
-			}
-			if prev < 0 {
-				t.app.SetFocus(inputField)
-				return nil
-			}
-			moveSearchUp()
-			return nil
-		case tcell.KeyDown:
-			moveSearchDown()
-			return nil
-		case tcell.KeyRune:
-			switch event.Rune() {
-			case 'j':
-				moveSearchDown()
-				return nil
-			case 'k':
-				cur := resultList.GetCurrentItem()
-				prev := cur - 1
-				for prev >= 0 && isCont(prev) {
-					prev--
-				}
-				if prev < 0 {
-					t.app.SetFocus(inputField)
-					return nil
-				}
-				moveSearchUp()
-				return nil
-			}
-		}
-		return event
-	})
-
-	resultList.SetSelectedFunc(func(index int, _, _ string, _ rune) {
-		ri := resultForIdx(index)
-		if ri < 0 || ri >= len(results) {
-			return
-		}
-		r := results[ri]
-		closeModal()
-		t.currentCategory = r.CategoryName
-		if len(r.Task.SubTasks) > 0 {
-			t.showSubTaskMenu(r.Task)
-		} else {
-			t.executeTaskWithStreaming(r.Task.Script, r.Task.Name)
-		}
-	})
-
-	// Content box: input on top, results list below
-	contentBox := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(inputField, 3, 0, true).
-		AddItem(resultList, 0, 1, false)
-	contentBox.SetBorder(true).SetTitle(t.str.PaneTitleSearch)
-
-	// Center: 40% wide (3:4:3), 60% tall (1:3:1)
-	centerRow := tview.NewFlex().SetDirection(tview.FlexColumn).
-		AddItem(nil, 0, 3, false).
-		AddItem(contentBox, 0, 4, true).
-		AddItem(nil, 0, 3, false)
-
-	modal := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(nil, 0, 1, false).
-		AddItem(centerRow, 0, 3, true).
-		AddItem(nil, 0, 1, false)
-
-	t.pages.AddPage("search", modal, true, true)
-	t.app.SetFocus(inputField)
+	t.pages.AddPage("search", s.buildSearchModal(), true, true)
+	t.app.SetFocus(s.inputField)
 }
 
 // showHelp displays help information
@@ -1424,17 +1466,18 @@ func (t *TUI) updateInfoPanel() {
 	current := t.app.GetFocus()
 	var content strings.Builder
 
-	if current == t.categoryPane {
+	switch current {
+	case t.categoryPane:
 		content.WriteString(t.str.InfoCatLine1)
 		content.WriteString(t.str.InfoCatLine2)
-	} else if current == t.taskPane {
+	case t.taskPane:
 		if t.currentCategory != "" {
-			content.WriteString(fmt.Sprintf(t.str.FmtInfoTaskLine1, t.currentCategory))
+		fmt.Fprintf(&content, t.str.FmtInfoTaskLine1, t.currentCategory)
 		} else {
 			content.WriteString(t.str.InfoTaskNoCatLine1)
 		}
 		content.WriteString(t.str.InfoGlobalLine)
-	} else {
+	default:
 		content.WriteString(t.str.InfoDefaultLine1)
 		content.WriteString(t.str.InfoDefaultLine2)
 	}

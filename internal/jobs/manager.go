@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -214,7 +215,7 @@ func (jm *JobManager) monitorJob(job *Job) {
 		job.Duration = job.EndTime.Sub(job.StartTime)
 
 		if job.Result != nil {
-			success, _, jobErr, _, _ := job.Result.GetFinal()
+			success, _, _, _, jobErr := job.Result.GetFinal()
 			if success {
 				job.Status = JobStatusCompleted
 			} else {
@@ -282,7 +283,9 @@ func (jm *JobManager) CancelJob(jobID string) error {
 
 	// Stop the executor
 	if executor != nil {
-		executor.Stop()
+		if err := executor.Stop(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to stop executor: %v\n", err)
+		}
 	}
 
 	// Update job status fields under the job lock
@@ -552,7 +555,7 @@ func (jm *JobManager) Stop() {
 		for _, job := range jm.jobs {
 			job.mu.RLock()
 			if job.Status == JobStatusRunning && job.Executor != nil {
-				job.Executor.Stop()
+			_ = job.Executor.Stop()
 			}
 			job.mu.RUnlock()
 		}

@@ -18,11 +18,11 @@ type Credentials struct {
 // File format: username:bcrypt_hash (one per line)
 // Lines starting with # are comments, blank lines are ignored
 func LoadCredentials(path string) (*Credentials, error) {
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // G304: path from CLI flag/config
 	if err != nil {
 		return nil, fmt.Errorf("failed to open credentials file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	creds := &Credentials{
 		users: make(map[string]string),

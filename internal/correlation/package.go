@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+const portStatusOpen = "open"
+
 // CategoryFileNames maps category keys to their markdown output filenames.
 var categoryFileNames = map[string]string{
 	"windows":        "windows.md",
@@ -43,28 +45,10 @@ type HostEntry struct {
 // markdown hostlists and screenshot files. The archive is written to
 // {workspaceDir}/discovery/hostfile_distribution_YYYYMMDD_HHMMSS.tar.gz.
 func (c *Correlator) GenerateDistributionPackage() (string, error) {
-	correlations := c.GetAllCorrelations()
-
-	// Build host entries grouped by category.
-	categoryEntries := make(map[string][]HostEntry)
-	for ip, corr := range correlations {
-		cat := hostCategoryFromResult(corr)
-		if cat == "unknown" || cat == "" {
-			continue
-		}
-		entry := buildHostEntry(ip, corr)
-		categoryEntries[cat] = append(categoryEntries[cat], entry)
-	}
+	categoryEntries := c.categorizeHosts()
 
 	if len(categoryEntries) == 0 {
 		return "", fmt.Errorf("no categorized hosts to package")
-	}
-
-	// Sort entries within each category by IP.
-	for cat := range categoryEntries {
-		sort.Slice(categoryEntries[cat], func(i, j int) bool {
-			return compareIPsNumeric(categoryEntries[cat][i].IP, categoryEntries[cat][j].IP)
-		})
 	}
 
 	timestamp := time.Now()
@@ -72,7 +56,7 @@ func (c *Correlator) GenerateDistributionPackage() (string, error) {
 	archiveName := fmt.Sprintf("hostfile_distribution_%s.tar.gz", ts)
 
 	discoveryDir := filepath.Join(c.workspaceDir, "discovery")
-	if err := os.MkdirAll(discoveryDir, 0755); err != nil {
+	if err := os.MkdirAll(discoveryDir, 0750); err != nil {
 		return "", fmt.Errorf("creating discovery directory: %w", err)
 	}
 	archivePath := filepath.Join(discoveryDir, archiveName)
@@ -95,35 +79,8 @@ func (c *Correlator) GenerateDistributionPackage() (string, error) {
 	}
 
 	// Copy screenshot files.
-	screenshotsDir := filepath.Join(tmpDir, "screenshots")
-	hasScreenshots := false
-	for _, entries := range categoryEntries {
-		for _, e := range entries {
-			if len(e.ScreenshotFiles) > 0 {
-				hasScreenshots = true
-				break
-			}
-		}
-		if hasScreenshots {
-			break
-		}
-	}
-	if hasScreenshots {
-		if err := os.MkdirAll(screenshotsDir, 0755); err != nil {
-			return "", fmt.Errorf("creating screenshots directory: %w", err)
-		}
-		for _, entries := range categoryEntries {
-			for _, e := range entries {
-				for _, ss := range e.ScreenshotFiles {
-					destName := filepath.Base(ss.File)
-					destPath := filepath.Join(screenshotsDir, destName)
-					if err := copyFile(ss.File, destPath); err != nil {
-						// Best-effort: missing screenshots should not abort the package.
-						_, _ = fmt.Fprintf(os.Stderr, "warning: skipping screenshot %s: %v\n", ss.File, err)
-					}
-				}
-			}
-		}
+	if err := copyScreenshotsToDir(tmpDir, categoryEntries); err != nil {
+		return "", err
 	}
 
 	// Write metadata.
@@ -137,6 +94,68 @@ func (c *Correlator) GenerateDistributionPackage() (string, error) {
 	}
 
 	return archivePath, nil
+}
+
+// categorizeHosts builds host entries grouped by category from all correlations,
+// sorted by IP within each category.
+func (c *Correlator) categorizeHosts() map[string][]HostEntry {
+	correlations := c.GetAllCorrelations()
+	categoryEntries := make(map[string][]HostEntry)
+	for ip, corr := range correlations {
+		cat := hostCategoryFromResult(corr)
+		if cat == "unknown" || cat == "" {
+			continue
+		}
+		entry := buildHostEntry(ip, corr)
+		categoryEntries[cat] = append(categoryEntries[cat], entry)
+	}
+
+	for cat := range categoryEntries {
+		sort.Slice(categoryEntries[cat], func(i, j int) bool {
+			return compareIPsNumeric(categoryEntries[cat][i].IP, categoryEntries[cat][j].IP)
+		})
+	}
+
+	return categoryEntries
+}
+
+// copyScreenshotsToDir copies screenshot files from host entries into a
+// screenshots subdirectory within tmpDir. Missing screenshots produce warnings
+// but do not abort the operation.
+func copyScreenshotsToDir(tmpDir string, categoryEntries map[string][]HostEntry) error {
+	hasScreenshots := false
+	for _, entries := range categoryEntries {
+		for _, e := range entries {
+			if len(e.ScreenshotFiles) > 0 {
+				hasScreenshots = true
+				break
+			}
+		}
+		if hasScreenshots {
+			break
+		}
+	}
+	if !hasScreenshots {
+		return nil
+	}
+
+	screenshotsDir := filepath.Join(tmpDir, "screenshots")
+	if err := os.MkdirAll(screenshotsDir, 0750); err != nil {
+		return fmt.Errorf("creating screenshots directory: %w", err)
+	}
+	for _, entries := range categoryEntries {
+		for _, e := range entries {
+			for _, ss := range e.ScreenshotFiles {
+				destName := filepath.Base(ss.File)
+				destPath := filepath.Join(screenshotsDir, destName)
+				if err := copyFile(ss.File, destPath); err != nil {
+					// Best-effort: missing screenshots should not abort the package.
+					_, _ = fmt.Fprintf(os.Stderr, "warning: skipping screenshot %s: %v\n", ss.File, err)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // hostCategoryFromResult returns the category from HostInfo.Attributes,
@@ -172,7 +191,7 @@ func buildHostEntry(ip string, corr *CorrelationResult) HostEntry {
 
 		var portNums []int
 		for _, p := range corr.HostInfo.Ports {
-			if p.State == "open" {
+		if p.State == portStatusOpen {
 				portNums = append(portNums, p.Number)
 			}
 		}
@@ -209,7 +228,7 @@ func formatScreenshotNotes(screenshots []ScreenshotInfo) string {
 
 // writeMarkdownFile writes a markdown file with a table of host entries.
 func writeMarkdownFile(path, category string, entries []HostEntry) error {
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}
@@ -256,7 +275,7 @@ func writeMarkdownFile(path, category string, entries []HostEntry) error {
 
 // writeMetadata creates a metadata.txt with timestamp and host counts.
 func writeMetadata(path string, ts time.Time, categoryEntries map[string][]HostEntry) error {
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}
@@ -278,16 +297,16 @@ func writeMetadata(path string, ts time.Time, categoryEntries map[string][]HostE
 
 // copyFile copies src to dst. Creates dst parent directories if needed.
 func copyFile(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dst), 0750); err != nil {
 		return err
 	}
-	in, err := os.Open(src)
+	in, err := os.Open(src) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}
 	defer func() { _ = in.Close() }()
 
-	out, err := os.Create(dst)
+	out, err := os.Create(dst) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}
@@ -299,7 +318,7 @@ func copyFile(src, dst string) error {
 
 // createTarGz creates a tar.gz archive of the contents of srcDir at dstPath.
 func createTarGz(srcDir, dstPath string) error {
-	out, err := os.Create(dstPath)
+	out, err := os.Create(dstPath) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}
@@ -343,7 +362,7 @@ func createTarGz(srcDir, dstPath string) error {
 }
 
 func copyFileToTar(tw *tar.Writer, filePath string) error {
-	f, err := os.Open(filePath)
+	f, err := os.Open(filePath) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return err
 	}

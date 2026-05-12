@@ -10,6 +10,7 @@ import (
 	"testing"
 )
 
+const maxDecompressionSize = 100 * 1024 * 1024 // 100 MB
 func TestFormatScreenshotNotes(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -262,7 +263,7 @@ func TestWriteMarkdownFile(t *testing.T) {
 		t.Fatalf("writeMarkdownFile() error: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: test path
 	if err != nil {
 		t.Fatalf("reading output: %v", err)
 	}
@@ -293,6 +294,42 @@ func TestWriteMarkdownFile(t *testing.T) {
 	if !strings.Contains(content, "DESKTOP-ABC | Dell | Windows 10 | 135, 445 |  ") {
 		t.Error("missing dash for empty notes")
 	}
+}
+
+// readTarEntries reads a .tar.gz archive at archivePath and returns a map of
+// entry name to file content. It fatals the test on any I/O error.
+func readTarEntries(t *testing.T, archivePath string) map[string]string {
+	t.Helper()
+	entries := make(map[string]string)
+
+	f, err := os.Open(archivePath) //nolint:gosec // G304: test path
+	if err != nil {
+		t.Fatalf("opening archive: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		t.Fatalf("gzip reader: %v", err)
+	}
+	defer func() { _ = gz.Close() }()
+
+	tr := tar.NewReader(gz)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			t.Fatalf("reading tar: %v", err)
+		}
+		var buf strings.Builder
+		if _, err := io.Copy(&buf, io.LimitReader(tr, maxDecompressionSize)); err != nil {
+			t.Fatalf("reading %s: %v", hdr.Name, err)
+		}
+		entries[hdr.Name] = buf.String()
+	}
+	return entries
 }
 
 func TestGenerateDistributionPackage(t *testing.T) {
@@ -362,93 +399,49 @@ func TestGenerateDistributionPackage(t *testing.T) {
 	}
 
 	// Verify archive contents.
-	f, err := os.Open(archivePath)
-	if err != nil {
-		t.Fatalf("opening archive: %v", err)
-	}
-	defer func() { _ = f.Close() }()
+	entries := readTarEntries(t, archivePath)
 
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		t.Fatalf("gzip reader: %v", err)
-	}
-	defer func() { _ = gz.Close() }()
-
-	tr := tar.NewReader(gz)
-	foundFiles := make(map[string]bool)
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatalf("reading tar: %v", err)
-		}
-		foundFiles[hdr.Name] = true
-
-		// Verify windows.md content.
-		if hdr.Name == "windows.md" {
-			var buf strings.Builder
-			if _, err := io.Copy(&buf, tr); err != nil {
-				t.Fatalf("reading windows.md: %v", err)
-			}
-			content := buf.String()
-			if !strings.Contains(content, "192.168.1.10") {
-				t.Error("windows.md missing windows host IP")
-			}
-			if !strings.Contains(content, "DESKTOP-ABC") {
-				t.Error("windows.md missing hostname")
-			}
-			if strings.Contains(content, "192.168.1.20") {
-				t.Error("windows.md should not contain linux host")
-			}
-		}
-
-		// Verify linux.md content.
-		if hdr.Name == "linux.md" {
-			var buf strings.Builder
-			if _, err := io.Copy(&buf, tr); err != nil {
-				t.Fatalf("reading linux.md: %v", err)
-			}
-			content := buf.String()
-			if !strings.Contains(content, "192.168.1.20") {
-				t.Error("linux.md missing linux host IP")
-			}
-			if !strings.Contains(content, "webserver") {
-				t.Error("linux.md missing hostname")
-			}
-		}
-
-		// Verify metadata.txt.
-		if hdr.Name == "metadata.txt" {
-			var buf strings.Builder
-			if _, err := io.Copy(&buf, tr); err != nil {
-				t.Fatalf("reading metadata.txt: %v", err)
-			}
-			content := buf.String()
-			if !strings.Contains(content, "windows: 1") {
-				t.Error("metadata missing windows count")
-			}
-			if !strings.Contains(content, "linux: 1") {
-				t.Error("metadata missing linux count")
-			}
-			if !strings.Contains(content, "total: 2") {
-				t.Error("metadata missing total count")
-			}
-		}
-	}
-
-	if !foundFiles["windows.md"] {
+	if content, ok := entries["windows.md"]; !ok {
 		t.Error("archive missing windows.md")
+	} else {
+		if !strings.Contains(content, "192.168.1.10") {
+			t.Error("windows.md missing windows host IP")
+		}
+		if !strings.Contains(content, "DESKTOP-ABC") {
+			t.Error("windows.md missing hostname")
+		}
+		if strings.Contains(content, "192.168.1.20") {
+			t.Error("windows.md should not contain linux host")
+		}
 	}
-	if !foundFiles["linux.md"] {
+
+	if content, ok := entries["linux.md"]; !ok {
 		t.Error("archive missing linux.md")
+	} else {
+		if !strings.Contains(content, "192.168.1.20") {
+			t.Error("linux.md missing linux host IP")
+		}
+		if !strings.Contains(content, "webserver") {
+			t.Error("linux.md missing hostname")
+		}
 	}
-	if !foundFiles["metadata.txt"] {
+
+	if content, ok := entries["metadata.txt"]; !ok {
 		t.Error("archive missing metadata.txt")
+	} else {
+		if !strings.Contains(content, "windows: 1") {
+			t.Error("metadata missing windows count")
+		}
+		if !strings.Contains(content, "linux: 1") {
+			t.Error("metadata missing linux count")
+		}
+		if !strings.Contains(content, "total: 2") {
+			t.Error("metadata missing total count")
+		}
 	}
+
 	// Unknown hosts should not produce a file.
-	if foundFiles["unknown.md"] {
+	if _, ok := entries["unknown.md"]; ok {
 		t.Error("archive should not contain unknown.md")
 	}
 }
@@ -459,11 +452,11 @@ func TestGenerateDistributionPackageWithScreenshots(t *testing.T) {
 
 	// Create a fake screenshot file.
 	screenshotDir := filepath.Join(tmpDir, "captures", "screenshots")
-	if err := os.MkdirAll(screenshotDir, 0755); err != nil {
+	if err := os.MkdirAll(screenshotDir, 0750); err != nil {
 		t.Fatal(err)
 	}
 	screenshotPath := filepath.Join(screenshotDir, "http--192.168.1.10-80.jpeg")
-	if err := os.WriteFile(screenshotPath, []byte("fake png data"), 0644); err != nil {
+	if err := os.WriteFile(screenshotPath, []byte("fake png data"), 0600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -495,7 +488,7 @@ func TestGenerateDistributionPackageWithScreenshots(t *testing.T) {
 	}
 
 	// Verify archive contains screenshots directory and the file.
-	f, err := os.Open(archivePath)
+	f, err := os.Open(archivePath) //nolint:gosec // G304: test path
 	if err != nil {
 		t.Fatalf("opening archive: %v", err)
 	}
@@ -529,7 +522,7 @@ func TestGenerateDistributionPackageWithScreenshots(t *testing.T) {
 		// Verify markdown contains screenshot wikilinks.
 		if hdr.Name == "windows.md" {
 			var buf strings.Builder
-			if _, err := io.Copy(&buf, tr); err != nil {
+			if _, err := io.Copy(&buf, io.LimitReader(tr, maxDecompressionSize)); err != nil {
 				t.Fatalf("reading windows.md: %v", err)
 			}
 			content := buf.String()

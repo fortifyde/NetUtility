@@ -169,11 +169,11 @@ func FindScreenshotsOnDisk(workspaceDir string) map[string][]ScreenshotInfo {
 func parseScreenshotJSONL(jsonlPath string) []ScreenshotInfo {
 	screenshots := make([]ScreenshotInfo, 0)
 
-	file, err := os.Open(jsonlPath)
+	file, err := os.Open(jsonlPath) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return screenshots
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 0, 64*1024), 10*1024*1024) // up to 10 MB per line

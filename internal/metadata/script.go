@@ -162,7 +162,7 @@ func (r *ScriptRegistry) LoadMetadata() error {
 func (r *ScriptRegistry) loadScriptMetadata(metaPath string) (ScriptMetadata, error) {
 	var metadata ScriptMetadata
 
-	data, err := os.ReadFile(metaPath)
+	data, err := os.ReadFile(metaPath) //nolint:gosec // G304: metaPath from trusted scripts dir
 	if err != nil {
 		return metadata, fmt.Errorf("failed to read file: %w", err)
 	}

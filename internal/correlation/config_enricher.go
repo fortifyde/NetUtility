@@ -106,11 +106,7 @@ func (ce *ConfigEnricher) applyPhysicalLinks(idx *macIndex, correlations map[str
 		if !ok {
 			continue
 		}
-		corr.PhysicalLinks = append(corr.PhysicalLinks, PhysicalLink{
-			SwitchIP:  entry.SwitchIP,
-			Interface: entry.Interface,
-			VLAN:      entry.VLAN,
-		})
+		corr.PhysicalLinks = append(corr.PhysicalLinks, PhysicalLink(entry))
 	}
 }
 
@@ -133,7 +129,7 @@ func readMetadata(deviceDir string) (ip, vendor string) {
 
 // readFileContents reads a file and returns its content as a string.
 func readFileContents(path string) (string, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return "", err
 	}

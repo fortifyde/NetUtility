@@ -22,6 +22,17 @@ import (
 	"netutil/internal/correlation"
 )
 
+const (
+	catUnknown       = "unknown"
+	catWindows       = "windows"
+	catLinux         = "linux"
+	catNetworkDevice = "network_device"
+	colorGreen       = "green"
+	colorYellow      = "yellow"
+	colorGray        = "gray"
+	portStatusOpen   = "open"
+)
+
 // hostCategory returns the ph7 category from HostInfo.Attributes ("windows",
 // "linux", "network_device", or "unknown"). Falls back to "unknown" if unset.
 func hostCategory(result *correlation.CorrelationResult) string {
@@ -30,7 +41,7 @@ func hostCategory(result *correlation.CorrelationResult) string {
 			return cat
 		}
 	}
-	return "unknown"
+	return catUnknown
 }
 
 // hostVendor returns the ph7 vendor string, or "-" if absent.
@@ -63,7 +74,7 @@ func hostOpenPorts(result *correlation.CorrelationResult) string {
 	}
 	var portNums []int
 	for _, p := range result.HostInfo.Ports {
-		if p.State == "open" {
+		if p.State == portStatusOpen {
 			portNums = append(portNums, p.Number)
 		}
 	}
@@ -81,11 +92,11 @@ func hostOpenPorts(result *correlation.CorrelationResult) string {
 // categoryOrder returns a sort key for display order: windows=0, linux=1, network_device=2, unknown=3.
 func categoryOrder(cat string) int {
 	switch cat {
-	case "windows":
+	case catWindows:
 		return 0
-	case "linux":
+	case catLinux:
 		return 1
-	case "network_device":
+	case catNetworkDevice:
 		return 2
 	default:
 		return 3
@@ -95,11 +106,11 @@ func categoryOrder(cat string) int {
 // categoryTcellColor returns the tcell display color for a category (for table cells).
 func categoryTcellColor(cat string) tcell.Color {
 	switch cat {
-	case "windows":
+	case catWindows:
 		return tcell.ColorGreen
-	case "linux":
+	case catLinux:
 		return tcell.ColorYellow
-	case "network_device":
+	case catNetworkDevice:
 		return tcell.ColorBlue
 	default:
 		return tcell.ColorGray
@@ -109,14 +120,14 @@ func categoryTcellColor(cat string) tcell.Color {
 // categoryTviewColor returns the tview markup color name for a category (for TextView).
 func categoryTviewColor(cat string) string {
 	switch cat {
-	case "windows":
-		return "green"
-	case "linux":
-		return "yellow"
-	case "network_device":
+	case catWindows:
+		return colorGreen
+	case catLinux:
+		return colorYellow
+	case catNetworkDevice:
 		return "aqua"
 	default:
-		return "gray"
+		return colorGray
 	}
 }
 
@@ -160,7 +171,7 @@ func hostMatchesText(ip string, result *correlation.CorrelationResult, text stri
 		}
 	}
 	for _, p := range result.HostInfo.Ports {
-		if p.State != "open" {
+		if p.State != portStatusOpen {
 			continue
 		}
 		if strings.Contains(strconv.Itoa(p.Number), lower) {
@@ -174,7 +185,7 @@ func hostMatchesText(ip string, result *correlation.CorrelationResult, text stri
 }
 
 // filterCategories defines the cycling order for the category filter.
-var filterCategories = []string{"", "windows", "linux", "network_device", "unknown"}
+var filterCategories = []string{"", catWindows, catLinux, catNetworkDevice, catUnknown}
 
 // cycleCategoryFilter advances filterCategory to the next value in the cycle.
 func (cv *CorrelationViewer) cycleCategoryFilter() {
@@ -443,24 +454,10 @@ func (cv *CorrelationViewer) updateHostsList() {
 	}
 }
 
-// updateDetailsPanel renders host identity, classification, and port data for the selected host.
-func (cv *CorrelationViewer) updateDetailsPanel() {
-	if cv.selectedHost == "" {
-		cv.detailsPanel.SetText(cv.str.HostDetailsSelectPrompt)
-		return
-	}
-
-	result, exists := cv.correlator.GetCorrelationForHost(cv.selectedHost)
-	if !exists {
-		cv.detailsPanel.SetText(cv.str.HostDetailsNoData)
-		return
-	}
-
-	var b strings.Builder
-
-	// --- Identity ---
+// writeIdentitySection renders the host identity block (IP, MAC, hostname, NetBIOS, OS).
+func (cv *CorrelationViewer) writeIdentitySection(b *strings.Builder, result *correlation.CorrelationResult) {
 	b.WriteString(cv.str.HostDetailsIdentity)
-	b.WriteString(fmt.Sprintf("IP:       [white]%s[::-]\n", result.Host))
+	fmt.Fprintf(b, "IP:       [white]%s[::-]\n", result.Host)
 	mac := "-"
 	hostname := "-"
 	netbios := "-"
@@ -481,13 +478,15 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			osStr = result.HostInfo.OS
 		}
 	}
-	b.WriteString(fmt.Sprintf("MAC:      [white]%s[::-]\n", mac))
-	b.WriteString(fmt.Sprintf("Hostname: [white]%s[::-]\n", hostname))
-	b.WriteString(fmt.Sprintf("NetBIOS:  [white]%s[::-]\n", netbios))
-	b.WriteString(fmt.Sprintf("OS:       [white]%s[::-]\n", osStr))
+	fmt.Fprintf(b, "MAC:      [white]%s[::-]\n", mac)
+	fmt.Fprintf(b, "Hostname: [white]%s[::-]\n", hostname)
+	fmt.Fprintf(b, "NetBIOS:  [white]%s[::-]\n", netbios)
+	fmt.Fprintf(b, "OS:       [white]%s[::-]\n", osStr)
 	b.WriteString("\n")
+}
 
-	// --- Classification ---
+// writeClassificationSection renders the host classification block (category, vendor, confidence, TTL).
+func (cv *CorrelationViewer) writeClassificationSection(b *strings.Builder, result *correlation.CorrelationResult) {
 	b.WriteString(cv.str.HostDetailsClassification)
 	cat := hostCategory(result)
 	vendor := hostVendor(result)
@@ -501,30 +500,32 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			score = s
 		}
 	}
-	b.WriteString(fmt.Sprintf("Category:   [%s]%s[::-]\n", categoryTviewColor(cat), cat))
-	b.WriteString(fmt.Sprintf("Vendor:     [white]%s[::-]\n", vendor))
+	fmt.Fprintf(b, "Category:   [%s]%s[::-]\n", categoryTviewColor(cat), cat)
+	fmt.Fprintf(b, "Vendor:     [white]%s[::-]\n", vendor)
 	if score != "-" {
-		b.WriteString(fmt.Sprintf("Confidence: [white]%s[::-]  (score %s)\n", confidence, score))
+		fmt.Fprintf(b, "Confidence: [white]%s[::-]  (score %s)\n", confidence, score)
 	} else {
-		b.WriteString(fmt.Sprintf("Confidence: [white]%s[::-]\n", confidence))
+		fmt.Fprintf(b, "Confidence: [white]%s[::-]\n", confidence)
 	}
 	if result.HostInfo != nil {
 		if ttl, ok := result.HostInfo.Attributes["ttl_normalized"]; ok && ttl != "" {
-			b.WriteString(fmt.Sprintf("TTL:        [white]%s[::-]\n", ttl))
+			fmt.Fprintf(b, "TTL:        [white]%s[::-]\n", ttl)
 		}
 	}
 	b.WriteString("\n")
+}
 
-	// --- Ports & Services ---
+// writePortsSection renders the open ports and services block.
+func (cv *CorrelationViewer) writePortsSection(b *strings.Builder, result *correlation.CorrelationResult) {
 	var openPorts []correlation.Port
 	if result.HostInfo != nil {
 		for _, p := range result.HostInfo.Ports {
-			if p.State == "open" {
+			if p.State == portStatusOpen {
 				openPorts = append(openPorts, p)
 			}
 		}
 	}
-	b.WriteString(fmt.Sprintf(cv.str.FmtHostDetailsPorts, len(openPorts)))
+	fmt.Fprintf(b, cv.str.FmtHostDetailsPorts, len(openPorts))
 	if len(openPorts) == 0 {
 		b.WriteString(cv.str.HostDetailsNoOpenPorts)
 	} else {
@@ -537,28 +538,49 @@ func (cv *CorrelationViewer) updateDetailsPanel() {
 			if ver == "" {
 				ver = "-"
 			}
-			b.WriteString(fmt.Sprintf("[white]%d/%s[::-]  %-8s  %s\n",
-				p.Number, p.Protocol, svc, ver))
+			fmt.Fprintf(b, "[white]%d/%s[::-]  %-8s  %s\n",
+				p.Number, p.Protocol, svc, ver)
 		}
 	}
+}
 
-	// --- Screenshots ---
+// writeScreenshotsSection renders the screenshots block.
+func (cv *CorrelationViewer) writeScreenshotsSection(b *strings.Builder, result *correlation.CorrelationResult) {
 	screenshots := correlation.GetScreenshotsForHost(result)
-	b.WriteString(fmt.Sprintf(cv.str.FmtHostDetailsScreenshots, len(screenshots)))
+	fmt.Fprintf(b, cv.str.FmtHostDetailsScreenshots, len(screenshots))
 	if len(screenshots) == 0 {
 		b.WriteString(cv.str.HostDetailsNoScreenshots)
 	} else {
 		for i, ss := range screenshots {
-			statusColor := "green"
+			statusColor := colorGreen
 			if ss.StatusCode != "200" {
-				statusColor = "yellow"
+				statusColor = colorYellow
 			}
-			b.WriteString(fmt.Sprintf("[%s]%d.[:-] [white]%s[::-]  [gray](%s)[::-]\n",
-				statusColor, i+1, ss.URL, ss.StatusCode))
+			fmt.Fprintf(b, "[%s]%d.[:-] [white]%s[::-]  [gray](%s)[::-]\n",
+				statusColor, i+1, ss.URL, ss.StatusCode)
 		}
 		b.WriteString(cv.str.HostDetailsPressS)
 	}
+}
 
+// updateDetailsPanel renders host identity, classification, and port data for the selected host.
+func (cv *CorrelationViewer) updateDetailsPanel() {
+	if cv.selectedHost == "" {
+		cv.detailsPanel.SetText(cv.str.HostDetailsSelectPrompt)
+		return
+	}
+
+	result, exists := cv.correlator.GetCorrelationForHost(cv.selectedHost)
+	if !exists {
+		cv.detailsPanel.SetText(cv.str.HostDetailsNoData)
+		return
+	}
+
+	var b strings.Builder
+	cv.writeIdentitySection(&b, result)
+	cv.writeClassificationSection(&b, result)
+	cv.writePortsSection(&b, result)
+	cv.writeScreenshotsSection(&b, result)
 	cv.detailsPanel.SetText(b.String())
 }
 
@@ -643,9 +665,9 @@ func (cv *CorrelationViewer) openCategorizationModal() {
 	}
 
 	list := tview.NewList().
-		AddItem(cv.str.CatModalWindows, "", '1', func() { applyCategory("windows") }).
-		AddItem(cv.str.CatModalLinux, "", '2', func() { applyCategory("linux") }).
-		AddItem(cv.str.CatModalNetDevice, "", '3', func() { applyCategory("network_device") }).
+		AddItem(cv.str.CatModalWindows, "", '1', func() { applyCategory(catWindows) }).
+		AddItem(cv.str.CatModalLinux, "", '2', func() { applyCategory(catLinux) }).
+		AddItem(cv.str.CatModalNetDevice, "", '3', func() { applyCategory(catNetworkDevice) }).
 		AddItem(cv.str.BtnCancel, "", 'q', closeModal)
 	list.SetBorder(true).SetTitle(fmt.Sprintf(cv.str.FmtCatModalTitle, ip))
 
@@ -984,13 +1006,7 @@ func (cv *CorrelationViewer) showScreenshotModal() {
 				}
 				return nil
 			case 'o':
-				ss := screenshots[currentIdx]
-				cv.app.Suspend(func() {
-					cmd := exec.Command("xdg-open", ss.File)
-					if err := cmd.Run(); err != nil {
-						fmt.Fprintf(os.Stderr, "failed to open %s: %v\n", ss.File, err)
-					}
-				})
+				cv.openScreenshotExternally(screenshots[currentIdx].File)
 				return nil
 			}
 		}
@@ -1001,6 +1017,15 @@ func (cv *CorrelationViewer) showScreenshotModal() {
 	cv.app.SetFocus(modal)
 	updateView()
 	cv.app.ForceDraw()
+}
+
+func (cv *CorrelationViewer) openScreenshotExternally(filePath string) {
+	cv.app.Suspend(func() {
+		cmd := exec.Command("xdg-open", filePath)
+		if err := cmd.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "failed to open %s: %v\n", filePath, err)
+		}
+	})
 }
 
 // tcellCell holds a single character cell with foreground and background colors.
@@ -1055,11 +1080,11 @@ func (cv *CorrelationViewer) loadScreenshot(path string) (image.Image, error) {
 		return img, nil
 	}
 
-	file, err := os.Open(path)
+	file, err := os.Open(path) //nolint:gosec // G304: path from trusted workspace
 	if err != nil {
 		return nil, fmt.Errorf("failed to open screenshot: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	img, _, err := image.Decode(file)
 	if err != nil {

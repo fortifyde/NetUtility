@@ -123,13 +123,27 @@ func main() {
 
 		log.Printf("TLS enabled with certificate: %s", *tlsCert)
 		log.Printf("Access URL: https://%s", addr)
-		if err := http.ListenAndServeTLS(addr, *tlsCert, *tlsKey, handler); err != nil {
+		server := &http.Server{
+			Addr:         addr,
+			Handler:      handler,
+			ReadTimeout:  60 * time.Second,
+			WriteTimeout: 60 * time.Second,
+			IdleTimeout:  120 * time.Second,
+		}
+		if err := server.ListenAndServeTLS(*tlsCert, *tlsKey); err != nil {
 			log.Fatalf("ERROR: HTTPS server failed: %v", err)
 		}
 	} else {
 		log.Printf("WARNING: Running without TLS encryption - credentials transmitted in cleartext")
 		log.Printf("Access URL: http://%s", addr)
-		if err := http.ListenAndServe(addr, handler); err != nil {
+		server := &http.Server{
+			Addr:         addr,
+			Handler:      handler,
+			ReadTimeout:  60 * time.Second,
+			WriteTimeout: 60 * time.Second,
+			IdleTimeout:  120 * time.Second,
+		}
+		if err := server.ListenAndServe(); err != nil {
 			log.Fatalf("ERROR: HTTP server failed: %v", err)
 		}
 	}
@@ -145,7 +159,7 @@ func basicAuthMiddleware(creds *auth.Credentials, next http.Handler) http.Handle
 		}
 
 		if !creds.Authenticate(username, password) {
-			log.Printf("AUTH FAILED: %s from %s", username, r.RemoteAddr)
+		log.Printf("AUTH FAILED: %s from %s", sanitizeLogString(username), sanitizeLogString(r.RemoteAddr)) //nolint:gosec // G706: sanitized
 			sendAuthRequired(w)
 			return
 		}
@@ -159,7 +173,7 @@ func basicAuthMiddleware(creds *auth.Credentials, next http.Handler) http.Handle
 func sendAuthRequired(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", `Basic realm="NetUtil File Server"`)
 	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte("401 Unauthorized\n"))
+	_, _ = w.Write([]byte("401 Unauthorized\n"))
 }
 
 // loggingMiddleware logs all requests
@@ -176,12 +190,12 @@ func loggingMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(wrapped, r)
 
 		duration := time.Since(start)
-		log.Printf("%s %s %s %d %s %s",
-			r.RemoteAddr,
-			username,
-			r.Method,
+		log.Printf("%s %s %s %d %s %s", //nolint:gosec // G706: sanitized via sanitizeLogString
+			sanitizeLogString(r.RemoteAddr),
+			sanitizeLogString(username),
+			sanitizeLogString(r.Method),
 			wrapped.statusCode,
-			r.URL.Path,
+			sanitizeLogString(r.URL.Path),
 			duration,
 		)
 	})
@@ -215,15 +229,13 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// cleanPath ensures the path is clean and doesn't escape workspace
-func cleanPath(requestPath string) string {
-	// Clean the path to remove .. and . elements
-	cleaned := filepath.Clean("/" + requestPath)
 
-	// Ensure it starts with /
-	if !strings.HasPrefix(cleaned, "/") {
-		cleaned = "/" + cleaned
-	}
-
-	return cleaned
+// sanitizeLogString strips control characters from a string to prevent log injection.
+func sanitizeLogString(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 32 && r != '\t' {
+			return -1
+		}
+		return r
+	}, s)
 }

@@ -57,7 +57,7 @@ func TestLoadScriptMetadataValid(t *testing.T) {
   last_updated: "2025-01-01"
 `
 
-	if err := os.WriteFile(metaFile, []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(metaFile, []byte(yamlContent), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -121,7 +121,7 @@ func TestLoadScriptMetadataMissingFields(t *testing.T) {
 			tempDir := t.TempDir()
 			metaFile := filepath.Join(tempDir, "test.meta.yaml")
 
-			if err := os.WriteFile(metaFile, []byte(tt.yamlContent), 0644); err != nil {
+		if err := os.WriteFile(metaFile, []byte(tt.yamlContent), 0600); err != nil {
 				t.Fatalf("Failed to create test file: %v", err)
 			}
 
@@ -139,7 +139,7 @@ func TestLoadScriptMetadataInvalidYAML(t *testing.T) {
 	tempDir := t.TempDir()
 	metaFile := filepath.Join(tempDir, "test.meta.yaml")
 
-	if err := os.WriteFile(metaFile, []byte("{invalid yaml"), 0644); err != nil {
+	if err := os.WriteFile(metaFile, []byte("{invalid yaml"), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -510,12 +510,12 @@ func TestValidateScriptFileNotFound(t *testing.T) {
 func TestValidateScriptFileExists(t *testing.T) {
 	tempDir := t.TempDir()
 	categoryDir := filepath.Join(tempDir, "discovery")
-	if err := os.MkdirAll(categoryDir, 0755); err != nil {
+	if err := os.MkdirAll(categoryDir, 0750); err != nil {
 		t.Fatalf("Failed to create category dir: %v", err)
 	}
 
 	scriptFile := filepath.Join(categoryDir, "test.sh")
-	if err := os.WriteFile(scriptFile, []byte("#!/bin/sh\necho test"), 0755); err != nil {
+	if err := os.WriteFile(scriptFile, []byte("#!/bin/sh\necho test"), 0750); err != nil { //nolint:gosec // test script needs execute
 		t.Fatalf("Failed to create script file: %v", err)
 	}
 
@@ -564,7 +564,7 @@ func TestParameterStructure(t *testing.T) {
 func TestValidateScript_MissingTool(t *testing.T) {
 	dir := t.TempDir()
 	scriptFile := filepath.Join(dir, "scan.sh")
-	if err := os.WriteFile(scriptFile, []byte("#!/bin/sh\necho test"), 0755); err != nil {
+	if err := os.WriteFile(scriptFile, []byte("#!/bin/sh\necho test"), 0750); err != nil { //nolint:gosec // test script needs execute
 		t.Fatal(err)
 	}
 	registry := NewScriptRegistry(dir)
@@ -591,7 +591,7 @@ func TestValidateScript_MissingTool(t *testing.T) {
 func TestValidateScript_PresentTool(t *testing.T) {
 	dir := t.TempDir()
 	scriptFile := filepath.Join(dir, "scan.sh")
-	if err := os.WriteFile(scriptFile, []byte("#!/bin/sh\necho test"), 0755); err != nil {
+	if err := os.WriteFile(scriptFile, []byte("#!/bin/sh\necho test"), 0750); err != nil { //nolint:gosec // test script needs execute
 		t.Fatal(err)
 	}
 	registry := NewScriptRegistry(dir)
@@ -617,7 +617,7 @@ func TestLoadMetadataIntegration(t *testing.T) {
 
 	// Create directory structure
 	discoveryDir := filepath.Join(tempDir, "discovery")
-	if err := os.MkdirAll(discoveryDir, 0755); err != nil {
+	if err := os.MkdirAll(discoveryDir, 0750); err != nil {
 		t.Fatalf("Failed to create discovery dir: %v", err)
 	}
 
@@ -645,7 +645,7 @@ func TestLoadMetadataIntegration(t *testing.T) {
   author: "Test"
   last_updated: "2025-01-01"
 `
-	if err := os.WriteFile(metaFile, []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(metaFile, []byte(yamlContent), 0600); err != nil {
 		t.Fatalf("Failed to create meta file: %v", err)
 	}
 

@@ -80,14 +80,14 @@ func (e *Executor) ExecuteScript(scriptPath string, outputWriter io.Writer) (*Sc
 	case <-e.cancel:
 		// Command was cancelled
 		if cmd.Process != nil {
-			cmd.Process.Kill()
+			_ = cmd.Process.Kill()
 		}
 		cmdErr = <-done // Wait for process to actually exit
 	}
 
 	// Close stdin
 	if e.stdin != nil {
-		e.stdin.Close()
+		_ = e.stdin.Close()
 		e.stdin = nil
 	}
 

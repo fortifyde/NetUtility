@@ -76,15 +76,15 @@ func (r *StreamingResult) SetFinal(success bool, exitCode int, err error, endTim
 }
 
 // GetFinal returns the final result fields atomically.
-func (r *StreamingResult) GetFinal() (success bool, exitCode int, err error, duration time.Duration, endTime time.Time) {
+func (r *StreamingResult) GetFinal() (success bool, exitCode int, duration time.Duration, endTime time.Time, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.Success, r.ExitCode, r.Error, r.Duration, r.EndTime
+	return r.Success, r.ExitCode, r.Duration, r.EndTime, r.Error
 }
 
 // NewStreamingExecutor creates a new streaming executor
 func NewStreamingExecutor() *StreamingExecutor {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel stored in struct
 	return &StreamingExecutor{
 		ctx:        ctx,
 		cancel:     cancel,
@@ -228,7 +228,7 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 
 	// Close stdin
 	if e.stdin != nil {
-		e.stdin.Close()
+		_ = e.stdin.Close()
 		e.stdin = nil
 	}
 }

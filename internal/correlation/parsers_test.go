@@ -379,7 +379,7 @@ PORT   STATE SERVICE
 80/tcp open  http
 `
 
-	if err := os.WriteFile(resultFile, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(resultFile, []byte(content), 0600); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
@@ -415,7 +415,7 @@ func TestScanWorkspaceForResults(t *testing.T) {
 
 	for filename, content := range files {
 		filePath := filepath.Join(tempDir, filename)
-		if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(filePath, []byte(content), 0600); err != nil {
 			t.Fatalf("Failed to create test file: %v", err)
 		}
 	}
@@ -701,7 +701,7 @@ func TestScanWorkspaceForResults_SubdirectoryScan(t *testing.T) {
 	dir := t.TempDir()
 	// Two levels deep — filepath.Glob("**") would not recurse this far
 	subdir := filepath.Join(dir, "scan-2024-01-15", "subscans")
-	if err := os.MkdirAll(subdir, 0755); err != nil {
+	if err := os.MkdirAll(subdir, 0750); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	nmapContent := `Starting Nmap 7.94
@@ -711,7 +711,7 @@ PORT   STATE SERVICE
 22/tcp open  ssh
 Nmap done: 1 IP address (1 host up) scanned`
 	nmapFile := filepath.Join(subdir, "result.nmap")
-	if err := os.WriteFile(nmapFile, []byte(nmapContent), 0644); err != nil {
+	if err := os.WriteFile(nmapFile, []byte(nmapContent), 0600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	rp := NewResultParser(dir)
@@ -730,7 +730,7 @@ func TestScanWorkspaceSkipsLargeFiles(t *testing.T) {
 
 	// Create a small file
 	smallFile := filepath.Join(tempDir, "small.txt")
-	if err := os.WriteFile(smallFile, []byte("192.168.1.1"), 0644); err != nil {
+	if err := os.WriteFile(smallFile, []byte("192.168.1.1"), 0600); err != nil {
 		t.Fatalf("Failed to create small file: %v", err)
 	}
 
@@ -842,6 +842,36 @@ func TestParseNiktoXMLResultInvalid(t *testing.T) {
 	_ = parsed
 }
 
+func findVuln(t *testing.T, vulns []Vulnerability, match func(Vulnerability) bool, msg string) {
+	t.Helper()
+	for _, v := range vulns {
+		if match(v) {
+			return
+		}
+	}
+	t.Errorf("expected vulnerability: %s", msg)
+}
+
+func assertNoVulnForHost(t *testing.T, vulns []Vulnerability, host, msg string) {
+	t.Helper()
+	for _, v := range vulns {
+		if v.Host == host {
+			t.Error(msg)
+			return
+		}
+	}
+}
+
+func assertAllVulnSource(t *testing.T, vulns []Vulnerability, want string) {
+	t.Helper()
+	for _, v := range vulns {
+		if v.Source != want {
+			t.Errorf("Source = %q, want %q", v.Source, want)
+			return
+		}
+	}
+}
+
 func TestParseSSLScanResult(t *testing.T) {
 	parser := NewResultParser("")
 
@@ -881,70 +911,26 @@ SSL/TLS:
 		t.Fatalf("parseSSLScanResult() error = %v", err)
 	}
 
-	// Should find 2 hosts
 	if len(parsed.Hosts) < 1 {
-		t.Error("Should parse at least 1 host")
+		t.Fatal("Should parse at least 1 host")
 	}
 
-	// Should detect SSLv3 as critical
-	var foundSSLv3 bool
-	for _, v := range parsed.Vulnerabilities {
-		if v.Host == "192.168.1.1" && v.Severity == "critical" && strings.Contains(v.Title, "SSLv3") {
-			foundSSLv3 = true
-		}
-	}
-	if !foundSSLv3 {
-		t.Error("Should detect SSLv3 as critical")
-	}
-
-	// Should detect TLS 1.0 as medium
-	var foundTLS10 bool
-	for _, v := range parsed.Vulnerabilities {
-		if v.Host == "192.168.1.1" && v.Severity == "medium" && strings.Contains(v.Title, "Deprecated") {
-			foundTLS10 = true
-		}
-	}
-	if !foundTLS10 {
-		t.Error("Should detect TLS 1.0 as deprecated")
-	}
-
-	// Should detect weak ciphers
-	var foundWeak bool
-	for _, v := range parsed.Vulnerabilities {
-		if v.Host == "192.168.1.1" && v.Severity == "high" && v.Source == "sslscan" {
-			foundWeak = true
-		}
-	}
-	if !foundWeak {
-		t.Error("Should detect weak cipher (DES/RC4)")
-	}
-
-	// Should detect self-signed cert
-	var foundSelfSigned bool
-	for _, v := range parsed.Vulnerabilities {
-		if v.Host == "192.168.1.1" && strings.Contains(strings.ToLower(v.Title), "self-signed") {
-			foundSelfSigned = true
-		}
-	}
-	if !foundSelfSigned {
-		t.Error("Should detect self-signed certificate")
-	}
-
-	// Check Source field
-	for _, v := range parsed.Vulnerabilities {
-		if v.Source != "sslscan" {
-			t.Errorf("Source = %q, want 'sslscan'", v.Source)
-			break
-		}
-	}
-
-	// Second host should be clean
-	for _, v := range parsed.Vulnerabilities {
-		if v.Host == "192.168.1.2" {
-			t.Error("Second host should have no findings (only TLS 1.2/1.3)")
-			break
-		}
-	}
+	vulns := parsed.Vulnerabilities
+	findVuln(t, vulns, func(v Vulnerability) bool {
+		return v.Host == "192.168.1.1" && v.Severity == "critical" && strings.Contains(v.Title, "SSLv3")
+	}, "Should detect SSLv3 as critical")
+	findVuln(t, vulns, func(v Vulnerability) bool {
+		return v.Host == "192.168.1.1" && v.Severity == "medium" && strings.Contains(v.Title, "Deprecated")
+	}, "Should detect TLS 1.0 as deprecated")
+	findVuln(t, vulns, func(v Vulnerability) bool {
+		return v.Host == "192.168.1.1" && v.Severity == "high" && v.Source == "sslscan"
+	}, "Should detect weak cipher (DES/RC4)")
+	findVuln(t, vulns, func(v Vulnerability) bool {
+		return v.Host == "192.168.1.1" && strings.Contains(strings.ToLower(v.Title), "self-signed")
+	}, "Should detect self-signed certificate")
+	assertAllVulnSource(t, vulns, "sslscan")
+	assertNoVulnForHost(t, vulns, "192.168.1.2",
+		"Second host should have no findings (only TLS 1.2/1.3)")
 }
 
 func TestDetermineScanTypeNikto(t *testing.T) {
@@ -972,7 +958,7 @@ func TestScanWorkspaceForResults_SSLScan(t *testing.T) {
 
 	// Create sslscan XML file in a supplementary directory
 	suppDir := filepath.Join(tempDir, "supplementary")
-	if err := os.MkdirAll(suppDir, 0755); err != nil {
+	if err := os.MkdirAll(suppDir, 0750); err != nil {
 		t.Fatal(err)
 	}
 	sslContent := `<?xml version="1.0" encoding="UTF-8"?>
@@ -981,7 +967,7 @@ func TestScanWorkspaceForResults_SSLScan(t *testing.T) {
   <protocol type="tls" version="1.2" enabled="1" />
  </ssltest>
 </document>`
-	if err := os.WriteFile(filepath.Join(suppDir, "sslscan_10.0.0.1.xml"), []byte(sslContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(suppDir, "sslscan_10.0.0.1.xml"), []byte(sslContent), 0600); err != nil {
 		t.Fatal(err)
 	}
 

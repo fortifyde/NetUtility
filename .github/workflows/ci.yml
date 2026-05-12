@@ -62,12 +62,10 @@ jobs:
       with:
         go-version: '1.26.x'
 
-    # TODO: Remove continue-on-error once pre-existing lint backlog is resolved
     - name: Install golangci-lint
       run: |
         curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.11.4
     - name: Run golangci-lint
-      continue-on-error: true
       run: golangci-lint run ./...
   shellcheck:
     name: Shellcheck

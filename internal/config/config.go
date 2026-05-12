@@ -82,7 +82,7 @@ func LoadConfig() (*Config, error) {
 		return GetDefaultConfig(), nil
 	}
 
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(configPath) //nolint:gosec // G304: configPath from executable path
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
@@ -126,7 +126,7 @@ func (c *Config) SaveConfig() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
+	if err := os.WriteFile(configPath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
 
@@ -200,7 +200,7 @@ func (c *Config) CreateWorkspace() error {
 	}
 
 	// Create main workspace directory with permissions that allow root access
-	if err := os.MkdirAll(c.WorkspaceDir, 0755); err != nil {
+	if err := os.MkdirAll(c.WorkspaceDir, 0750); err != nil {
 		return fmt.Errorf("failed to create workspace directory: %w", err)
 	}
 
@@ -218,14 +218,14 @@ func (c *Config) CreateWorkspace() error {
 	for _, subdir := range subdirs {
 		path := filepath.Join(c.WorkspaceDir, subdir)
 		// Use 0777 permissions so root can write to user's workspace
-		if err := os.MkdirAll(path, 0777); err != nil {
+		if err := os.MkdirAll(path, 0750); err != nil {
 			return fmt.Errorf("failed to create subdirectory %s: %w", subdir, err)
 		}
 	}
 
 	// Create symbolic links for latest results
 	latestDir := filepath.Join(c.WorkspaceDir, "latest")
-	if err := os.MkdirAll(latestDir, 0777); err != nil {
+	if err := os.MkdirAll(latestDir, 0750); err != nil {
 		return fmt.Errorf("failed to create latest directory: %w", err)
 	}
 
@@ -314,10 +314,10 @@ func isValidInterfaceName(name string) bool {
 
 	// Interface names should contain only alphanumeric characters, dots, and hyphens
 	for _, char := range name {
-		if !((char >= 'a' && char <= 'z') ||
-			(char >= 'A' && char <= 'Z') ||
-			(char >= '0' && char <= '9') ||
-			char == '.' || char == '-' || char == '_') {
+		if (char < 'a' || char > 'z') &&
+			(char < 'A' || char > 'Z') &&
+			(char < '0' || char > '9') &&
+			char != '.' && char != '-' && char != '_' {
 			return false
 		}
 	}
@@ -530,14 +530,14 @@ func (c *Config) FixWorkspacePermissions() error {
 			continue // Skip non-existent directories
 		}
 
-		// Set permissions to 0777 so root can write to user-owned directories
-		if err := os.Chmod(dirPath, 0777); err != nil {
+		// Set permissions to 0750 so root can write to user-owned directories
+		if err := os.Chmod(dirPath, 0750); err != nil { //nolint:gosec // G302: directory chmod
 			fmt.Fprintf(os.Stderr, "Warning: Failed to set permissions on %s: %v\n", dirPath, err)
 		}
 	}
 
 	// Also fix permissions on the main workspace directory
-	if err := os.Chmod(c.WorkspaceDir, 0777); err != nil {
+	if err := os.Chmod(c.WorkspaceDir, 0750); err != nil { //nolint:gosec // G302: directory chmod
 		fmt.Fprintf(os.Stderr, "Warning: Failed to set permissions on workspace root: %v\n", err)
 	}
 
@@ -567,12 +567,12 @@ func (c *Config) EnsureWorkspaceWritable() error {
 
 	// Test write access by creating a temporary file
 	testFile := filepath.Join(c.WorkspaceDir, ".netutil_write_test")
-	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+	if err := os.WriteFile(testFile, []byte("test"), 0600); err != nil {
 		return fmt.Errorf("workspace not writable: %w", err)
 	}
 
 	// Clean up test file
-	os.Remove(testFile)
+	_ = os.Remove(testFile)
 
 	return nil
 }
@@ -600,7 +600,7 @@ func FixWorkspaceOwnershipForPath(dir string) {
 		return
 	}
 
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -608,5 +608,7 @@ func FixWorkspaceOwnershipForPath(dir string) {
 			fmt.Fprintf(os.Stderr, "Warning: Failed to change ownership of %s: %v\n", path, chownErr)
 		}
 		return nil
-	})
+	}); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: error walking %s for chown: %v\n", dir, err)
+	}
 }

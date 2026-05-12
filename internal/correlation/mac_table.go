@@ -89,7 +89,7 @@ func normalizeMAC(raw string) string {
 		return ""
 	}
 	for _, c := range stripped {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
 			return ""
 		}
 	}

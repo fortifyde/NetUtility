@@ -38,12 +38,12 @@ func ensureExecutable(execDir, scriptsDir string) {
 	}
 
 	// Make all .sh files in scripts/ (recursively) executable
-	_ = filepath.Walk(scriptsDir, func(path string, info os.FileInfo, err error) error {
+	_ = filepath.Walk(scriptsDir, func(path string, info os.FileInfo, err error) error { //nolint:gosec // G122: air-gapped tool
 		if err != nil || info.IsDir() {
 			return nil
 		}
 		if filepath.Ext(path) == ".sh" && info.Mode()&0111 == 0 {
-			_ = os.Chmod(path, info.Mode()|0755)
+		_ = os.Chmod(path, info.Mode()|0755) //nolint:gosec // G122: air-gapped tool
 		}
 		return nil
 	})
@@ -70,64 +70,22 @@ func main() {
 }
 
 func run() int {
-	// Define command-line flags
-	scriptsDirFlag := flag.String("scripts-dir", "", "Path to scripts directory (default: next to executable)")
-	showVersion := flag.Bool("version", false, "Show version")
-	flag.Parse()
-
-	if *showVersion {
-		fmt.Printf("NetUtility %s\n", version)
-		return 0
-	}
-
-	// Determine scripts directory
-	scriptsDir := getDefaultScriptsDir()
-	if *scriptsDirFlag != "" {
-		scriptsDir = *scriptsDirFlag
+	scriptsDir, shouldExit, exitCode := parseCLIFlags()
+	if shouldExit {
+		return exitCode
 	}
 
 	// Ensure bin/ and scripts/ are executable (idempotent, silent)
 	execPath, _ := os.Executable()
 	ensureExecutable(filepath.Dir(execPath), scriptsDir)
 
-	// Load configuration
-	cfg, err := config.LoadConfig()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
-		cfg = config.GetDefaultConfig()
-	}
+	// Load and validate configuration
+	cfg := loadAndSanitizeConfig()
 
-	// Validate and sanitize configuration
-	if err := cfg.ValidateConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: Configuration validation failed: %v\n", err)
-		fmt.Fprintf(os.Stderr, "Sanitizing configuration...\n")
-		cfg.SanitizeConfig()
-
-		// Save sanitized config
-		if saveErr := cfg.SaveConfig(); saveErr != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to save sanitized config: %v\n", saveErr)
-		}
-	}
-
-	// Check if this is first-time setup
-	if cfg.NeedsFirstTimeSetup() {
-		fmt.Println("=== Welcome to NetUtility ===")
-		fmt.Println("First-time setup required.")
-		fmt.Println()
-		fmt.Println("NetUtility needs a workspace directory to store:")
-		fmt.Println("  • Network captures and analysis results")
-		fmt.Println("  • Vulnerability scan data")
-		fmt.Println("  • Configuration backups")
-		fmt.Println("  • Log files")
-		fmt.Println()
-
-		if err := runFirstTimeSetup(cfg); err != nil {
-			fmt.Fprintf(os.Stderr, "Setup failed: %v\n", err)
-			return 1
-		}
-
-		fmt.Println("Setup complete! Starting NetUtility...")
-		fmt.Println()
+	// Handle first-time setup if needed
+	if err := handleFirstTimeSetup(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Setup failed: %v\n", err)
+		return 1
 	}
 
 	// Initialize script registry with resolved scripts directory
@@ -138,15 +96,7 @@ func run() int {
 	}
 
 	// Set up workspace environment
-	if cfg.IsWorkspaceConfigured() {
-		// Ensure workspace is writable (handles creation and ownership)
-		if err := cfg.EnsureWorkspaceWritable(); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: Failed to ensure workspace is writable: %v\n", err)
-		} else {
-			// Set NETUTIL_WORKDIR environment variable
-			os.Setenv("NETUTIL_WORKDIR", cfg.WorkspaceDir)
-		}
-	}
+	setupWorkspaceEnv(cfg)
 
 	// Get remaining arguments after flag parsing
 	args := flag.Args()
@@ -189,6 +139,89 @@ func run() int {
 	}
 
 	return 0
+}
+
+// parseCLIFlags parses command-line flags and returns the resolved scripts directory.
+// If the program should exit early (e.g., --version), shouldExit is true and
+// exitCode contains the appropriate code.
+func parseCLIFlags() (scriptsDir string, shouldExit bool, exitCode int) {
+	scriptsDirFlag := flag.String("scripts-dir", "", "Path to scripts directory (default: next to executable)")
+	showVersion := flag.Bool("version", false, "Show version")
+	flag.Parse()
+
+	if *showVersion {
+		fmt.Printf("NetUtility %s\n", version)
+		return "", true, 0
+	}
+
+	scriptsDir = getDefaultScriptsDir()
+	if *scriptsDirFlag != "" {
+		scriptsDir = *scriptsDirFlag
+	}
+	return scriptsDir, false, 0
+}
+
+// loadAndSanitizeConfig loads the application configuration, falling back to
+// defaults on failure. If validation fails, the config is sanitized and saved.
+func loadAndSanitizeConfig() *config.Config {
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to load config: %v\n", err)
+		cfg = config.GetDefaultConfig()
+	}
+
+	if err := cfg.ValidateConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Configuration validation failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Sanitizing configuration...\n")
+		cfg.SanitizeConfig()
+
+		if saveErr := cfg.SaveConfig(); saveErr != nil {
+			fmt.Fprintf(os.Stderr, "Warning: Failed to save sanitized config: %v\n", saveErr)
+		}
+	}
+
+	return cfg
+}
+
+// handleFirstTimeSetup runs the initial workspace configuration if needed.
+// Returns nil if no setup is needed or if setup succeeds.
+func handleFirstTimeSetup(cfg *config.Config) error {
+	if !cfg.NeedsFirstTimeSetup() {
+		return nil
+	}
+
+	fmt.Println("=== Welcome to NetUtility ===")
+	fmt.Println("First-time setup required.")
+	fmt.Println()
+	fmt.Println("NetUtility needs a workspace directory to store:")
+	fmt.Println("  • Network captures and analysis results")
+	fmt.Println("  • Vulnerability scan data")
+	fmt.Println("  • Configuration backups")
+	fmt.Println("  • Log files")
+	fmt.Println()
+
+	if err := runFirstTimeSetup(cfg); err != nil {
+		return err
+	}
+
+	fmt.Println("Setup complete! Starting NetUtility...")
+	fmt.Println()
+	return nil
+}
+
+// setupWorkspaceEnv ensures the workspace directory is writable and sets the
+// NETUTIL_WORKDIR environment variable for child processes.
+func setupWorkspaceEnv(cfg *config.Config) {
+	if !cfg.IsWorkspaceConfigured() {
+		return
+	}
+	if err := cfg.EnsureWorkspaceWritable(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to ensure workspace is writable: %v\n", err)
+		return
+	}
+	if err := os.Setenv("NETUTIL_WORKDIR", cfg.WorkspaceDir); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to set NETUTIL_WORKDIR: %v\n", err)
+	}
 }
 
 // Command mappings for CLI shortcuts
@@ -501,7 +534,7 @@ func runScriptDirect(scriptPath string, scriptName string) bool {
 
 	// Ask user to press enter to continue (TUI mode)
 	fmt.Printf("\nPress Enter to return to menu...")
-	fmt.Scanln()
+	_, _ = fmt.Scanln()
 
 	// Clear screen again
 	fmt.Print("\033[2J\033[H")

@@ -58,7 +58,7 @@ func TestGenerateHTMLViewer_BasicOutput(t *testing.T) {
 		t.Errorf("expected .html suffix, got %q", htmlPath)
 	}
 
-	data, err := os.ReadFile(htmlPath)
+	data, err := os.ReadFile(htmlPath) //nolint:gosec // G304: test path
 	if err != nil {
 		t.Fatalf("reading HTML file: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestGenerateHTMLViewer_IsLocal(t *testing.T) {
 		t.Fatalf("GenerateHTMLViewer failed: %v", err)
 	}
 
-	data, err := os.ReadFile(htmlPath)
+	data, err := os.ReadFile(htmlPath) //nolint:gosec // G304: test path
 	if err != nil {
 		t.Fatalf("reading HTML: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestGenerateHTMLViewer_MultiVLANLocalRemote(t *testing.T) {
 		t.Fatalf("GenerateHTMLViewer failed: %v", err)
 	}
 
-	data, err := os.ReadFile(htmlPath)
+	data, err := os.ReadFile(htmlPath) //nolint:gosec // G304: test path
 	if err != nil {
 		t.Fatalf("reading HTML: %v", err)
 	}
@@ -329,7 +329,7 @@ func TestGenerateHTMLViewer_RiskAndVulnData(t *testing.T) {
 		t.Fatalf("GenerateHTMLViewer failed: %v", err)
 	}
 
-	data, err := os.ReadFile(htmlPath)
+	data, err := os.ReadFile(htmlPath) //nolint:gosec // G304: test path
 	if err != nil {
 		t.Fatalf("reading HTML: %v", err)
 	}
