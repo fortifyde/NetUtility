@@ -15,7 +15,7 @@ lab/.terraform/
 # IDE/Tool
 .worktrees/
 bin/
-fileserver
+.fileserver
 
 # Demo recording helper (local-use script)
 /scripts/record_demo.sh

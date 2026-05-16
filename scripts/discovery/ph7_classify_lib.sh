@@ -33,14 +33,42 @@ ph7_collect_evidence() {
             | awk -F'/' '{print "port_open_udp:" $1}' >> "$_p7_ev_file"
     fi
 
-    # --- SSH banner (Phase 6 os_hints, tab-separated: IP<TAB>BANNER) ---
+    # --- SSH banner (Phase 6 os_hints or nmap service output) ---
     _p7_ssh_banner=$(grep "^${_p7_ip}	" "$PHASE6_DIR/os_hints/ssh_banners.txt" 2>/dev/null \
         | cut -f2- | head -1)
+    if [ -z "$_p7_ssh_banner" ]; then
+        _p7_ssh_src=""
+        if [ -f "$PHASE6_DIR/raw_scans/nmap_version_detection.nmap" ]; then
+            _p7_ssh_src="$PHASE6_DIR/raw_scans/nmap_version_detection.nmap"
+        elif [ -f "$PHASE6_DIR/raw_scans/nmap_inventory.nmap" ]; then
+            _p7_ssh_src="$PHASE6_DIR/raw_scans/nmap_inventory.nmap"
+        fi
+        if [ -n "$_p7_ssh_src" ]; then
+            _p7_ssh_banner=$(extract_host_data "$_p7_ip" "$_p7_ssh_src" \
+                | grep -E "^[0-9]+/tcp[[:space:]]+open[[:space:]]+ssh" \
+                | head -1 \
+                | awk '{ $1=$2=$3=""; sub(/^[[:space:]]+/, ""); print }')
+        fi
+    fi
     [ -n "$_p7_ssh_banner" ] && printf 'ssh_banner:%s\n' "$_p7_ssh_banner" >> "$_p7_ev_file"
 
-    # --- HTTP Server header (Phase 6 os_hints, tab-separated: IP<TAB>HEADER) ---
+    # --- HTTP Server header (Phase 6 os_hints or nmap service output) ---
     _p7_http_server=$(grep "^${_p7_ip}	" "$PHASE6_DIR/os_hints/http_server_headers.txt" 2>/dev/null \
         | cut -f2- | head -1)
+    if [ -z "$_p7_http_server" ]; then
+        _p7_http_src=""
+        if [ -f "$PHASE6_DIR/raw_scans/nmap_version_detection.nmap" ]; then
+            _p7_http_src="$PHASE6_DIR/raw_scans/nmap_version_detection.nmap"
+        elif [ -f "$PHASE6_DIR/raw_scans/nmap_inventory.nmap" ]; then
+            _p7_http_src="$PHASE6_DIR/raw_scans/nmap_inventory.nmap"
+        fi
+        if [ -n "$_p7_http_src" ]; then
+            _p7_http_server=$(extract_host_data "$_p7_ip" "$_p7_http_src" \
+                | grep -E "^[0-9]+/tcp[[:space:]]+open[[:space:]]+(http|https|http-alt|http-proxy)" \
+                | head -1 \
+                | awk '{ $1=$2=$3=""; sub(/^[[:space:]]+/, ""); print }')
+        fi
+    fi
     [ -n "$_p7_http_server" ] && printf 'http_server:%s\n' "$_p7_http_server" >> "$_p7_ev_file"
 
     # --- SNMP sysDescr (Phase 1.3 output, tab-separated: IP<TAB>SYSDESCR) ---
@@ -68,14 +96,20 @@ ph7_collect_evidence() {
     [ -n "$_p7_netbios_name" ] && printf 'netbios_name:%s\n' "$_p7_netbios_name" >> "$_p7_ev_file"
 
     # --- Service version strings (Phase 6 version detection, nmap -oA normal format) ---
+    _p7_svc_src=""
     if [ -f "$PHASE6_DIR/raw_scans/nmap_version_detection.nmap" ]; then
-        extract_host_data "$_p7_ip" "$PHASE6_DIR/raw_scans/nmap_version_detection.nmap" \
+        _p7_svc_src="$PHASE6_DIR/raw_scans/nmap_version_detection.nmap"
+    elif [ -f "$PHASE6_DIR/raw_scans/nmap_inventory.nmap" ]; then
+        _p7_svc_src="$PHASE6_DIR/raw_scans/nmap_inventory.nmap"
+    fi
+    if [ -n "$_p7_svc_src" ]; then
+        extract_host_data "$_p7_ip" "$_p7_svc_src" \
             | grep -E "^[0-9]+/tcp[[:space:]]+open" \
             | awk '{
                 port = $1
                 $1=$2=$3=""
                 sub(/^[[:space:]]+/, "")
-                printf "service_version:%s:%s\n", port, $0
+                if (length($0) > 0) printf "service_version:%s:%s\n", port, $0
               }' >> "$_p7_ev_file"
     fi
 
@@ -97,12 +131,25 @@ ph7_collect_evidence() {
         [ -n "$_p7_nmap_os" ] && printf 'nmap_os_string:%s\n' "$_p7_nmap_os" >> "$_p7_ev_file"
     fi
 
-    # --- HTTP title (Phase 6 web enum, nmap -oN format) ---
+    # --- HTTP title (Phase 6 web enum or nmap service output) ---
+    _p7_http_title=""
     if [ -f "$PHASE6_DIR/raw_scans/nmap_web_enum.nmap" ]; then
         _p7_http_title=$(extract_host_data "$_p7_ip" "$PHASE6_DIR/raw_scans/nmap_web_enum.nmap" \
             | grep -i "_http-title:" | head -1 | sed 's/.*_http-title:[[:space:]]*//')
-        [ -n "$_p7_http_title" ] && printf 'http_title:%s\n' "$_p7_http_title" >> "$_p7_ev_file"
     fi
+    if [ -z "$_p7_http_title" ]; then
+        _p7_title_src=""
+        if [ -f "$PHASE6_DIR/raw_scans/nmap_default_scripts.nmap" ]; then
+            _p7_title_src="$PHASE6_DIR/raw_scans/nmap_default_scripts.nmap"
+        elif [ -f "$PHASE6_DIR/raw_scans/nmap_inventory.nmap" ]; then
+            _p7_title_src="$PHASE6_DIR/raw_scans/nmap_inventory.nmap"
+        fi
+        if [ -n "$_p7_title_src" ]; then
+            _p7_http_title=$(extract_host_data "$_p7_ip" "$_p7_title_src" \
+                | grep -i "_http-title:" | head -1 | sed 's/.*_http-title:[[:space:]]*//')
+        fi
+    fi
+    [ -n "$_p7_http_title" ] && printf 'http_title:%s\n' "$_p7_http_title" >> "$_p7_ev_file"
 }
 
 # Classify a single host using the gated tier system.
@@ -563,7 +610,7 @@ EOF
         if   [ "$_p7_score" -ge 150 ]; then _p7_confidence="very_high"
         elif [ "$_p7_score" -ge 100 ]; then _p7_confidence="high"
         elif [ "$_p7_score" -ge 60  ]; then _p7_confidence="medium"
-        elif [ "$_p7_score" -ge 40  ]; then _p7_confidence="low"
+        elif [ "$_p7_score" -ge 30  ]; then _p7_confidence="low"
         else
             _p7_evidence="${_p7_evidence}:below_threshold(${_p7_score})"
             _p7_category="unknown"; _p7_confidence="none"; _p7_score=0

@@ -71,6 +71,8 @@ Kyocera:network_device/printer:1:99"
 # TIER 1: Service version string gates
 # ---------------------------------------------------------------------------
 SERVICE_VERSION_GATES="Cisco IOS:network_device:1:99
+Cisco NX-OS:network_device:1:99
+Cisco ASA:network_device:1:99
 Juniper Networks:network_device:1:99
 Aruba Networks:network_device:1:99
 Fortinet:network_device:1:99
@@ -119,6 +121,7 @@ ssh_banner:Alpine:linux:2:65
 ssh_banner:openSUSE:linux:2:65
 ssh_banner:RHEL:linux:2:65
 ssh_banner:FreeBSD:linux:2:60   # intentional: no BSD category — unix-like, linux bucket is acceptable
+ssh_banner:OpenSSH:linux:2:30
 nmap_os_string:Windows:windows:2:60
 nmap_os_string:Linux:linux:2:60
 snmp_sysdescr:Linux:linux:2:55
