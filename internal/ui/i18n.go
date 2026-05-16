@@ -523,9 +523,9 @@ HelpText: `[yellow]Navigation:[white]
 	FmtShowErrorPrefix:  "Error: %s",
 
 	// Output viewer
-	StatusReady:         "[green]Ready[white] — [aqua]Space[white] Pause  [aqua]f[white] Follow  [aqua]t[white] Time  [aqua]s[white] Source  [aqua]/[white] Search  [aqua]g/G[white] Scroll  [aqua]?[white] Help",
-	StatusInputMode:     "[yellow]Input Mode[white] — [aqua]Enter[white] Submit  [aqua]Tab[white] View",
-	StatusViewMode:      "[green]View Mode[white] — [aqua]Tab[white] Input  [aqua]Space[white] Pause  [aqua]f[white] Follow  [aqua]t[white] Time  [aqua]s[white] Source  [aqua]/[white] Search  [aqua]g/G[white] Scroll  [aqua]?[white] Help",
+	StatusReady:         "[green]Ready[white] — [aqua]Tab[white] Input Mode  [aqua]Space[white] Pause  [aqua]f[white] Follow  [aqua]t[white] Time  [aqua]s[white] Source  [aqua]/[white] Search  [aqua]g/G[white] Scroll  [aqua]?[white] Help",
+	StatusInputMode:     "[yellow]Input Mode[white] — [aqua]Enter[white] Submit  [aqua]Tab[white] View Mode",
+	StatusViewMode:      "[green]View Mode[white] — [aqua]Tab[white] Input Mode  [aqua]Space[white] Pause  [aqua]f[white] Follow  [aqua]t[white] Time  [aqua]s[white] Source  [aqua]/[white] Search  [aqua]g/G[white] Scroll  [aqua]?[white] Help",
 	StatusWaitingInput:  "[yellow]Waiting for input[white] — [aqua]Enter[white] Submit  [aqua]Tab[white] View",
 	StatusPasswordInput: "[yellow]Password input[white] — [aqua]Enter[white] Submit  [aqua]Tab[white] View",
 	StatusInputSent:     "[green]Input sent[white] — Waiting for response...",
@@ -875,9 +875,9 @@ HelpText: `[yellow]Navigation:[white]
 	FmtShowErrorPrefix:  "Fehler: %s",
 
 	// Output viewer
-	StatusReady:         "[green]Bereit[white] — [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen  [aqua]t[white] Zeit  [aqua]s[white] Quelle  [aqua]/[white] Suchen  [aqua]g/G[white] Scrollen  [aqua]?[white] Hilfe",
-	StatusInputMode:     "[yellow]Eingabemodus[white] — [aqua]Enter[white] Senden  [aqua]Tab[white] Ausgabe",
-	StatusViewMode:      "[green]Ausgabemodus[white] — [aqua]Tab[white] Eingabe  [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen  [aqua]t[white] Zeit  [aqua]s[white] Quelle  [aqua]/[white] Suchen  [aqua]g/G[white] Scrollen  [aqua]?[white] Hilfe",
+	StatusReady:         "[green]Bereit[white] — [aqua]Tab[white] Eingabemodus  [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen  [aqua]t[white] Zeit  [aqua]s[white] Quelle  [aqua]/[white] Suchen  [aqua]g/G[white] Scrollen  [aqua]?[white] Hilfe",
+	StatusInputMode:     "[yellow]Eingabemodus[white] — [aqua]Enter[white] Senden  [aqua]Tab[white] Ausgabemodus",
+	StatusViewMode:      "[green]Ausgabemodus[white] — [aqua]Tab[white] Eingabemodus  [aqua]Leertaste[white] Pause  [aqua]f[white] Folgen  [aqua]t[white] Zeit  [aqua]s[white] Quelle  [aqua]/[white] Suchen  [aqua]g/G[white] Scrollen  [aqua]?[white] Hilfe",
 	StatusWaitingInput:  "[yellow]Wartet auf Eingabe[white] — [aqua]Enter[white] Senden  [aqua]Tab[white] Ausgabe",
 	StatusPasswordInput: "[yellow]Passworteingabe[white] — [aqua]Enter[white] Senden  [aqua]Tab[white] Ausgabe",
 	StatusInputSent:     "[green]Eingabe gesendet[white] — Warte auf Antwort...",
