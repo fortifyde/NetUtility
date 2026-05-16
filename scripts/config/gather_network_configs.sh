@@ -48,7 +48,7 @@ fi
 
 
 # Global variables
-VERSION="1.0.0"
+VERSION="2.0.0"
 NETUTIL_WORKDIR="${NETUTIL_WORKDIR:-$HOME}"
 SESSION_ID=""
 COMMANDS_DIR="${SCRIPT_DIR}/commands"
@@ -589,6 +589,14 @@ process_device() {
     password="$3"
     enable_pass="${4:-}"
     device_dir="${NETUTIL_WORKDIR}/configs/${device_ip}"
+
+    # Validate IP to prevent path traversal
+    case "$device_ip" in
+        *[!0-9.]*) log_warning "Invalid IP address skipped: $device_ip" "$SCRIPT_NAME"; return 1 ;;
+    esac
+    case "$device_ip" in
+        *..* | *. | .*) log_warning "Invalid IP address skipped: $device_ip" "$SCRIPT_NAME"; return 1 ;;
+    esac
 
     mkdir -p "$device_dir"
 

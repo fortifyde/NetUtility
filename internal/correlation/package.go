@@ -191,7 +191,7 @@ func buildHostEntry(ip string, corr *CorrelationResult) HostEntry {
 
 		var portNums []int
 		for _, p := range corr.HostInfo.Ports {
-		if p.State == portStatusOpen {
+			if p.State == portStatusOpen {
 				portNums = append(portNums, p.Number)
 			}
 		}

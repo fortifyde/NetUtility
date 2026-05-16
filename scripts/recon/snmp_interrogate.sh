@@ -279,7 +279,7 @@ echo '<snmp_results>' >> "$XML_OUTPUT"
 # Temp file cleanup on early exit
 _CLEANUP_FILES=""
 _cleanup() { [ -n "$_CLEANUP_FILES" ] && rm -f $_CLEANUP_FILES; }
-trap _cleanup INT TERM EXIT
+trap _cleanup INT TERM
 
 for host in $TARGETS; do
     log_info "Interrogating host: $host" "$SCRIPT_NAME"

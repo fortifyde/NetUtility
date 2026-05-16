@@ -119,7 +119,7 @@ func moveHostInSession(hostfilesDir, ip, targetPlainFile, category string) error
 			return fmt.Errorf("expected .txt suffix in plain file %q", targetPlainFile)
 		}
 		targetEnriched := filepath.Join(hostfilesDir, base+"_enriched.txt")
-	f2, err := os.OpenFile(targetEnriched, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //nolint:gosec // G304,G306: workspace output — user must be able to read/edit
+		f2, err := os.OpenFile(targetEnriched, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644) //nolint:gosec // G304,G306: workspace output — user must be able to read/edit
 		if err != nil {
 			return fmt.Errorf("opening %s: %w", targetEnriched, err)
 		}

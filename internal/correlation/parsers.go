@@ -404,8 +404,8 @@ func (rp *ResultParser) parseVulnerabilityScan(result *ScanResult, content strin
 			// Determine severity from keywords
 			if strings.Contains(lineLower, severityCritical) {
 				severity = severityCritical
-			} else if strings.Contains(lineLower, "high") {
-			severity = severityHigh
+			} else if strings.Contains(lineLower, severityHigh) {
+				severity = severityHigh
 			} else if strings.Contains(lineLower, "low") {
 				severity = "low"
 			}

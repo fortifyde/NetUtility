@@ -32,7 +32,7 @@ type Strings struct {
 	// ── Info panel (bottom bar) ───────────────────────────────────────────────
 	InfoCatLine1       string // categories-focused, line 1
 	InfoCatLine2       string // categories-focused, line 2
-	FmtInfoTaskLine1   string // task-focused with category, Sprintf(fmt, categoryName)
+	FmtInfoTaskLine1   string // task-focused with category (no longer a format string)
 	InfoTaskNoCatLine1 string // task-focused, no category selected
 	InfoGlobalLine     string // second line for task-focused states
 	InfoDefaultLine1   string // default state, line 1

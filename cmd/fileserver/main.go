@@ -159,7 +159,7 @@ func basicAuthMiddleware(creds *auth.Credentials, next http.Handler) http.Handle
 		}
 
 		if !creds.Authenticate(username, password) {
-		log.Printf("AUTH FAILED: %s from %s", sanitizeLogString(username), sanitizeLogString(r.RemoteAddr)) //nolint:gosec // G706: sanitized
+			log.Printf("AUTH FAILED: %s from %s", sanitizeLogString(username), sanitizeLogString(r.RemoteAddr)) //nolint:gosec // G706: sanitized
 			sendAuthRequired(w)
 			return
 		}
@@ -228,7 +228,6 @@ func corsMiddleware(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
-
 
 // sanitizeLogString strips control characters from a string to prevent log injection.
 func sanitizeLogString(s string) string {

@@ -45,11 +45,10 @@ type TUI struct {
 	corrViewer             *CorrelationViewer
 	outputViewer           *OutputViewer
 	taskListIsContinuation []bool // true for wrapped-description continuation rows
-	lang    string
-	version string
+	lang                   string
+	version                string
 
-	str     *Strings
-
+	str *Strings
 
 	jobCounter         atomic.Int64
 	mainViewTickerStop chan struct{}
@@ -563,7 +562,7 @@ func (t *TUI) updateJobsPanel() {
 		// Duration for running jobs
 		if status == jobs.JobStatusRunning {
 			dur := time.Since(job.StartTime).Round(time.Second)
-		fmt.Fprintf(&sb, "  %v", dur)
+			fmt.Fprintf(&sb, "  %v", dur)
 		}
 		sb.WriteString("\n")
 
@@ -578,7 +577,7 @@ func (t *TUI) updateJobsPanel() {
 				sb.WriteString(renderProgressBar(current, total, desc))
 			} else {
 				idx := int(time.Now().Unix()) % len(indicatorChars)
-			fmt.Fprintf(&sb, "  %s %s", indicatorChars[idx], t.str.ProgressRunning)
+				fmt.Fprintf(&sb, "  %s %s", indicatorChars[idx], t.str.ProgressRunning)
 			}
 		}
 		sb.WriteString("\n")
@@ -871,7 +870,6 @@ func (t *TUI) setupUI() {
 	// Set initial focus and apply visual focus indicator
 	t.setActiveFocus(t.categoryPane)
 }
-
 
 // handleGlobalCtrlShortcuts processes global Ctrl+key shortcuts that work on every page
 // (including the output viewer). Returns true if the event was consumed.
@@ -1270,13 +1268,13 @@ func (t *TUI) Stop() {
 
 // searchState holds mutable state for an active search modal session.
 type searchState struct {
-	tui        *TUI
-	results    []SearchResult
+	tui           *TUI
+	results       []SearchResult
 	continuations []bool
-	resultIdx    []int
-	resultList   *tview.List
-	inputField   *tview.InputField
-	prevFocus    *tview.List
+	resultIdx     []int
+	resultList    *tview.List
+	inputField    *tview.InputField
+	prevFocus     *tview.List
 }
 
 // isContinuation reports whether list item at idx is a wrapped description line.
@@ -1528,7 +1526,7 @@ func (t *TUI) updateInfoPanel() {
 		content.WriteString(t.str.InfoCatLine2)
 	case t.taskPane:
 		if t.currentCategory != "" {
-		content.WriteString(t.str.FmtInfoTaskLine1)
+			content.WriteString(t.str.FmtInfoTaskLine1)
 		} else {
 			content.WriteString(t.str.InfoTaskNoCatLine1)
 		}

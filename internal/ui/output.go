@@ -376,7 +376,7 @@ func (ov *OutputViewer) pollJobOutput(job *jobs.Job, startIdx int) {
 				ov.running = false
 				ov.completed = true
 				status := "Completed"
-			statusColor := colorGreen
+				statusColor := colorGreen
 				duration := time.Duration(0)
 				if job.Result != nil {
 					duration = job.Result.Duration
@@ -430,7 +430,7 @@ func (ov *OutputViewer) processOutput() {
 
 		if ov.result != nil {
 			status := "Completed"
-		statusColor := colorGreen
+			statusColor := colorGreen
 			if !ov.result.Success {
 				status = "Failed"
 				statusColor = "red"
@@ -568,7 +568,6 @@ func (ov *OutputViewer) handlePromptDetection(line executor.OutputLine) {
 	}
 }
 
-
 func (ov *OutputViewer) updateDisplayLocked() {
 	lines := ov.outputLines
 
@@ -589,8 +588,8 @@ func (ov *OutputViewer) formatLinesLocked(lines []executor.OutputLine) string {
 
 	for _, line := range lines {
 		if ov.showTimestamp {
-		fmt.Fprintf(&content, "[gray]%s[white] ",
-			line.Timestamp.Format("15:04:05"))
+			fmt.Fprintf(&content, "[gray]%s[white] ",
+				line.Timestamp.Format("15:04:05"))
 		}
 
 		if ov.showSource {
@@ -601,9 +600,9 @@ func (ov *OutputViewer) formatLinesLocked(lines []executor.OutputLine) string {
 			case "error":
 				color = "red"
 			case "stdout":
-			color = colorGreen
+				color = colorGreen
 			}
-		fmt.Fprintf(&content, "[%s]%s[white] ", color, line.Source)
+			fmt.Fprintf(&content, "[%s]%s[white] ", color, line.Source)
 		}
 
 		lineContent := tview.TranslateANSI(line.Content)
@@ -624,7 +623,6 @@ func (ov *OutputViewer) formatLinesLocked(lines []executor.OutputLine) string {
 
 	return content.String()
 }
-
 
 func (ov *OutputViewer) ShowHistoricalOutput(jobName string, status jobs.JobStatus, lines []executor.OutputLine) {
 	ov.mu.Lock()
