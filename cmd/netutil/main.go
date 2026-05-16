@@ -106,8 +106,7 @@ func run() int {
 		command := strings.ToLower(args[0])
 		// Allow informational commands without root access
 		if command == "help" || command == "--help" || command == "-h" ||
-			command == "list" || command == "--list" || command == "-l" ||
-			command == "recent" || command == "--recent" || command == "-r" {
+			command == "list" || command == "--list" || command == "-l" {
 			handleCLICommand(args, cfg, registry)
 			return 0
 		}
@@ -323,31 +322,20 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 	case "list", "--list", "-l":
 		showCommands()
 		return true
-	case "recent", "--recent", "-r":
-		showRecent(cfg)
-		return true
 	}
 
 	// Use metadata registry if available, otherwise fall back to hardcoded mappings
 	if registry != nil {
 		// Try exact shortcut match first
 		if script, exists := registry.GetScriptByShortcut(command); exists {
-			success := executeScriptFromMetadata(script, cfg, registry)
-			cfg.AddRecentCommand(command, success)
-			if saveErr := cfg.SaveConfig(); saveErr != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
-			}
+			executeScriptFromMetadata(script, cfg, registry)
 			return true
 		}
 
 		// Try fuzzy matching with metadata
 		if script, exists := registry.FuzzyMatchScript(command); exists {
 			fmt.Printf("Did you mean '%s'? Running %s...\n\n", script.Script.Name, script.Script.Name)
-			success := executeScriptFromMetadata(script, cfg, registry)
-			cfg.AddRecentCommand(command, success)
-			if saveErr := cfg.SaveConfig(); saveErr != nil {
-				fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
-			}
+			executeScriptFromMetadata(script, cfg, registry)
 			return true
 		}
 	}
@@ -355,32 +343,20 @@ func handleCLICommand(args []string, cfg *config.Config, registry *metadata.Scri
 	// Fallback to hardcoded mappings
 	// Check numeric shortcuts first
 	if scriptInfo, exists := numericShortcuts[command]; exists {
-		success := executeScript(scriptInfo.Path, scriptInfo.Name, cfg)
-		cfg.AddRecentCommand(command, success)
-		if saveErr := cfg.SaveConfig(); saveErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
-		}
+		executeScript(scriptInfo.Path, scriptInfo.Name, cfg)
 		return true
 	}
 
 	// Check exact command matches
 	if scriptInfo, exists := commandMappings[command]; exists {
-		success := executeScript(scriptInfo.Path, scriptInfo.Name, cfg)
-		cfg.AddRecentCommand(command, success)
-		if saveErr := cfg.SaveConfig(); saveErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
-		}
+		executeScript(scriptInfo.Path, scriptInfo.Name, cfg)
 		return true
 	}
 
 	// Try fuzzy matching
 	if match := findFuzzyMatch(command); match != nil {
 		fmt.Printf("Did you mean '%s'? Running %s...\n\n", match.Name, match.Name)
-		success := executeScript(match.Path, match.Name, cfg)
-		cfg.AddRecentCommand(command, success)
-		if saveErr := cfg.SaveConfig(); saveErr != nil {
-			fmt.Fprintf(os.Stderr, "warning: failed to save config: %v\n", saveErr)
-		}
+		executeScript(match.Path, match.Name, cfg)
 		return true
 	}
 
@@ -466,8 +442,8 @@ func showHelp() {
 	fmt.Printf("  interfaces                 # Manage network interfaces\n\n")
 	fmt.Printf("OPTIONS:\n")
 	fmt.Printf("  -h, --help                 # Show this help\n")
-	fmt.Printf("  -l, --list                 # List all commands\n")
-	fmt.Printf("  -r, --recent               # Show recent commands\n\n")
+	fmt.Printf("  -h, --help                 # Show this help\n")
+	fmt.Printf("  -l, --list                 # List all commands\n\n")
 	fmt.Printf("EXAMPLES:\n")
 	fmt.Printf("  netutil scan               # Run network enumeration\n")
 	fmt.Printf("  netutil 1                  # Run most common task\n")
@@ -489,20 +465,6 @@ func showCommands() {
 	}
 }
 
-// showRecent displays recent command history
-func showRecent(cfg *config.Config) {
-	fmt.Printf("Recent Commands:\n\n")
-
-	recentCommands := cfg.GetRecentCommands()
-	if len(recentCommands) == 0 {
-		fmt.Printf("No recent commands found.\n")
-		return
-	}
-
-	for _, cmd := range recentCommands {
-		fmt.Printf("  %s\n", cmd)
-	}
-}
 
 func runScriptDirect(scriptPath string, scriptName string) bool {
 	// Clear screen

@@ -58,13 +58,8 @@ update_netutil_config() {
             # Create new config file
             cat > "$config_file" << EOF
 {
-  "last_used_interface": {},
-  "recent_targets": [],
   "workspace_dir": "$workdir",
-  "recent_commands": [],
-  "default_interface": "",
-  "auto_create_workspace": false,
-  "show_paths_short": true
+  "language": "en"
 }
 EOF
             echo "Created NetUtility configuration: $config_file"

@@ -3,14 +3,12 @@ package config
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
-	"time"
 )
 
 const (
@@ -19,33 +17,15 @@ const (
 )
 
 type Config struct {
-	LastUsedInterface   map[string]string `json:"last_used_interface"`
-	RecentTargets       []string          `json:"recent_targets"`
-	WorkspaceDir        string            `json:"workspace_dir"`
-	RecentCommands      []RecentCommand   `json:"recent_commands"`
-	DefaultInterface    string            `json:"default_interface"`
-	AutoCreateWorkspace bool              `json:"auto_create_workspace"`
-	ShowPathsShort      bool              `json:"show_paths_short"`
-	Language            string            `json:"language"`
-}
-
-type RecentCommand struct {
-	Command   string    `json:"command"`
-	Timestamp time.Time `json:"timestamp"`
-	Success   bool      `json:"success"`
+	WorkspaceDir string `json:"workspace_dir"`
+	Language     string `json:"language"`
 }
 
 // GetDefaultConfig returns a config with sensible defaults
 func GetDefaultConfig() *Config {
 	return &Config{
-		LastUsedInterface:   make(map[string]string),
-		RecentTargets:       []string{},
-		WorkspaceDir:        "", // No default workspace - user must configure
-		RecentCommands:      []RecentCommand{},
-		DefaultInterface:    "",
-		AutoCreateWorkspace: false, // Only create after user sets workspace
-		ShowPathsShort:      true,
-		Language:            "en",
+		WorkspaceDir: "", // No default workspace - user must configure
+		Language:     "en",
 	}
 }
 
@@ -92,17 +72,6 @@ func LoadConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to parse config file: %w", err)
 	}
 
-	// Ensure maps are initialized
-	if config.LastUsedInterface == nil {
-		config.LastUsedInterface = make(map[string]string)
-	}
-	if config.RecentTargets == nil {
-		config.RecentTargets = []string{}
-	}
-	if config.RecentCommands == nil {
-		config.RecentCommands = []RecentCommand{}
-	}
-
 	// Normalize workspace directory path to remove trailing slashes
 	if config.WorkspaceDir != "" {
 		config.WorkspaceDir = strings.TrimRight(config.WorkspaceDir, "/")
@@ -131,66 +100,6 @@ func (c *Config) SaveConfig() error {
 	}
 
 	return nil
-}
-
-// SetLastUsedInterface stores the last used interface for a category
-func (c *Config) SetLastUsedInterface(category, interfaceName string) {
-	c.LastUsedInterface[category] = interfaceName
-}
-
-// GetLastUsedInterface retrieves the last used interface for a category
-func (c *Config) GetLastUsedInterface(category string) string {
-	return c.LastUsedInterface[category]
-}
-
-// AddRecentTarget adds a target to the recent targets list
-func (c *Config) AddRecentTarget(target string) {
-	// Remove if already exists
-	for i, t := range c.RecentTargets {
-		if t == target {
-			c.RecentTargets = append(c.RecentTargets[:i], c.RecentTargets[i+1:]...)
-			break
-		}
-	}
-
-	// Add to beginning
-	c.RecentTargets = append([]string{target}, c.RecentTargets...)
-
-	// Keep only last 10
-	if len(c.RecentTargets) > 10 {
-		c.RecentTargets = c.RecentTargets[:10]
-	}
-}
-
-// AddRecentCommand adds a command to the recent commands list
-func (c *Config) AddRecentCommand(command string, success bool) {
-	recentCmd := RecentCommand{
-		Command:   command,
-		Timestamp: time.Now(),
-		Success:   success,
-	}
-
-	// Add to beginning
-	c.RecentCommands = append([]RecentCommand{recentCmd}, c.RecentCommands...)
-
-	// Keep only last 20
-	if len(c.RecentCommands) > 20 {
-		c.RecentCommands = c.RecentCommands[:20]
-	}
-}
-
-// GetRecentCommands returns recent commands formatted for display
-func (c *Config) GetRecentCommands() []string {
-	var commands []string
-	for _, cmd := range c.RecentCommands {
-		status := "✓"
-		if !cmd.Success {
-			status = "✗"
-		}
-		timeStr := cmd.Timestamp.Format("15:04:05")
-		commands = append(commands, fmt.Sprintf("%s %s %s", status, timeStr, cmd.Command))
-	}
-	return commands
 }
 
 // CreateWorkspace creates the workspace directory structure
@@ -237,176 +146,26 @@ func (c *Config) GetWorkspacePath(subdir string) string {
 	return filepath.Join(c.WorkspaceDir, subdir)
 }
 
-// GetShortPath returns a shortened path for display
-func (c *Config) GetShortPath(fullPath string) string {
-	if !c.ShowPathsShort {
-		return fullPath
-	}
-
-	if filepath.IsAbs(fullPath) && c.WorkspaceDir != "" {
-		if rel, err := filepath.Rel(c.WorkspaceDir, fullPath); err == nil {
-			return "./" + rel
-		}
-	}
-
-	return fullPath
-}
-
 // ValidateConfig performs comprehensive validation of configuration values
 func (c *Config) ValidateConfig() error {
-	var errors []string
-
 	// Validate workspace directory
 	if c.WorkspaceDir != "" {
 		if !filepath.IsAbs(c.WorkspaceDir) {
-			errors = append(errors, "workspace_dir must be an absolute path")
+			return fmt.Errorf("workspace_dir must be an absolute path")
 		}
 
 		// Check if parent directory exists
 		parentDir := filepath.Dir(c.WorkspaceDir)
 		if _, err := os.Stat(parentDir); os.IsNotExist(err) {
-			errors = append(errors, fmt.Sprintf("workspace_dir parent directory does not exist: %s", parentDir))
+			return fmt.Errorf("workspace_dir parent directory does not exist: %s", parentDir)
 		}
-	}
-
-	// Validate interface names
-	for category, iface := range c.LastUsedInterface {
-		if !isValidInterfaceName(iface) {
-			errors = append(errors, fmt.Sprintf("invalid interface name for category %s: %s", category, iface))
-		}
-	}
-
-	// Validate recent targets
-	for i, target := range c.RecentTargets {
-		if !isValidTarget(target) {
-			errors = append(errors, fmt.Sprintf("invalid recent target at index %d: %s", i, target))
-		}
-	}
-
-	// Validate recent commands
-	for i, cmd := range c.RecentCommands {
-		if strings.TrimSpace(cmd.Command) == "" {
-			errors = append(errors, fmt.Sprintf("empty command at index %d", i))
-		}
-
-		if cmd.Timestamp.IsZero() {
-			errors = append(errors, fmt.Sprintf("invalid timestamp for command at index %d", i))
-		}
-	}
-
-	// Validate default interface
-	if c.DefaultInterface != "" && !isValidInterfaceName(c.DefaultInterface) {
-		errors = append(errors, fmt.Sprintf("invalid default interface: %s", c.DefaultInterface))
-	}
-
-	if len(errors) > 0 {
-		return fmt.Errorf("configuration validation failed: %s", strings.Join(errors, "; "))
 	}
 
 	return nil
 }
 
-// isValidInterfaceName checks if an interface name is valid
-func isValidInterfaceName(name string) bool {
-	if name == "" {
-		return false
-	}
-
-	// Interface names should contain only alphanumeric characters, dots, and hyphens
-	for _, char := range name {
-		if (char < 'a' || char > 'z') &&
-			(char < 'A' || char > 'Z') &&
-			(char < '0' || char > '9') &&
-			char != '.' && char != '-' && char != '_' {
-			return false
-		}
-	}
-
-	return true
-}
-
-// isValidTarget checks if a target specification is valid
-func isValidTarget(target string) bool {
-	if target == "" {
-		return false
-	}
-
-	// Check for file input format
-	if strings.HasPrefix(target, "-iL ") {
-		filePath := strings.TrimSpace(target[4:])
-		return filePath != "" && !strings.ContainsAny(filePath, ";<>&|`$")
-	}
-
-	// Basic validation for IP addresses and ranges
-	// This is a simplified check - more comprehensive validation would be in the validation package
-	if strings.Contains(target, "/") {
-		// CIDR notation - use net.ParseCIDR for authoritative validation
-		_, _, err := net.ParseCIDR(target)
-		return err == nil
-	}
-
-	// Single IP address
-	return isValidIPAddress(target)
-}
-
-// isValidIPAddress returns true if ip is a valid IPv4 or IPv6 address.
-func isValidIPAddress(ip string) bool {
-	return net.ParseIP(ip) != nil
-}
-
-// isValidCIDRPrefix checks if a CIDR prefix is valid (0–32 for IPv4, 0–128 for IPv6)
-func isValidCIDRPrefix(prefix string) bool {
-	if prefix == "" {
-		return false
-	}
-
-	// Check if prefix contains only digits
-	for _, char := range prefix {
-		if char < '0' || char > '9' {
-			return false
-		}
-	}
-
-	n, err := strconv.Atoi(prefix)
-	if err != nil {
-		return false
-	}
-
-	return n >= 0 && n <= 128
-}
-
 // SanitizeConfig removes invalid entries and fixes common issues
 func (c *Config) SanitizeConfig() {
-	// Remove invalid interface entries
-	for category, iface := range c.LastUsedInterface {
-		if !isValidInterfaceName(iface) {
-			delete(c.LastUsedInterface, category)
-		}
-	}
-
-	// Filter invalid recent targets
-	validTargets := make([]string, 0, len(c.RecentTargets))
-	for _, target := range c.RecentTargets {
-		if isValidTarget(target) {
-			validTargets = append(validTargets, target)
-		}
-	}
-	c.RecentTargets = validTargets
-
-	// Filter invalid recent commands
-	validCommands := make([]RecentCommand, 0, len(c.RecentCommands))
-	for _, cmd := range c.RecentCommands {
-		if strings.TrimSpace(cmd.Command) != "" && !cmd.Timestamp.IsZero() {
-			validCommands = append(validCommands, cmd)
-		}
-	}
-	c.RecentCommands = validCommands
-
-	// Validate default interface
-	if c.DefaultInterface != "" && !isValidInterfaceName(c.DefaultInterface) {
-		c.DefaultInterface = ""
-	}
-
 	// Ensure workspace directory is absolute
 	if c.WorkspaceDir != "" && !filepath.IsAbs(c.WorkspaceDir) {
 		if homeDir, err := os.UserHomeDir(); err == nil {
@@ -426,13 +185,6 @@ func (c *Config) GetConfigStatus() map[string]any {
 			status["workspace_exists"] = true
 		}
 	}
-
-	status["recent_targets_count"] = len(c.RecentTargets)
-	status["recent_commands_count"] = len(c.RecentCommands)
-	status["remembered_interfaces_count"] = len(c.LastUsedInterface)
-	status["default_interface"] = c.DefaultInterface
-	status["auto_create_workspace"] = c.AutoCreateWorkspace
-	status["show_paths_short"] = c.ShowPathsShort
 
 	// Validation status
 	if err := c.ValidateConfig(); err != nil {

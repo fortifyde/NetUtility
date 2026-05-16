@@ -117,11 +117,3 @@ func TestHandleCLICommandUnknown(t *testing.T) {
 		t.Error("handleCLICommand with unknown command should return false")
 	}
 }
-
-func TestHandleCLICommandRecentFlag(t *testing.T) {
-	cfg := config.GetDefaultConfig()
-	result := handleCLICommand([]string{"--recent"}, cfg, nil)
-	if !result {
-		t.Error("handleCLICommand with '--recent' should return true")
-	}
-}

@@ -137,54 +137,9 @@ func TestSetWorkspaceDirRejectsEmpty(t *testing.T) {
 	}
 }
 
-func TestSanitizeConfigRemovesInvalidInterfaces(t *testing.T) {
-	cfg := &Config{
-		LastUsedInterface: map[string]string{
-			"scan":    "eth0",
-			"bad":     "eth@0",
-			"another": "",
-		},
-		RecentTargets:    []string{"192.168.1.1"},
-		RecentCommands:   []RecentCommand{},
-		ShowPathsShort:   true,
-		DefaultInterface: "",
-	}
-
-	cfg.SanitizeConfig()
-
-	if _, exists := cfg.LastUsedInterface["bad"]; exists {
-		t.Error("invalid interface 'eth@0' should be removed")
-	}
-	if _, exists := cfg.LastUsedInterface["scan"]; !exists {
-		t.Error("valid interface 'eth0' should be preserved")
-	}
-	if _, exists := cfg.LastUsedInterface["another"]; exists {
-		t.Error("empty interface name should be removed")
-	}
-}
-
-func TestSanitizeConfigRemovesInvalidTargets(t *testing.T) {
-	cfg := &Config{
-		LastUsedInterface: make(map[string]string),
-		RecentTargets:     []string{"192.168.1.1", "not-valid", "10.0.0.0/8"},
-		RecentCommands:    []RecentCommand{},
-		ShowPathsShort:    true,
-	}
-
-	cfg.SanitizeConfig()
-
-	if len(cfg.RecentTargets) != 2 {
-		t.Errorf("expected 2 valid targets, got %d: %v", len(cfg.RecentTargets), cfg.RecentTargets)
-	}
-}
-
 func TestSanitizeConfigFixesRelativeWorkspace(t *testing.T) {
 	cfg := &Config{
-		LastUsedInterface: make(map[string]string),
-		RecentTargets:     []string{},
-		RecentCommands:    []RecentCommand{},
-		ShowPathsShort:    true,
-		WorkspaceDir:      "relative/path",
+		WorkspaceDir: "relative/path",
 	}
 
 	cfg.SanitizeConfig()
@@ -197,16 +152,12 @@ func TestSanitizeConfigFixesRelativeWorkspace(t *testing.T) {
 func TestGetConfigStatusFields(t *testing.T) {
 	cfg := GetDefaultConfig()
 	cfg.WorkspaceDir = "/tmp/test-workspace"
-	cfg.AddRecentTarget("10.0.0.1")
-	cfg.AddRecentCommand("scan", true)
 
 	status := cfg.GetConfigStatus()
 
 	expectedKeys := []string{
 		"workspace_dir",
 		"workspace_exists",
-		"recent_targets_count",
-		"recent_commands_count",
 		"validation_status",
 	}
 	for _, key := range expectedKeys {
@@ -215,8 +166,6 @@ func TestGetConfigStatusFields(t *testing.T) {
 		}
 	}
 
-	// workspace_exists is false because /tmp/test-workspace doesn't exist on disk
-	// workspace_dir is set correctly
 	if status["workspace_dir"] != "/tmp/test-workspace" {
 		t.Errorf("workspace_dir = %v, want /tmp/test-workspace", status["workspace_dir"])
 	}
