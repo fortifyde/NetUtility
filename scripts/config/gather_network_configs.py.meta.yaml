@@ -1,0 +1,134 @@
+script:
+  name: "Network Config Gatherer (netmiko)"
+  description: "SSH into network devices, auto-detect vendor, and extract running configs and compliance data using netmiko"
+  name_de: "ALK Sammler (netmiko)"
+  description_de: "Aktive Lan-Komponenten per SSH auslesen via netmiko. Sammlung von Running-Configs sowie Compliance-Daten"
+  category: "config-gathering"
+  subcategory: "backup"
+
+  file: "gather_network_configs.py"
+  requires_root: false
+  estimated_duration: "5-30 minutes"
+
+  cli_shortcuts:
+    - "gather-configs-py"
+  keywords:
+    - "config"
+    - "configuration"
+    - "backup"
+    - "gather"
+    - "extract"
+    - "compliance"
+    - "network"
+    - "device"
+    - "cisco"
+    - "hp"
+    - "aruba"
+    - "netmiko"
+    - "python"
+
+  parameters:
+    - name: "targets"
+      type: "target"
+      description: "Device IPs or host file path (--targets / -t)"
+      required: false
+    - name: "dry_run"
+      type: "boolean"
+      description: "Test connectivity only, no extraction (--dry-run)"
+      required: false
+      default: "false"
+    - name: "cred_mode"
+      type: "choice"
+      description: "Credential input method (--cred-mode)"
+      required: false
+      default: "prompt"
+      validation:
+        choices:
+          - value: "prompt"
+            description: "Common username/password for all devices"
+          - value: "session"
+            description: "Use session-stored credentials"
+          - value: "file"
+            description: "Credentials file (CSV: IP,user,pass[,enable])"
+    - name: "cred_file"
+      type: "file_path"
+      description: "Path to credentials file (--cred-file)"
+      required: false
+    - name: "concurrency"
+      type: "number"
+      description: "Maximum parallel connections (--concurrency / -c)"
+      required: false
+      default: "5"
+
+  dependencies:
+    tools:
+      - name: "python3"
+        package: "python"
+        check_command: "which python3"
+      - name: "netmiko"
+        package: "python-netmiko"
+        check_command: "python3 -c 'import netmiko'"
+    optional_tools: []
+
+  output:
+    creates_files: true
+    workspace_subdirs: ["configs"]
+    files:
+      - path: "configs/*/version.txt"
+        description: "Device version information"
+      - path: "configs/*/running_config.txt"
+        description: "Running configuration"
+      - path: "configs/*/running_config_all.txt"
+        description: "Running configuration with all defaults"
+      - path: "configs/*/startup_config.txt"
+        description: "Startup/saved configuration"
+      - path: "configs/*/compliance_commands.txt"
+        description: "Additional compliance command outputs"
+      - path: "configs/*/metadata.txt"
+        description: "Device metadata and session info"
+      - path: "configs/*/connection.log"
+        description: "Connection log"
+      - path: "configs/failures.txt"
+        description: "Failed device log"
+    logs_operations: true
+
+  tags:
+    - "configuration"
+    - "backup"
+    - "compliance"
+    - "network-devices"
+    - "cisco"
+    - "hp"
+    - "aruba"
+    - "automation"
+    - "netmiko"
+    - "python"
+  risk_level: "low"
+  network_access: true
+  modifies_system: false
+
+  examples:
+    - description: "Interactive extraction with common credentials"
+      command: "python3 gather_network_configs.py"
+    - description: "Dry-run to test connectivity"
+      command: "python3 gather_network_configs.py --dry-run"
+    - description: "Extract from specific IPs"
+      command: "python3 gather_network_configs.py --targets 10.0.1.1,10.0.1.2"
+    - description: "High concurrency extraction"
+      command: "python3 gather_network_configs.py --concurrency 10"
+    - description: "Use credentials file"
+      command: "python3 gather_network_configs.py --cred-mode file --cred-file creds.csv"
+
+  notes:
+    - "Python+netmiko replacement for gather_network_configs.sh"
+    - "Handles pagination correctly even when terminal length 0 is blocked by AAA"
+    - "Each compliance command is sent individually via netmiko send_command"
+    - "Supports Cisco IOS, Cisco Nexus, HP Comware, HP ProVision, HP Aruba"
+    - "Automatically detects vendor/OS from version output"
+    - "Uses netmiko's built-in device type auto-detection"
+    - "Command lists loaded per vendor from commands/ directory (same .cmds files as shell version)"
+    - "Existing config files are timestamped on re-collection"
+    - "Per-IP directory layout: configs/<IP>/ — compatible with shell script output"
+
+  version: "1.0.0"
+  last_updated: "2026-05-19"

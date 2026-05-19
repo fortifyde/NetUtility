@@ -143,7 +143,8 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 	}()
 
 	// Create command
-	cmd := exec.CommandContext(e.ctx, "bash", scriptPath)
+	interp, interpArgs := DetectInterpreter(scriptPath)
+	cmd := exec.CommandContext(e.ctx, interp, append(interpArgs, scriptPath)...)
 	cmd.Env = append(os.Environ(), "NETUTIL_FORCE_COLOR=1")
 	// Isolate child in its own process group so SIGINT to the TUI
 	// does not propagate to the script, and vice versa.

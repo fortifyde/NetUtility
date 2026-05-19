@@ -11,6 +11,7 @@ import (
 	"netutil/internal/app"
 	"netutil/internal/config"
 	"netutil/internal/metadata"
+	"netutil/internal/executor"
 	"netutil/internal/ui"
 )
 
@@ -474,7 +475,8 @@ func runScriptDirect(scriptPath string, scriptName string) bool {
 	fmt.Printf("\n=== Executing: %s ===\n\n", scriptName)
 
 	// Run script directly in terminal
-	cmd := exec.Command("bash", scriptPath)
+	interp, interpArgs := executor.DetectInterpreter(scriptPath)
+	cmd := exec.Command(interp, append(interpArgs, scriptPath)...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
