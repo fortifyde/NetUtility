@@ -12,13 +12,16 @@ Supports: Cisco IOS, Cisco Nexus, HP Comware, HP ProVision, HP Aruba CX/Switch
 import argparse
 import os
 import re
+import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     from netmiko import ConnectHandler, NetmikoTimeoutException, NetmikoAuthenticationException
+    from paramiko.ssh_exception import IncompatiblePeer
 except ImportError:
     print("Error: netmiko is required. Install with: pip install netmiko", file=sys.stderr)
     sys.exit(1)
@@ -52,6 +55,35 @@ TERMINAL_SETUP = {
     "aruba_switch": "no page",
     "aruba_cx": "no paging",
 }
+
+# Vendor name → fallback terminal command when primary fails
+# (mirrors get_terminal_fallback() in the shell script)
+TERMINAL_FALLBACK = {
+    "cisco_nexus": "terminal pager cat",
+    "hp_comware": "screen-length 0 temporary",
+    "hp_provision": "terminal length 0",
+    "aruba_switch": "terminal length 0",
+    "aruba_cx": "terminal length 0",
+}
+
+# Pagination markers that indicate output was truncated
+PAGINATION_MARKERS = ("--More--", "---- More ----", "Press any key")
+
+# Legacy SSH config for devices that need old ciphers/kex/hostkey algorithms.
+# Written to a temp file and passed to sshpass via -F.
+LEGACY_SSH_CONFIG = """\
+KexAlgorithms +diffie-hellman-group1-sha1,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1
+HostKeyAlgorithms +ssh-rsa
+Ciphers +aes128-cbc,3des-cbc,aes192-cbc,aes256-cbc
+MACs +hmac-sha1,hmac-md5
+"""
+
+# Try importing pexpect (optional, used for pagination fallback)
+try:
+    import pexpect
+    HAS_PEXPECT = True
+except ImportError:
+    HAS_PEXPECT = False
 
 # netmiko device_type → vendor name (reverse lookup for version-based detection)
 VENDOR_PATTERNS = [
@@ -188,11 +220,20 @@ def netmiko_device_type(vendor: str) -> str:
 # Connection management
 # ---------------------------------------------------------------------------
 
+# Connection result: either a netmiko connection (for normal path)
+# or a dict of SSH parameters (for subprocess/expect fallback path).
+
+
 def connect_device(ip: str, username: str, password: str,
                    device_type: str = "autodetect",
                    enable_pass: str | None = None,
-                   timeout: int = 15) -> "ConnectHandler":
-    """Establish netmiko SSH connection to a device."""
+                   timeout: int = 15,
+                   legacy_ssh: bool = False) -> "ConnectHandler":
+    """Establish netmiko SSH connection to a device.
+
+    If legacy_ssh is True, disable rsa-sha2-* to allow ssh-rsa host keys
+    (required for older switches that only support ssh-rsa).
+    """
     device = {
         "device_type": device_type,
         "host": ip,
@@ -207,6 +248,13 @@ def connect_device(ip: str, username: str, password: str,
     if enable_pass:
         device["secret"] = enable_pass
 
+    # Allow ssh-rsa host keys (required for old switches where paramiko 2.9+
+    # refuses to connect because it prefers rsa-sha2-256/512).
+    if legacy_ssh:
+        device["disabled_algorithms"] = {
+            "pubkeys": ["rsa-sha2-256", "rsa-sha2-512"],
+        }
+
     connection = ConnectHandler(**device)
 
     if enable_pass and not connection.check_enable_mode():
@@ -215,28 +263,137 @@ def connect_device(ip: str, username: str, password: str,
     return connection
 
 
-def try_connect(ip: str, username: str, password: str,
-                enable_pass: str | None = None) -> tuple["ConnectHandler", str]:
-    """Try connecting with auto-detection, falling back to specific device types.
-
-    Returns (connection, device_type).
-    """
-    # Try autodetect first
+def _test_sshpass(ip: str, username: str, password: str,
+                  ssh_config: str | None = None) -> bool:
+    """Test if sshpass+ssh can connect. Returns True on success."""
+    cmd = ["sshpass", "-e", "ssh"]
+    if ssh_config:
+        cmd += ["-F", ssh_config]
+    cmd += [
+        "-o", "ConnectTimeout=5",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        f"{username}@{ip}",
+        "exit",
+    ]
+    env = os.environ.copy()
+    env["SSHPASS"] = password
     try:
-        conn = connect_device(ip, username, password, "autodetect", enable_pass)
-        return conn, conn.device_type
-    except Exception:
-        pass
+        result = subprocess.run(cmd, capture_output=True, timeout=15, env=env)
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return False
 
-    # Try common device types
-    for dt in ["cisco_ios", "cisco_nxos", "hp_comware", "aruba_osswitch", "aruba_os"]:
+
+def try_connect(ip: str, username: str, password: str,
+                enable_pass: str | None = None) -> tuple:
+    """Try connecting with a full fallback cascade.
+
+    Returns one of:
+      ("netmiko", connection, device_type)
+      ("subprocess", ssh_opts_dict)
+
+    The ssh_opts_dict contains: ip, username, password, enable_pass, ssh_config
+    """
+    # --- Attempt 1: Normal netmiko ---
+    _incompatible_peer = False
+    for dt in ["autodetect", "cisco_ios", "cisco_nxos", "hp_comware",
+               "aruba_osswitch", "aruba_os"]:
         try:
             conn = connect_device(ip, username, password, dt, enable_pass)
-            return conn, dt
+            return "netmiko", conn, conn.device_type
+        except (NetmikoTimeoutException, NetmikoAuthenticationException):
+            raise
+        except IncompatiblePeer:
+            _incompatible_peer = True
+            break  # negotiation failure → try legacy below
         except Exception:
             continue
 
-    raise ConnectionError(f"Failed to connect to {ip} with any device type")
+    # --- Attempt 2: netmiko with legacy ssh-rsa host key ---
+    if _incompatible_peer:
+        log_step("Retrying with legacy SSH settings (ssh-rsa host key)...")
+    for dt in ["autodetect", "cisco_ios", "cisco_nxos", "hp_comware",
+               "aruba_osswitch", "aruba_os"]:
+        try:
+            conn = connect_device(ip, username, password, dt, enable_pass,
+                                  legacy_ssh=True)
+            return "netmiko", conn, conn.device_type
+        except (NetmikoTimeoutException, NetmikoAuthenticationException):
+            raise
+        except IncompatiblePeer:
+            break  # still failing → try subprocess
+        except Exception:
+            continue
+
+    # --- Attempt 3: sshpass + ssh with legacy algorithms config ---
+    log_step("Netmiko cannot negotiate SSH, trying sshpass with legacy ciphers...")
+
+    # 3a: normal sshpass
+    if _test_sshpass(ip, username, password):
+        log_success("Connected via sshpass (normal mode)")
+        return "subprocess", {
+            "ip": ip, "username": username, "password": password,
+            "enable_pass": enable_pass, "ssh_config": None,
+        }
+
+    # 3b: sshpass with legacy SSH config
+    ssh_config_file = None
+    try:
+        fd, ssh_config_file = tempfile.mkstemp(prefix="netutil_ssh_")
+        os.write(fd, LEGACY_SSH_CONFIG.encode())
+        os.close(fd)
+        os.chmod(ssh_config_file, 0o600)
+
+        if _test_sshpass(ip, username, password, ssh_config_file):
+            log_success("Connected via sshpass (legacy SSH mode)")
+            return "subprocess", {
+                "ip": ip, "username": username, "password": password,
+                "enable_pass": enable_pass, "ssh_config": ssh_config_file,
+            }
+    except Exception:
+        pass
+    finally:
+        # Config file will be cleaned up later; keep it for command execution
+        pass
+
+    # 3c: sshpass with legacy config + PTY mode (for Nexus etc.)
+    cmd = ["sshpass", "-e", "ssh", "-t"]
+    if ssh_config_file:
+        cmd += ["-F", ssh_config_file]
+    cmd += [
+        "-o", "ConnectTimeout=10",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        f"{username}@{ip}",
+    ]
+    env = os.environ.copy()
+    env["SSHPASS"] = password
+    try:
+        result = subprocess.run(
+            cmd, input="\nexit\n", capture_output=True,
+            timeout=15, text=True, env=env,
+        )
+        if result.returncode == 0:
+            log_success("Connected via sshpass (PTY + legacy mode)")
+            return "subprocess", {
+                "ip": ip, "username": username, "password": password,
+                "enable_pass": enable_pass, "ssh_config": ssh_config_file,
+                "pty": True,
+            }
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass
+
+    # Clean up temp file on total failure
+    if ssh_config_file:
+        try:
+            os.unlink(ssh_config_file)
+        except OSError:
+            pass
+
+    raise ConnectionError(f"Failed to connect to {ip} with any method")
 
 
 # ---------------------------------------------------------------------------
@@ -289,9 +446,16 @@ def process_device(ip: str, username: str, password: str,
     # --- Connect ---
     log_step(f"Connecting to {ip}...")
     conn = None
+    ssh_opts = None  # Used when fallback to subprocess path
     try:
-        conn, dt = try_connect(ip, username, password, enable_pass)
-        write_log("SUCCESS: Connection established")
+        result = try_connect(ip, username, password, enable_pass)
+        mode = result[0]
+        if mode == "netmiko":
+            conn, dt = result[1], result[2]
+            write_log("SUCCESS: Connection established (netmiko)")
+        else:
+            ssh_opts = result[1]
+            write_log("SUCCESS: Connection established (subprocess fallback)")
     except NetmikoAuthenticationException:
         log_error(f"Authentication failed for {ip}")
         write_log("FAILURE: Authentication failed")
@@ -312,34 +476,49 @@ def process_device(ip: str, username: str, password: str,
         # --- Detect vendor ---
         log_step(f"Detecting vendor for {ip}...")
 
-        # Map netmiko device_type back to our vendor name
-        vendor = _netmiko_type_to_vendor(dt, conn)
-
-        # Get version output
+        vendor = "generic"
         version_output = ""
-        try:
-            version_output = conn.send_command("show version", read_timeout=30)
-        except Exception:
-            pass
 
-        if not version_output or "Invalid input" in version_output:
-            # Try alternative version commands
-            for alt_cmd in ["display version", "show system", "show system information"]:
-                try:
-                    version_output = conn.send_command(alt_cmd, read_timeout=30)
-                    if version_output and "Invalid input" not in version_output:
-                        break
-                except Exception:
-                    continue
+        if conn:
+            # Netmiko path: get version via send_command
+            dt = conn.device_type if hasattr(conn, 'device_type') else ""
+            vendor = _netmiko_type_to_vendor(dt, conn)
+            try:
+                version_output = conn.send_command("show version", read_timeout=30)
+            except Exception:
+                pass
+            if not version_output or "Invalid input" in version_output:
+                for alt_cmd in ["display version", "show system", "show system information"]:
+                    try:
+                        version_output = conn.send_command(alt_cmd, read_timeout=30)
+                        if version_output and "Invalid input" not in version_output:
+                            break
+                    except Exception:
+                        continue
+        else:
+            # Subprocess path: get version via sshpass
+            for vcmd in ["show version", "display version", "show system", "show system information"]:
+                raw = _exec_ssh_subprocess(ssh_opts, vcmd, vendor="generic", timeout=30)
+                if raw and "Invalid input" not in raw:
+                    version_output = raw
+                    break
+
+            # Map version output to vendor using pattern matching
+            for pattern, v in VENDOR_PATTERNS:
+                if re.search(pattern, version_output, re.IGNORECASE):
+                    vendor = v
+                    break
 
         if version_output:
             save_file(configs_dir / "version.txt", version_output)
             write_log("SUCCESS: Version retrieved")
 
-            # Refine vendor detection from version output
-            detected = detect_vendor(version_output)
-            if detected != "generic":
-                vendor = detected
+            # Refine vendor detection from version output (netmiko path only;
+            # subprocess path already detected via VENDOR_PATTERNS above)
+            if conn:
+                detected = detect_vendor(version_output)
+                if detected != "generic":
+                    vendor = detected
         else:
             log_warning(f"Could not retrieve version info from {ip}")
             write_log("WARNING: Version retrieval failed")
@@ -355,7 +534,7 @@ def process_device(ip: str, username: str, password: str,
             f"Hostname: {hostname}\n"
             f"Timestamp: {datetime.now():%Y-%m-%d %H:%M:%S}\n"
             f"Username: {username}\n"
-            f"Collector: netmiko\n"
+            f"Collector: {'netmiko' if conn else 'sshpass'}\n"
         )
         metadata_file.write_text(metadata)
 
@@ -373,7 +552,7 @@ def process_device(ip: str, username: str, password: str,
 
         # --- Set terminal paging (best-effort, failures are non-fatal) ---
         term_cmd = TERMINAL_SETUP.get(vendor)
-        if term_cmd:
+        if term_cmd and conn:
             try:
                 conn.send_command(term_cmd, read_timeout=10)
                 write_log(f"Terminal setup: {term_cmd}")
@@ -381,12 +560,15 @@ def process_device(ip: str, username: str, password: str,
                 write_log(f"Terminal setup failed (non-fatal): {term_cmd}")
 
         # --- Pass 1: Per-file config commands ---
-        _collect_config(conn, vc.running_config_cmd, configs_dir / "running_config.txt",
-                        ip, "running_config.txt", log_file)
-        _collect_config(conn, vc.running_config_all_cmd, configs_dir / "running_config_all.txt",
-                        ip, "running_config_all.txt", log_file)
-        _collect_config(conn, vc.startup_config_cmd, configs_dir / "startup_config.txt",
-                        ip, "startup_config.txt", log_file)
+        _collect_config(conn, ssh_opts, vc.running_config_cmd, configs_dir / "running_config.txt",
+                        ip, "running_config.txt", log_file, term_cmd, enable_pass, vendor,
+                        username, password)
+        _collect_config(conn, ssh_opts, vc.running_config_all_cmd, configs_dir / "running_config_all.txt",
+                        ip, "running_config_all.txt", log_file, term_cmd, enable_pass, vendor,
+                        username, password)
+        _collect_config(conn, ssh_opts, vc.startup_config_cmd, configs_dir / "startup_config.txt",
+                        ip, "startup_config.txt", log_file, term_cmd, enable_pass, vendor,
+                        username, password)
 
         # --- Pass 2: Compliance commands (one per send_command) ---
         if vc.compliance_cmds:
@@ -399,7 +581,12 @@ def process_device(ip: str, username: str, password: str,
             log_step(f"Executing {len(vc.compliance_cmds)} compliance commands on {ip}...")
             for cmd in vc.compliance_cmds:
                 try:
-                    output = conn.send_command(cmd, read_timeout=60)
+                    if conn:
+                        output = conn.send_command(cmd, read_timeout=60)
+                    else:
+                        output = _exec_ssh_subprocess(
+                            ssh_opts, cmd, terminal_cmd=term_cmd,
+                            enable_pass=enable_pass, vendor=vendor, timeout=60)
                     if output:
                         with open(compliance_file, "a") as f:
                             f.write(f"\n=== {cmd} ===\n{output}\n")
@@ -429,10 +616,25 @@ def process_device(ip: str, username: str, password: str,
                 conn.disconnect()
             except Exception:
                 pass
+        # Clean up temp SSH config file if subprocess path was used
+        if ssh_opts and ssh_opts.get("ssh_config"):
+            try:
+                os.unlink(ssh_opts["ssh_config"])
+            except OSError:
+                pass
 
 
-def _collect_config(conn, cmd: str | None, dest: Path, ip: str, label: str, log_file: Path):
-    """Collect a single config file via send_command."""
+def _collect_config(conn, ssh_opts, cmd: str | None, dest: Path,
+                    ip: str, label: str, log_file: Path,
+                    terminal_cmd: str | None = None,
+                    enable_pass: str | None = None,
+                    vendor: str | None = None,
+                    username: str = "", password: str = ""):
+    """Collect a single config file via netmiko or subprocess fallback.
+
+    Detects pagination in output and retries with fallback terminal commands
+    or pexpect if needed.
+    """
     if not cmd:
         return
 
@@ -442,7 +644,48 @@ def _collect_config(conn, cmd: str | None, dest: Path, ip: str, label: str, log_
 
     log_step(f"Executing: {cmd} on {ip}")
     try:
-        output = conn.send_command(cmd, read_timeout=120)
+        if conn:
+            output = conn.send_command(cmd, read_timeout=120)
+
+            # Check for pagination in netmiko output
+            if output and any(marker in output for marker in PAGINATION_MARKERS):
+                log_warning(f"Pagination detected in {label}, attempting fallback...")
+                write_log(f"WARNING: Pagination detected for {cmd}")
+
+                # Try fallback terminal command
+                fallback = TERMINAL_FALLBACK.get(vendor, "") if vendor else ""
+                if fallback and fallback != terminal_cmd:
+                    log_step(f"Retrying with fallback: {fallback}")
+                    try:
+                        conn.send_command(fallback, read_timeout=10)
+                    except Exception:
+                        pass
+                    output = conn.send_command(cmd, read_timeout=120)
+
+                # If still paginated, try pexpect
+                if output and any(marker in output for marker in PAGINATION_MARKERS):
+                    if HAS_PEXPECT:
+                        # Build ssh_opts from connection info for pexpect fallback
+                        _opts = {
+                            "ip": ip,
+                            "username": username,
+                            "password": password,
+                            "ssh_config": None,
+                        }
+                        pexpect_output = _exec_ssh_pexpect(
+                            _opts, cmd, terminal_cmd, enable_pass, timeout=120)
+                        if pexpect_output:
+                            output = pexpect_output
+
+                    if any(marker in (output or "") for marker in PAGINATION_MARKERS):
+                        log_warning(f"Output may be truncated: {label}")
+                        write_log(f"WARNING: Output may be truncated for {cmd}")
+                        output = "!!! WARNING: OUTPUT MAY BE TRUNCATED !!!\n" + (output or "")
+        else:
+            output = _exec_ssh_subprocess(
+                ssh_opts, cmd, terminal_cmd=terminal_cmd,
+                enable_pass=enable_pass, vendor=vendor, timeout=120)
+
         if output:
             save_file(dest, output)
             log_success(f"Saved: {label}")
@@ -475,6 +718,180 @@ def _record_failure(failures_file: Path, ip: str, reason: str):
     failures_file.parent.mkdir(parents=True, exist_ok=True)
     with open(failures_file, "a") as f:
         f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S},{ip},{reason}\n")
+
+# ---------------------------------------------------------------------------
+# Subprocess / expect command execution (fallback for legacy SSH devices)
+# ---------------------------------------------------------------------------
+
+def _clean_output(raw: str) -> str:
+    """Remove ANSI codes, pagination artifacts, and command echoes from SSH output."""
+    # Remove ANSI escape sequences
+    cleaned = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw)
+    # Remove --More-- lines
+    cleaned = re.sub(r'^\s*--More--\s*$', '', cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r'^\s*---- More ----\s*$', '', cleaned, flags=re.MULTILINE)
+    cleaned = re.sub(r'^\s*Press any key.*$', '', cleaned, flags=re.MULTILINE)
+    # Remove carriage returns
+    cleaned = cleaned.replace('\r\n', '\n').replace('\r', '')
+    # Remove leading/trailing blank lines
+    lines = [l for l in cleaned.splitlines() if l.strip()]
+    return '\n'.join(lines) + '\n' if lines else ''
+
+
+def _exec_ssh_subprocess(ssh_opts: dict, command: str,
+                         terminal_cmd: str | None = None,
+                         enable_pass: str | None = None,
+                         vendor: str | None = None,
+                         timeout: int = 120) -> str:
+    """Execute command via sshpass+ssh subprocess with PTY.
+
+    Handles pagination by detecting --More-- and retrying with fallback
+    terminal commands or pexpect if available.
+    """
+    ip = ssh_opts["ip"]
+    username = ssh_opts["username"]
+    password = ssh_opts["password"]
+    ssh_config = ssh_opts.get("ssh_config")
+
+    # Build stdin input: newlines to dismiss banners, optional enable + terminal setup
+    stdin_parts = ["\n\n"]
+    if enable_pass:
+        stdin_parts.append(f"enable\n{enable_pass}\n")
+    if terminal_cmd:
+        stdin_parts.append(f"{terminal_cmd}\n")
+    stdin_parts.append(f"{command}\nexit\n")
+    stdin_input = "".join(stdin_parts)
+
+    env = os.environ.copy()
+    env["SSHPASS"] = password
+    cmd = ["sshpass", "-e", "ssh", "-tt"]
+    if ssh_config:
+        cmd += ["-F", ssh_config]
+    cmd += [
+        "-o", "ConnectTimeout=10",
+        "-o", "StrictHostKeyChecking=no",
+        "-o", "UserKnownHostsFile=/dev/null",
+        "-o", "LogLevel=ERROR",
+        f"{username}@{ip}",
+    ]
+
+    raw = _run_ssh_command(cmd, stdin_input, timeout, env=env)
+    output = _clean_output(raw)
+
+    # Check for pagination in output
+    if any(marker in raw for marker in PAGINATION_MARKERS):
+        log_warning("Pagination detected in output, attempting fallback...")
+
+        # Try fallback terminal command
+        fallback_term = TERMINAL_FALLBACK.get(vendor, "") if vendor else ""
+        if fallback_term and fallback_term != terminal_cmd:
+            log_step(f"Retrying with fallback terminal command: {fallback_term}")
+            stdin_parts_fb = ["\n\n"]
+            if enable_pass:
+                stdin_parts_fb.append(f"enable\n{enable_pass}\n")
+            stdin_parts_fb.append(f"{fallback_term}\n")
+            stdin_parts_fb.append(f"{command}\nexit\n")
+            raw = _run_ssh_command(cmd, "".join(stdin_parts_fb), timeout, env=env)
+            output = _clean_output(raw)
+
+        # If still paginated, try pexpect
+        if any(marker in raw for marker in PAGINATION_MARKERS):
+            if HAS_PEXPECT:
+                log_step("Using pexpect for paginated output collection")
+                output = _exec_ssh_pexpect(ssh_opts, command, terminal_cmd, enable_pass, timeout)
+                if output:
+                    return output
+            log_warning("Output may be truncated (pagination could not be fully disabled)")
+            output = "!!! WARNING: OUTPUT MAY BE TRUNCATED !!!\n" + output
+
+    return output
+
+
+def _run_ssh_command(cmd: list[str], stdin_input: str, timeout: int,
+                     env: dict | None = None) -> str:
+    """Run an SSH command via subprocess and return raw stdout."""
+    result = subprocess.run(
+        cmd, input=stdin_input, capture_output=True,
+        timeout=timeout + 5, text=True, env=env,
+    )
+    return result.stdout or ""
+
+
+def _exec_ssh_pexpect(ssh_opts: dict, command: str,
+                      terminal_cmd: str | None = None,
+                      enable_pass: str | None = None,
+                      timeout: int = 120) -> str:
+    """Execute command via pexpect for reliable pagination handling.
+
+    Mirrors exec_ssh_with_expect() from the shell script.
+    """
+    ip = ssh_opts["ip"]
+    username = ssh_opts["username"]
+    password = ssh_opts["password"]
+    ssh_config = ssh_opts.get("ssh_config")
+
+    ssh_cmd = ("sshpass -e ssh -tt -o ConnectTimeout=10 "
+               "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null "
+               "-o LogLevel=ERROR")
+    if ssh_config:
+        ssh_cmd += f" -F {ssh_config}"
+    ssh_cmd += f" {username}@{ip}"
+
+    env = os.environ.copy()
+    env["SSHPASS"] = password
+
+    try:
+        child = pexpect.spawn(ssh_cmd, timeout=timeout, encoding="utf-8",
+                              env=env)
+
+        # Wait for prompt (login banner, initial prompt)
+        prompts = [r"[#>]\s*$", "Press any key to continue", pexpect.TIMEOUT]
+        idx = child.expect(prompts)
+        if idx == 1:
+            child.sendline("")
+            child.expect([r"[#>]\s*$", pexpect.TIMEOUT])
+        elif idx == 2:
+            child.close()
+            return ""
+
+        # Enter enable mode if needed
+        if enable_pass:
+            child.sendline("enable")
+            child.expect("Password:")
+            child.sendline(enable_pass)
+            child.expect([r"[#>]\s*$", pexpect.TIMEOUT])
+
+        # Send terminal setup
+        if terminal_cmd:
+            child.sendline(terminal_cmd)
+            child.expect([r"[#>]\s*$", pexpect.TIMEOUT])
+
+        # Send command and collect paginated output
+        child.sendline(command)
+        output_parts = []
+        while True:
+            idx = child.expect([
+                r"--More--",
+                r"---- More ----",
+                r"Press any key",
+                r"\n\S+[#>] ?$",
+                pexpect.TIMEOUT,
+            ])
+            output_parts.append(child.before or "")
+            if idx in (0, 1, 2):
+                # Pagination prompt — send space to continue
+                child.send(" ")
+            elif idx in (3, 4):
+                # Got prompt or timeout — done
+                break
+
+        child.sendline("exit")
+        child.close()
+        raw = "".join(output_parts)
+        return _clean_output(raw)
+    except Exception as e:
+        log_warning(f"pexpect failed: {e}")
+        return ""
 
 
 # ---------------------------------------------------------------------------
