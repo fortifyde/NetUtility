@@ -42,7 +42,7 @@ Terminal-based network assessment toolkit for Linux — traffic capture, VLAN di
 
 **Recommended:** `fping`, `arp-scan`, `sshpass`
 
-**Optional:** `masscan`, `nikto`, `sslscan`, `gowitness`, `expect`
+**Optional:** `masscan`, `nikto`, `sslscan`, `gowitness`, `expect`, `python3` with `netmiko`
 
 ```bash
 git clone https://github.com/fortifyde/NetUtility.git
