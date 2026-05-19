@@ -1755,7 +1755,15 @@ review_and_confirm_networks() {
         _rcn_idx=1
         while IFS=' ' read -r _rcn_id _rcn_net; do
             [ -n "$_rcn_id" ] || continue
-            printf "  %3d)  %-24s  %s\n" "$_rcn_idx" "$_rcn_id" "$_rcn_net" >&2
+            case "$_rcn_id" in
+                [0-9]*)
+                    _rcn_label="VLAN $_rcn_id" ;;
+                vlan_*)
+                    _rcn_label="VLAN ${_rcn_id#vlan_}" ;;
+                *)
+                    _rcn_label="$_rcn_id" ;;
+            esac
+            printf "  %3d)  %-24s  %s\n" "$_rcn_idx" "$_rcn_label" "$_rcn_net" >&2
             _rcn_idx=$((_rcn_idx + 1))
         done < "$_rcn_file"
         _rcn_total=$((_rcn_idx - 1))
@@ -1810,7 +1818,7 @@ echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
 log_info "Starting Stage 4: Network discovery"
 
-echo "Running network discovery on configured interfaces..." >&2
+echo "Preparing VLAN-aware discovery..." >&2
 discovery_script="$(dirname "$0")/../discovery/multi_phase_discovery.sh"
 
 if [ -x "$discovery_script" ]; then
@@ -1974,22 +1982,10 @@ if [ -x "$discovery_script" ]; then
         echo >&2
 
         if [ -s "$VLAN_NETWORKS_FILE" ]; then
-            if command -v color_info >/dev/null 2>&1; then
-                color_info "The following networks will be scanned:" >&2
-            else
-                echo "The following networks will be scanned:" >&2
-            fi
-            echo >&2
-            while read -r vlan_id network <&3; do
-                printf "  VLAN %-3s: %s\n" "$vlan_id" "$network" >&2
-            done 3< "$VLAN_NETWORKS_FILE"
-            echo >&2
             vlan_network_count=$(wc -l < "$VLAN_NETWORKS_FILE" | tr -d ' ')
-            echo "Ready to begin discovery on $vlan_network_count VLAN(s)" >&2
+            echo "  $vlan_network_count network(s) collected. Review before scanning." >&2
             echo >&2
-            echo "Discovery will now begin. This may take some time." >&2
-            echo "You can safely leave this running." >&2
-            echo >&2
+
         else
             echo "⚠ No VLANs configured for discovery" >&2
             echo "Status: SKIPPED (no networks)" >> "$WORKFLOW_REPORT"
@@ -2044,21 +2040,23 @@ if [ -x "$discovery_script" ]; then
         done < "$VLAN_NETWORKS_FILE"
 
         # Concurrency cap: how many VLANs to scan simultaneously.
+        _vlan_default_cap=4
+        [ "$vlan_network_count" -gt 0 ] && [ "$_vlan_default_cap" -gt "$vlan_network_count" ] && _vlan_default_cap="$vlan_network_count"
         echo >&2
-        echo "Concurrent VLAN scan limit (default 4):" >&2
+        echo "Concurrent VLAN scan limit (default $_vlan_default_cap):" >&2
         echo "  Higher = faster overall; lower = less network/CPU load." >&2
         echo >&2
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%sMax concurrent VLANs [1-%s, default 4]: %s\n" "$PROMPT_COLOR" "$vlan_network_count" "$COLOR_RESET" >&2
+            printf "%sMax concurrent VLANs [1-%s, default %s]: %s\n" "$PROMPT_COLOR" "$vlan_network_count" "$_vlan_default_cap" "$COLOR_RESET" >&2
         else
-            printf "Max concurrent VLANs [1-%s, default 4]: \n" "$vlan_network_count" >&2
+            printf "Max concurrent VLANs [1-%s, default %s]: \n" "$vlan_network_count" "$_vlan_default_cap" >&2
         fi
         read -r vlan_cap
-        vlan_cap=${vlan_cap:-4}
+        vlan_cap=${vlan_cap:-$_vlan_default_cap}
         case "$vlan_cap" in
             *[!0-9]*)
-                echo "  Invalid input. Using default: 4" >&2
-                vlan_cap=4
+                echo "  Invalid input. Using default: $_vlan_default_cap" >&2
+                vlan_cap=$_vlan_default_cap
                 ;;
             *)
                 [ "$vlan_network_count" -gt 0 ] && [ "$vlan_cap" -gt "$vlan_network_count" ] && vlan_cap="$vlan_network_count"
@@ -2079,7 +2077,9 @@ if [ -x "$discovery_script" ]; then
             printf 'x\n' >&9
             _i=$((_i + 1))
         done
-
+        echo "Discovery will now begin on $vlan_network_count VLAN(s). This may take some time." >&2
+        echo "You can safely leave this running." >&2
+        echo >&2
         # Launch VLAN discoveries — each in an isolated subshell, capped by the semaphore.
         _vlan_pids=""
         _vlan_current=0
