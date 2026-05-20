@@ -2682,6 +2682,16 @@ _wait_bg_pids() {
     return $_wbp_fail
 }
 
+# _begin_chunk DIR ID — redirect REPORT_FILE writes to a per-subshell chunk file
+_begin_chunk() { REPORT_FILE="$1/_report_chunk_$2.txt"; : > "$REPORT_FILE"; }
+
+# _flush_chunks DIR — append all chunks to the real report in sorted order, then clean up
+_flush_chunks() {
+    for _fc in "$1"/_report_chunk_*.txt; do
+        [ -f "$_fc" ] && cat "$_fc"
+    done >> "$REPORT_FILE"
+    rm -f "$1"/_report_chunk_*.txt
+}
 phase_already_done 1 || {
 
 # Phase 1: Enhanced Network Discovery
@@ -2713,6 +2723,7 @@ arp_scan_raw="$PHASE1_DIR/raw_scans/arp_scan_full.txt"
 # Sub-phase 1.1: Layer 2 ARP Discovery
 (
     _sem_acquire
+    _begin_chunk "$PHASE1_DIR" "1_arp"
     if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
         printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.1: Layer 2 ARP discovery" "$COLOR_RESET"
         echo "  Sub-phase 1.1: Layer 2 ARP discovery..." >> "$REPORT_FILE"
@@ -2745,6 +2756,7 @@ _p1_pids="$_p1_pids $!"
 # Sub-phase 1.2: Infrastructure Device Identification
 (
     _sem_acquire
+    _begin_chunk "$PHASE1_DIR" "2_infra"
     printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.2: Infrastructure identification" "$COLOR_RESET"
     echo "  Sub-phase 1.2: Network infrastructure identification" >> "$REPORT_FILE"
     identify_network_devices "$target_networks" "$PHASE1_DIR/infrastructure_hosts.txt"
@@ -2753,6 +2765,7 @@ _p1_pids="$_p1_pids $!"
 _p1_pids="$_p1_pids $!"
 
 _wait_bg_pids "$_p1_pids" || echo "  Warning: some Phase 1 sub-phases reported errors" >> "$REPORT_FILE"
+_flush_chunks "$PHASE1_DIR"
 _sem_destroy
 
 # Consolidate all Phase 1 discoveries
@@ -2811,6 +2824,7 @@ _p2_pids=""
 # Sub-phase 2.1: ICMP Discovery
 (
     _sem_acquire
+    _begin_chunk "$PHASE2_DIR" "21_icmp"
     echo "  Sub-phase 2.1: ICMP connectivity testing..." >> "$REPORT_FILE"
     printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.1: ICMP sweep (fping/ping)" "$COLOR_RESET"
     if command -v fping >/dev/null 2>&1; then
@@ -2837,6 +2851,7 @@ _p2_pids="$_p2_pids $!"
 # Sub-phase 2.2: TCP Discovery with Firewall Bypass
 (
     _sem_acquire
+    _begin_chunk "$PHASE2_DIR" "22_tcp"
     echo "  Sub-phase 2.2: TCP discovery..." >> "$REPORT_FILE"
     printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.2: TCP discovery (nmap SYN ping)" "$COLOR_RESET"
     perform_tcp_discovery "$target_networks" "$PHASE2_DIR/tcp_hosts.txt"
@@ -2850,6 +2865,7 @@ _p2_pids="$_p2_pids $!"
 # Sub-phase 2.3: UDP Service Discovery
 (
     _sem_acquire
+    _begin_chunk "$PHASE2_DIR" "23_udp"
     echo "  Sub-phase 2.3: UDP service discovery..." >> "$REPORT_FILE"
     printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.3: UDP service discovery" "$COLOR_RESET"
     perform_udp_discovery "$target_networks" "$PHASE2_DIR/udp_hosts.txt"
@@ -2863,6 +2879,7 @@ _p2_pids="$_p2_pids $!"
 # Sub-phase 2.4: High-Speed Discovery (masscan)
 (
     _sem_acquire
+    _begin_chunk "$PHASE2_DIR" "24_masscan"
     echo "  Sub-phase 2.4: High-speed discovery (masscan)..." >> "$REPORT_FILE"
     printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.4: High-speed scan (masscan)" "$COLOR_RESET"
     perform_masscan_discovery "$target_networks" "$PHASE2_DIR/masscan_hosts.txt" "$selected_interface"
@@ -2876,6 +2893,7 @@ _p2_pids="$_p2_pids $!"
 # Sub-phase 2.5: IPv6 Network Discovery
 (
     _sem_acquire
+    _begin_chunk "$PHASE2_DIR" "25_ipv6"
     echo "  Sub-phase 2.5: IPv6 network discovery..." >> "$REPORT_FILE"
     if ip -6 addr show "$selected_interface" 2>/dev/null | grep -q "inet6"; then
         printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.5: IPv6 network discovery" "$COLOR_RESET"
@@ -2897,6 +2915,7 @@ _p2_pids="$_p2_pids $!"
 _p2_pids="$_p2_pids $!"
 
 _wait_bg_pids "$_p2_pids" || echo "  Warning: some Phase 2 sub-phases reported errors" >> "$REPORT_FILE"
+_flush_chunks "$PHASE2_DIR"
 _sem_destroy
 
 # Compute counts from output files (sub-shells may have run in any order)
@@ -2961,6 +2980,7 @@ if [ "$dns_configured" = "true" ]; then
         if [ -n "$host" ]; then
             (
                 _sem_acquire
+                _begin_chunk "$PHASE3_DIR" "$(printf '%s' "$host" | tr '.' '_')"
                 # Try reverse DNS lookup
                 _dns_host=$(dig +short -x "$host" 2>/dev/null | grep -v "^;;" | sed 's/\.$//g' | head -1)
                 if [ -z "$_dns_host" ]; then
@@ -2977,6 +2997,12 @@ if [ "$dns_configured" = "true" ]; then
         fi
     done < "$PHASE2_DIR/all_hosts.txt"
     _wait_bg_pids "$_p3_pids" || echo "  Warning: some DNS lookup sub-shells failed" >> "$REPORT_FILE"
+    # Flush chunks in host order for deterministic report layout
+    while read -r _fc_host; do
+        _fc_f="$PHASE3_DIR/_report_chunk_$(printf '%s' "$_fc_host" | tr '.' '_').txt"
+        [ -f "$_fc_f" ] && cat "$_fc_f"
+        rm -f "$_fc_f"
+    done >> "$REPORT_FILE" < "$PHASE2_DIR/all_hosts.txt"
     _sem_destroy
 else
     echo "  Skipping DNS reverse lookups (no nameserver configured)" >> "$REPORT_FILE"
@@ -3020,6 +3046,7 @@ while read -r host; do
     if [ -n "$host" ]; then
         (
             _sem_acquire
+            _begin_chunk "$PHASE4_DIR" "$(printf '%s' "$host" | tr '.' '_')"
             # Test for SMB (port 445)
             if nc -z -w 2 "$host" 445 2>/dev/null; then
                 echo "$host" >> "$PHASE4_DIR/smb_hosts.txt"
@@ -3067,6 +3094,12 @@ while read -r host; do
     fi
 done < "$PHASE2_DIR/all_hosts.txt"
 _wait_bg_pids "$_p4_pids" || echo "  Warning: some Windows probe sub-shells failed" >> "$REPORT_FILE"
+# Flush chunks in host order for deterministic report layout
+while read -r _fc_host; do
+    _fc_f="$PHASE4_DIR/_report_chunk_$(printf '%s' "$_fc_host" | tr '.' '_').txt"
+    [ -f "$_fc_f" ] && cat "$_fc_f"
+    rm -f "$_fc_f"
+done >> "$REPORT_FILE" < "$PHASE2_DIR/all_hosts.txt"
 _sem_destroy
 
 smb_count=$(wc -l < "$PHASE4_DIR/smb_hosts.txt")
@@ -3107,6 +3140,7 @@ if command -v nmap >/dev/null 2>&1; then
     # Stage 1: Fast common port scan (TCP)
     (
         _sem_acquire
+        _begin_chunk "$PHASE5_DIR" "51_tcp"
         echo "  Stage 1: Fast common port scan (top 1000 ports)..." >> "$REPORT_FILE"
         printf "%s%s%s\n" "$COLOR_RESET" "TCP scan (top 1000 ports) → $NMAP_FAST_SCAN" "$COLOR_RESET"
         nmap -n -sS --top-ports 1000 -T4 --min-rate 2000 --open --reason \
@@ -3119,6 +3153,7 @@ if command -v nmap >/dev/null 2>&1; then
     # Stage 2: UDP scan on critical ports
     (
         _sem_acquire
+        _begin_chunk "$PHASE5_DIR" "52_udp"
         echo "  Stage 2: UDP scan on critical ports (top 20)..." >> "$REPORT_FILE"
         printf "%s%s%s\n" "$COLOR_RESET" "UDP scan (top 20 ports) → $PHASE5_DIR/raw_scans/nmap_udp_scan.txt" "$COLOR_RESET"
         nmap -n -sU --top-ports 20 -T4 --open \
@@ -3128,6 +3163,7 @@ if command -v nmap >/dev/null 2>&1; then
     _p5_pids="$_p5_pids $!"
 
     _wait_bg_pids "$_p5_pids" || echo "  Warning: some port scan sub-shells failed" >> "$REPORT_FILE"
+    _flush_chunks "$PHASE5_DIR"
     _sem_destroy
 
     # Process TCP results
@@ -3231,6 +3267,7 @@ if command -v nmap >/dev/null 2>&1; then
         # TCP group: 6.1 version detection → 6.2 NSE scripts (sequential within group)
         (
             _sem_acquire
+            _begin_chunk "$PHASE6_DIR" "61_tcp"
             # Stage 1: Version detection and banner grabbing (TCP)
             # Using -Pn since hosts are already confirmed up from Phase 2
             echo "  Stage 1: Version detection and banner grabbing (TCP)..." >> "$REPORT_FILE"
@@ -3251,6 +3288,7 @@ if command -v nmap >/dev/null 2>&1; then
         if [ -n "$OPEN_UDP_PORTS" ]; then
             (
                 _sem_acquire
+                _begin_chunk "$PHASE6_DIR" "63_udp"
                 # Stage 3: UDP service version detection
                 echo "  Stage 3: UDP service version detection..." >> "$REPORT_FILE"
                 printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.3: UDP service version detection" "$COLOR_RESET"
@@ -3268,6 +3306,7 @@ if command -v nmap >/dev/null 2>&1; then
         fi
 
         _wait_bg_pids "$_p6s_pids" || echo "  Warning: some version/script scan sub-shells failed" >> "$REPORT_FILE"
+        _flush_chunks "$PHASE6_DIR"
         _sem_destroy
 
         # Service-specific enumerations — all 7 run in parallel
@@ -3277,6 +3316,7 @@ if command -v nmap >/dev/null 2>&1; then
 
         (
             _sem_acquire
+            _begin_chunk "$PHASE6_DIR" "65_ftp"
             printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.5: FTP service enumeration" "$COLOR_RESET"
             enumerate_ftp_services
             _sem_release
@@ -3285,6 +3325,7 @@ if command -v nmap >/dev/null 2>&1; then
 
         (
             _sem_acquire
+            _begin_chunk "$PHASE6_DIR" "66_ssh"
             printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.6: SSH service enumeration" "$COLOR_RESET"
             enumerate_ssh_services
             _sem_release
@@ -3293,6 +3334,7 @@ if command -v nmap >/dev/null 2>&1; then
 
         (
             _sem_acquire
+            _begin_chunk "$PHASE6_DIR" "67_web"
             printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.7: Web service enumeration" "$COLOR_RESET"
             enumerate_web_services
             _sem_release
@@ -3301,6 +3343,7 @@ if command -v nmap >/dev/null 2>&1; then
 
         (
             _sem_acquire
+            _begin_chunk "$PHASE6_DIR" "68_db"
             printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.8: Database service enumeration" "$COLOR_RESET"
             enumerate_database_services
             _sem_release
@@ -3309,6 +3352,7 @@ if command -v nmap >/dev/null 2>&1; then
 
         (
             _sem_acquire
+            _begin_chunk "$PHASE6_DIR" "69_smb"
             printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.9: SMB service enumeration" "$COLOR_RESET"
             enumerate_smb_services
             _sem_release
@@ -3317,6 +3361,7 @@ if command -v nmap >/dev/null 2>&1; then
 
         (
             _sem_acquire
+            _begin_chunk "$PHASE6_DIR" "610_dns"
             printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.10: DNS service enumeration" "$COLOR_RESET"
             enumerate_dns_services
             _sem_release
@@ -3325,6 +3370,7 @@ if command -v nmap >/dev/null 2>&1; then
 
         (
             _sem_acquire
+            _begin_chunk "$PHASE6_DIR" "611_snmp"
             printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.11: SNMP service enumeration" "$COLOR_RESET"
             enumerate_snmp_services
             _sem_release
@@ -3332,6 +3378,7 @@ if command -v nmap >/dev/null 2>&1; then
         _p6e_pids="$_p6e_pids $!"
 
         _wait_bg_pids "$_p6e_pids" || echo "  Warning: some service enumeration sub-shells failed" >> "$REPORT_FILE"
+        _flush_chunks "$PHASE6_DIR"
         _sem_destroy
     fi
     
