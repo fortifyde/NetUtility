@@ -2654,9 +2654,8 @@ _sem_init() {
     _SEM_FIFO="/tmp/.mpd_sem_${TIMESTAMP}_$$"
     mkfifo "$_SEM_FIFO" || { echo "ERROR: cannot create semaphore FIFO $_SEM_FIFO" >&2; exit 1; }
     exec 7<>"$_SEM_FIFO"
-    # Register cleanup so Ctrl+C / SIGTERM doesn't leak the FIFO or orphans
-    _sem_prev_trap=$(trap - INT TERM EXIT 2>/dev/null || true)
-    trap 'exec 7>&- 2>/dev/null; rm -f "$_SEM_FIFO"; _SEM_FIFO=""; eval "$_sem_prev_trap"' INT TERM EXIT
+    # Cleanup on Ctrl+C / SIGTERM — close FD and remove FIFO
+    trap 'exec 7>&- 2>/dev/null; rm -f "$_SEM_FIFO"; _SEM_FIFO=""' INT TERM EXIT
     _i=0
     while [ "$_i" -lt "$_sem_slots" ]; do
         printf 'x\n' >&7
@@ -2665,13 +2664,13 @@ _sem_init() {
 }
 # _sem_acquire — read a token; auto-releases on subshell exit via EXIT trap
 _sem_acquire() { read -r _sem_tok <&7; trap '_sem_release' EXIT; }
-_sem_release() { printf 'x\n' >&7; }
+# _sem_release — disarm EXIT trap (prevent double-release), then return token
+_sem_release() { trap - EXIT; printf 'x\n' >&7; }
 _sem_destroy() {
     exec 7>&- 2>/dev/null
     rm -f "$_SEM_FIFO"
     _SEM_FIFO=""
-    # Restore previous trap chain (or clear if none)
-    if [ -n "$_sem_prev_trap" ]; then eval "$_sem_prev_trap"; else trap - INT TERM EXIT; fi
+    trap - INT TERM EXIT
 }
 
 # _wait_bg_pids "PID1 PID2 ..." — wait for all; return 1 if any failed, 0 otherwise
