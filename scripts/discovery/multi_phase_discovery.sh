@@ -27,6 +27,10 @@ log_script_start "multi_phase_discovery.sh" "$@"
 
 DISCOVERY_DIR="${NETUTIL_WORKDIR:-$HOME}/discovery"
 
+# Per-phase parallelism — set DISCOVERY_PARALLEL_CAP to limit concurrency.
+# Default: 0 = per-phase optimized defaults.
+# Example: DISCOVERY_PARALLEL_CAP=2  (conservative; useful on slow networks)
+# DISCOVERY_PARALLEL_CAP=0
 # Note: No temporary directory - all data stored in permanent evidence structure
 
 # Create discovery directory
@@ -2629,6 +2633,46 @@ enumerate_snmp_services() {
 # These functions are no longer part of auto discovery to improve efficiency
 # Use the dedicated vulnerability scanning workflow instead
 
+# ---------------------------------------------------------------------------
+# Parallelism helpers — POSIX FIFO semaphore (FD 7) + concurrency cap
+# ---------------------------------------------------------------------------
+
+# _effective_cap DEFAULT — honour DISCOVERY_PARALLEL_CAP when set > 0
+_effective_cap() {
+    if [ "${DISCOVERY_PARALLEL_CAP:-0}" -gt 0 ] 2>/dev/null && \
+       [ "$DISCOVERY_PARALLEL_CAP" -lt "$1" ]; then
+        echo "$DISCOVERY_PARALLEL_CAP"
+    else
+        echo "$1"
+    fi
+}
+
+# POSIX FIFO semaphore — reusable across phases (one active at a time)
+_SEM_FIFO=""
+_sem_init() {
+    _sem_slots="$1"
+    _SEM_FIFO="/tmp/.mpd_sem_${TIMESTAMP}_$$"
+    mkfifo "$_SEM_FIFO"
+    exec 7<>"$_SEM_FIFO"
+    _i=0
+    while [ "$_i" -lt "$_sem_slots" ]; do
+        printf 'x\n' >&7
+        _i=$((_i + 1))
+    done
+}
+_sem_acquire() { read -r _sem_tok <&7; }
+_sem_release() { printf 'x\n' >&7; }
+_sem_destroy() { exec 7>&-; rm -f "$_SEM_FIFO"; _SEM_FIFO=""; }
+
+# _wait_bg_pids "PID1 PID2 ..." — wait for all; return count of failures
+_wait_bg_pids() {
+    _wbp_fail=0
+    for _wbp_p in $1; do
+        wait "$_wbp_p" 2>/dev/null || _wbp_fail=$((_wbp_fail + 1))
+    done
+    return $_wbp_fail
+}
+
 phase_already_done 1 || {
 
 # Phase 1: Enhanced Network Discovery
@@ -2651,39 +2695,56 @@ fi
 : > "$PHASE1_DIR/infrastructure_hosts.txt"
 mkdir -p "$PHASE1_DIR/raw_scans"
 
-# Sub-phase 1.1: Layer 2 ARP Discovery (runs first — results used by 1.2)
+# Sub-phases 1.1 + 1.2 run in parallel (each writes to its own output file)
+_p1_cap=$(_effective_cap 2)
+_sem_init "$_p1_cap"
+_p1_pids=""
 arp_scan_raw="$PHASE1_DIR/raw_scans/arp_scan_full.txt"
-if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
-    printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.1: Layer 2 ARP discovery" "$COLOR_RESET"
-    echo "  Sub-phase 1.1: Layer 2 ARP discovery..." >> "$REPORT_FILE"
-    if command -v arp-scan >/dev/null 2>&1; then
-        echo "Using arp-scan for Layer 2 discovery..." >> "$REPORT_FILE"
-        _arp_extra=""
-        [ -f /usr/share/arp-scan/ieee-oui.txt ] && _arp_extra="$_arp_extra -O /usr/share/arp-scan/ieee-oui.txt"
-        [ -f /etc/arp-scan/mac-vendor.txt ]     && _arp_extra="$_arp_extra -m /etc/arp-scan/mac-vendor.txt"
-        # shellcheck disable=SC2086
-        arp-scan --local $_arp_extra --interface="$selected_interface" | grep -v "Interface:" | \
-            grep -E "^([0-9]+\.){3}[0-9]+" > "$arp_scan_raw"
-        awk '{print $1}' "$arp_scan_raw" > "$PHASE1_DIR/arp_hosts.txt"
-        awk '{print $1 "\t" $2 "\t" $3}' "$arp_scan_raw" >> "$REPORT_FILE"
+
+# Sub-phase 1.1: Layer 2 ARP Discovery
+(
+    _sem_acquire
+    if [ "${ROUTED_VLAN_MODE:-false}" != "true" ]; then
+        printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.1: Layer 2 ARP discovery" "$COLOR_RESET"
+        echo "  Sub-phase 1.1: Layer 2 ARP discovery..." >> "$REPORT_FILE"
+        if command -v arp-scan >/dev/null 2>&1; then
+            echo "Using arp-scan for Layer 2 discovery..." >> "$REPORT_FILE"
+            _arp_extra=""
+            [ -f /usr/share/arp-scan/ieee-oui.txt ] && _arp_extra="$_arp_extra -O /usr/share/arp-scan/ieee-oui.txt"
+            [ -f /etc/arp-scan/mac-vendor.txt ]     && _arp_extra="$_arp_extra -m /etc/arp-scan/mac-vendor.txt"
+            # shellcheck disable=SC2086
+            arp-scan --local $_arp_extra --interface="$selected_interface" | grep -v "Interface:" | \
+                grep -E "^([0-9]+\.){3}[0-9]+" > "$arp_scan_raw"
+            awk '{print $1}' "$arp_scan_raw" > "$PHASE1_DIR/arp_hosts.txt"
+            awk '{print $1 "\t" $2 "\t" $3}' "$arp_scan_raw" >> "$REPORT_FILE"
+        else
+            echo "arp-scan not available, using IP neighbor discovery..." >> "$REPORT_FILE"
+            ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
+                tee "$arp_scan_raw" | awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
+            ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" >> "$REPORT_FILE"
+        fi
     else
-        echo "arp-scan not available, using IP neighbor discovery..." >> "$REPORT_FILE"
-        ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" | \
-            tee "$arp_scan_raw" | awk '{print $1}' > "$PHASE1_DIR/arp_hosts.txt"
-        ip neighbor show dev "$selected_interface" | grep -E "([0-9]+\.){3}[0-9]+" >> "$REPORT_FILE"
+        printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.1: Layer 2 ARP discovery (skipped in L3 mode)" "$COLOR_RESET"
+        echo "  Sub-phase 1.1: Skipped — ARP not routable to target subnet in L3 mode" >> "$REPORT_FILE"
+        : > "$arp_scan_raw"
+        : > "$PHASE1_DIR/arp_hosts.txt"
     fi
-else
-    printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.1: Layer 2 ARP discovery (skipped in L3 mode)" "$COLOR_RESET"
-    echo "  Sub-phase 1.1: Skipped — ARP not routable to target subnet in L3 mode" >> "$REPORT_FILE"
-    : > "$arp_scan_raw"
-    : > "$PHASE1_DIR/arp_hosts.txt"
-fi
+    _sem_release
+) &
+_p1_pids="$_p1_pids $!"
 
 # Sub-phase 1.2: Infrastructure Device Identification
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.2: Infrastructure identification" "$COLOR_RESET"
-echo "  Sub-phase 1.2: Network infrastructure identification" >> "$REPORT_FILE"
-identify_network_devices "$target_networks" "$PHASE1_DIR/infrastructure_hosts.txt"
+(
+    _sem_acquire
+    printf "%s%s%s\n" "$COLOR_RESET" "Phase 1.2: Infrastructure identification" "$COLOR_RESET"
+    echo "  Sub-phase 1.2: Network infrastructure identification" >> "$REPORT_FILE"
+    identify_network_devices "$target_networks" "$PHASE1_DIR/infrastructure_hosts.txt"
+    _sem_release
+) &
+_p1_pids="$_p1_pids $!"
 
+_wait_bg_pids "$_p1_pids" || echo "  Warning: some Phase 1 sub-phases reported errors" >> "$REPORT_FILE"
+_sem_destroy
 
 # Consolidate all Phase 1 discoveries
 cat "$PHASE1_DIR/arp_hosts.txt" "$PHASE1_DIR/infrastructure_hosts.txt" | \
@@ -2730,32 +2791,113 @@ fi
 : > "$PHASE2_DIR/tcp_hosts.txt"
 : > "$PHASE2_DIR/udp_hosts.txt"
 : > "$PHASE2_DIR/masscan_hosts.txt"
+: > "$PHASE2_DIR/ipv6_hosts.txt"
 
-# Sub-phase 2.1: ICMP Discovery (Traditional Ping Sweep)
-echo "  Sub-phase 2.1: ICMP connectivity testing..." >> "$REPORT_FILE"
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.1: ICMP sweep (fping/ping)" "$COLOR_RESET"
+# Sub-phases 2.1-2.5 run in parallel (each writes to its own output file)
+# Dependency: 2.1.1 (TTL collection) runs after 2.1, once all sub-phases complete.
+_p2_cap=$(_effective_cap 5)
+_sem_init "$_p2_cap"
+_p2_pids=""
 
-if command -v fping >/dev/null 2>&1; then
-    echo "Using fping for fast ping sweep..." >> "$REPORT_FILE"
-    enhanced_fping_sweep "$network_range" "$PHASE2_DIR/ping_hosts.txt"
-else
-    echo "fping not available, using basic ping..." >> "$REPORT_FILE"
-    # Extract network portion for ping sweep
-    network_base=$(echo "$network_range" | cut -d'/' -f1 | cut -d'.' -f1-3)
-    for i in $(seq 1 254); do
-        if ping -c 1 -W 1 "${network_base}.$i" >/dev/null 2>&1; then
-            echo "${network_base}.$i" >> "$PHASE2_DIR/ping_hosts.txt"
+# Sub-phase 2.1: ICMP Discovery
+(
+    _sem_acquire
+    echo "  Sub-phase 2.1: ICMP connectivity testing..." >> "$REPORT_FILE"
+    printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.1: ICMP sweep (fping/ping)" "$COLOR_RESET"
+    if command -v fping >/dev/null 2>&1; then
+        echo "Using fping for fast ping sweep..." >> "$REPORT_FILE"
+        enhanced_fping_sweep "$network_range" "$PHASE2_DIR/ping_hosts.txt"
+    else
+        echo "fping not available, using basic ping..." >> "$REPORT_FILE"
+        _network_base=$(echo "$network_range" | cut -d'/' -f1 | cut -d'.' -f1-3)
+        for _i in $(seq 1 254); do
+            if ping -c 1 -W 1 "${_network_base}.$_i" >/dev/null 2>&1; then
+                echo "${_network_base}.$_i" >> "$PHASE2_DIR/ping_hosts.txt"
+            fi
+        done
+    fi
+    _p2_ping=$(wc -l < "$PHASE2_DIR/ping_hosts.txt")
+    echo >> "$REPORT_FILE"
+    echo "  Sub-phase 2.1 complete: Found $_p2_ping ICMP-responsive hosts." >> "$REPORT_FILE"
+    echo >> "$REPORT_FILE"
+    printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.1 complete — $_p2_ping ICMP-responsive hosts" "$COLOR_RESET"
+    _sem_release
+) &
+_p2_pids="$_p2_pids $!"
+
+# Sub-phase 2.2: TCP Discovery with Firewall Bypass
+(
+    _sem_acquire
+    echo "  Sub-phase 2.2: TCP discovery..." >> "$REPORT_FILE"
+    printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.2: TCP discovery (nmap SYN ping)" "$COLOR_RESET"
+    perform_tcp_discovery "$target_networks" "$PHASE2_DIR/tcp_hosts.txt"
+    _p2_tcp=$(wc -l < "$PHASE2_DIR/tcp_hosts.txt")
+    echo "  Sub-phase 2.2 complete: Found $_p2_tcp TCP-responsive hosts." >> "$REPORT_FILE"
+    echo >> "$REPORT_FILE"
+    _sem_release
+) &
+_p2_pids="$_p2_pids $!"
+
+# Sub-phase 2.3: UDP Service Discovery
+(
+    _sem_acquire
+    echo "  Sub-phase 2.3: UDP service discovery..." >> "$REPORT_FILE"
+    printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.3: UDP service discovery" "$COLOR_RESET"
+    perform_udp_discovery "$target_networks" "$PHASE2_DIR/udp_hosts.txt"
+    _p2_udp=$(wc -l < "$PHASE2_DIR/udp_hosts.txt")
+    echo "  Sub-phase 2.3 complete: Found $_p2_udp UDP-responsive hosts." >> "$REPORT_FILE"
+    echo >> "$REPORT_FILE"
+    _sem_release
+) &
+_p2_pids="$_p2_pids $!"
+
+# Sub-phase 2.4: High-Speed Discovery (masscan)
+(
+    _sem_acquire
+    echo "  Sub-phase 2.4: High-speed discovery (masscan)..." >> "$REPORT_FILE"
+    printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.4: High-speed scan (masscan)" "$COLOR_RESET"
+    perform_masscan_discovery "$target_networks" "$PHASE2_DIR/masscan_hosts.txt" "$selected_interface"
+    _p2_masscan=$(wc -l < "$PHASE2_DIR/masscan_hosts.txt")
+    echo "  Sub-phase 2.4 complete: Found $_p2_masscan hosts via masscan." >> "$REPORT_FILE"
+    echo >> "$REPORT_FILE"
+    _sem_release
+) &
+_p2_pids="$_p2_pids $!"
+
+# Sub-phase 2.5: IPv6 Network Discovery
+(
+    _sem_acquire
+    echo "  Sub-phase 2.5: IPv6 network discovery..." >> "$REPORT_FILE"
+    if ip -6 addr show "$selected_interface" 2>/dev/null | grep -q "inet6"; then
+        printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.5: IPv6 network discovery" "$COLOR_RESET"
+        perform_ipv6_discovery "$selected_interface" "$PHASE2_DIR/ipv6_hosts.txt"
+        _p2_ipv6=$(wc -l < "$PHASE2_DIR/ipv6_hosts.txt")
+        if [ "$_p2_ipv6" -gt 0 ]; then
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.5 complete — $_p2_ipv6 IPv6 hosts discovered" "$COLOR_RESET"
+        else
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.5 complete — 0 IPv6 hosts found" "$COLOR_RESET"
         fi
-    done
-fi
+    else
+        printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.5: IPv6 discovery — skipped (no IPv6 addresses on interface)" "$COLOR_RESET"
+    fi
+    _p2_ipv6=$(wc -l < "$PHASE2_DIR/ipv6_hosts.txt")
+    echo "  Sub-phase 2.5 complete: Found $_p2_ipv6 IPv6 hosts." >> "$REPORT_FILE"
+    echo >> "$REPORT_FILE"
+    _sem_release
+) &
+_p2_pids="$_p2_pids $!"
 
+_wait_bg_pids "$_p2_pids" || echo "  Warning: some Phase 2 sub-phases reported errors" >> "$REPORT_FILE"
+_sem_destroy
+
+# Compute counts from output files (sub-shells may have run in any order)
 ping_count=$(wc -l < "$PHASE2_DIR/ping_hosts.txt")
-echo >> "$REPORT_FILE"
-echo "  Sub-phase 2.1 complete: Found $ping_count ICMP-responsive hosts." >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.1 complete — $ping_count ICMP-responsive hosts" "$COLOR_RESET"
+tcp_count=$(wc -l < "$PHASE2_DIR/tcp_hosts.txt")
+udp_count=$(wc -l < "$PHASE2_DIR/udp_hosts.txt")
+masscan_count=$(wc -l < "$PHASE2_DIR/masscan_hosts.txt")
+ipv6_count=$(wc -l < "$PHASE2_DIR/ipv6_hosts.txt")
 
-# Sub-phase 2.1.1: TTL collection for ICMP-responsive hosts
+# Sub-phase 2.1.1: TTL collection for ICMP-responsive hosts (depends on 2.1)
 : > "$PHASE2_DIR/icmp_responsive.txt"
 if [ -s "$PHASE2_DIR/ping_hosts.txt" ]; then
     echo "  Collecting TTL values for ICMP-responsive hosts..." >> "$REPORT_FILE"
@@ -2763,49 +2905,6 @@ if [ -s "$PHASE2_DIR/ping_hosts.txt" ]; then
     ttl_count=$(wc -l < "$PHASE2_DIR/icmp_responsive.txt")
     echo "  TTL collection complete: $ttl_count values captured." >> "$REPORT_FILE"
 fi
-
-# Sub-phase 2.2: TCP Discovery with Firewall Bypass
-echo "  Sub-phase 2.2: TCP discovery..." >> "$REPORT_FILE"
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.2: TCP discovery (nmap SYN ping)" "$COLOR_RESET"
-perform_tcp_discovery "$target_networks" "$PHASE2_DIR/tcp_hosts.txt"
-tcp_count=$(wc -l < "$PHASE2_DIR/tcp_hosts.txt")
-echo "  Sub-phase 2.2 complete: Found $tcp_count TCP-responsive hosts." >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
-# Sub-phase 2.3: UDP Service Discovery
-echo "  Sub-phase 2.3: UDP service discovery..." >> "$REPORT_FILE"
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.3: UDP service discovery" "$COLOR_RESET"
-perform_udp_discovery "$target_networks" "$PHASE2_DIR/udp_hosts.txt"
-udp_count=$(wc -l < "$PHASE2_DIR/udp_hosts.txt")
-echo "  Sub-phase 2.3 complete: Found $udp_count UDP-responsive hosts." >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
-# Sub-phase 2.4: High-Speed Discovery (if masscan available)
-echo "  Sub-phase 2.4: High-speed discovery (masscan)..." >> "$REPORT_FILE"
-printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.4: High-speed scan (masscan)" "$COLOR_RESET"
-perform_masscan_discovery "$target_networks" "$PHASE2_DIR/masscan_hosts.txt" "$selected_interface"
-masscan_count=$(wc -l < "$PHASE2_DIR/masscan_hosts.txt")
-echo "  Sub-phase 2.4 complete: Found $masscan_count hosts via masscan." >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
-
-# Sub-phase 2.5: IPv6 Network Discovery
-echo "  Sub-phase 2.5: IPv6 network discovery..." >> "$REPORT_FILE"
-: > "$PHASE2_DIR/ipv6_hosts.txt"
-if ip -6 addr show "$selected_interface" 2>/dev/null | grep -q "inet6"; then
-    printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.5: IPv6 network discovery" "$COLOR_RESET"
-    perform_ipv6_discovery "$selected_interface" "$PHASE2_DIR/ipv6_hosts.txt"
-    ipv6_count=$(wc -l < "$PHASE2_DIR/ipv6_hosts.txt")
-    if [ "$ipv6_count" -gt 0 ]; then
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.5 complete — $ipv6_count IPv6 hosts discovered" "$COLOR_RESET"
-    else
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.5 complete — 0 IPv6 hosts found" "$COLOR_RESET"
-    fi
-else
-    printf "%s%s%s\n" "$COLOR_RESET" "Phase 2.5: IPv6 discovery — skipped (no IPv6 addresses on interface)" "$COLOR_RESET"
-    ipv6_count=0
-fi
-echo "  Sub-phase 2.5 complete: Found $ipv6_count IPv6 hosts." >> "$REPORT_FILE"
-echo >> "$REPORT_FILE"
 
 # Combine all Phase 1 and Phase 2 results
 cat "$PHASE1_DIR/phase1_all_hosts.txt" "$PHASE2_DIR/ping_hosts.txt" "$PHASE2_DIR/tcp_hosts.txt" \
@@ -2846,20 +2945,30 @@ echo "----------------------------" >> "$REPORT_FILE"
 printf "%s%s%s\n" "$COLOR_RESET" "Phase 3: Reverse DNS lookup for $all_hosts_count hosts" "$COLOR_RESET"
 
 if [ "$dns_configured" = "true" ]; then
+    _p3_cap=$(_effective_cap 16)
+    _sem_init "$_p3_cap"
+    _p3_pids=""
     while read -r host; do
         if [ -n "$host" ]; then
-            # Try reverse DNS lookup
-            hostname=$(dig +short -x "$host" 2>/dev/null | grep -v "^;;" | sed 's/\.$//g' | head -1)
-            if [ -z "$hostname" ]; then
-                hostname=$(nslookup "$host" 2>/dev/null | grep "name =" | head -1 | awk '{print $4}' | sed 's/\.$//g')
-            fi
-            if [ -z "$hostname" ]; then
-                hostname="<no hostname>"
-            fi
-            printf '%s\t%s\n' "$host" "$hostname" >> "$REPORT_FILE"
-            printf '%s\t%s\n' "$host" "$hostname" >> "$PHASE3_DIR/dns_results.txt"
+            (
+                _sem_acquire
+                # Try reverse DNS lookup
+                _dns_host=$(dig +short -x "$host" 2>/dev/null | grep -v "^;;" | sed 's/\.$//g' | head -1)
+                if [ -z "$_dns_host" ]; then
+                    _dns_host=$(nslookup "$host" 2>/dev/null | grep "name =" | head -1 | awk '{print $4}' | sed 's/\.$//g')
+                fi
+                if [ -z "$_dns_host" ]; then
+                    _dns_host="<no hostname>"
+                fi
+                printf '%s\t%s\n' "$host" "$_dns_host" >> "$REPORT_FILE"
+                printf '%s\t%s\n' "$host" "$_dns_host" >> "$PHASE3_DIR/dns_results.txt"
+                _sem_release
+            ) &
+            _p3_pids="$_p3_pids $!"
         fi
     done < "$PHASE2_DIR/all_hosts.txt"
+    _wait_bg_pids "$_p3_pids"
+    _sem_destroy
 else
     echo "  Skipping DNS reverse lookups (no nameserver configured)" >> "$REPORT_FILE"
     while read -r host; do
@@ -2894,51 +3003,62 @@ echo "SMB/NetBIOS enumeration:" >> "$REPORT_FILE"
 : > "$PHASE4_DIR/netbios_names.txt"
 printf "%s%s%s\n" "$COLOR_RESET" "Phase 4: SMB/NetBIOS/RDP probe on $all_hosts_count hosts" "$COLOR_RESET"
 
+# Per-host Windows probes — semaphore-limited parallelism
+_p4_cap=$(_effective_cap 16)
+_sem_init "$_p4_cap"
+_p4_pids=""
 while read -r host; do
     if [ -n "$host" ]; then
-        # Test for SMB (port 445)
-        if nc -z -w 2 "$host" 445 2>/dev/null; then
-            echo "$host" >> "$PHASE4_DIR/smb_hosts.txt"
-            echo "  $host - SMB port 445 open" >> "$REPORT_FILE"
-            
-            # Try to get NetBIOS name using nmblookup
-            if command -v nmblookup >/dev/null 2>&1; then
-                nmblookup_raw=$(nmblookup -A "$host" 2>/dev/null)
-                printf '%s\n' "$nmblookup_raw" > "$PHASE4_DIR/raw_scans/nmblookup_$(echo "$host" | tr '.' '_').txt"
-                netbios_name=$(printf '%s\n' "$nmblookup_raw" | grep "<00>" | head -1 | awk '{print $1}')
-                if [ -n "$netbios_name" ]; then
-                    echo "$host\t$netbios_name" >> "$PHASE4_DIR/netbios_names.txt"
-                    echo "    NetBIOS name: $netbios_name" >> "$REPORT_FILE"
+        (
+            _sem_acquire
+            # Test for SMB (port 445)
+            if nc -z -w 2 "$host" 445 2>/dev/null; then
+                echo "$host" >> "$PHASE4_DIR/smb_hosts.txt"
+                echo "  $host - SMB port 445 open" >> "$REPORT_FILE"
+
+                # Try to get NetBIOS name using nmblookup
+                if command -v nmblookup >/dev/null 2>&1; then
+                    _p4_nb_raw=$(nmblookup -A "$host" 2>/dev/null)
+                    printf '%s\n' "$_p4_nb_raw" > "$PHASE4_DIR/raw_scans/nmblookup_$(echo "$host" | tr '.' '_').txt"
+                    _p4_nb_name=$(printf '%s\n' "$_p4_nb_raw" | grep "<00>" | head -1 | awk '{print $1}')
+                    if [ -n "$_p4_nb_name" ]; then
+                        echo "$host	$_p4_nb_name" >> "$PHASE4_DIR/netbios_names.txt"
+                        echo "    NetBIOS name: $_p4_nb_name" >> "$REPORT_FILE"
+                    fi
+                fi
+
+                # Try to get SMB information using smbclient
+                if command -v smbclient >/dev/null 2>&1; then
+                    _p4_smb_raw=$(smbclient -L "$host" -N 2>/dev/null)
+                    printf '%s\n' "$_p4_smb_raw" > "$PHASE4_DIR/raw_scans/smbclient_$(echo "$host" | tr '.' '_').txt"
+                    _p4_smb_info=$(printf '%s\n' "$_p4_smb_raw" | grep "Workgroup\|Domain" | head -1)
+                    if [ -n "$_p4_smb_info" ]; then
+                        echo "    $_p4_smb_info" >> "$REPORT_FILE"
+                    fi
                 fi
             fi
-            
-            # Try to get SMB information using smbclient
-            if command -v smbclient >/dev/null 2>&1; then
-                smbclient_raw=$(smbclient -L "$host" -N 2>/dev/null)
-                printf '%s\n' "$smbclient_raw" > "$PHASE4_DIR/raw_scans/smbclient_$(echo "$host" | tr '.' '_').txt"
-                smb_info=$(printf '%s\n' "$smbclient_raw" | grep "Workgroup\|Domain" | head -1)
-                if [ -n "$smb_info" ]; then
-                    echo "    $smb_info" >> "$REPORT_FILE"
-                fi
+
+            # Test for NetBIOS (port 139)
+            if nc -z -w 2 "$host" 139 2>/dev/null; then
+                echo "  $host - NetBIOS port 139 open" >> "$REPORT_FILE"
             fi
-        fi
-        
-        # Test for NetBIOS (port 139)
-        if nc -z -w 2 "$host" 139 2>/dev/null; then
-            echo "  $host - NetBIOS port 139 open" >> "$REPORT_FILE"
-        fi
-        
-        # Test for WinRM (port 5985)
-        if nc -z -w 2 "$host" 5985 2>/dev/null; then
-            echo "  $host - WinRM port 5985 open" >> "$REPORT_FILE"
-        fi
-        
-        # Test for RDP (port 3389)
-        if nc -z -w 2 "$host" 3389 2>/dev/null; then
-            echo "  $host - RDP port 3389 open" >> "$REPORT_FILE"
-        fi
+
+            # Test for WinRM (port 5985)
+            if nc -z -w 2 "$host" 5985 2>/dev/null; then
+                echo "  $host - WinRM port 5985 open" >> "$REPORT_FILE"
+            fi
+
+            # Test for RDP (port 3389)
+            if nc -z -w 2 "$host" 3389 2>/dev/null; then
+                echo "  $host - RDP port 3389 open" >> "$REPORT_FILE"
+            fi
+            _sem_release
+        ) &
+        _p4_pids="$_p4_pids $!"
     fi
 done < "$PHASE2_DIR/all_hosts.txt"
+_wait_bg_pids "$_p4_pids"
+_sem_destroy
 
 smb_count=$(wc -l < "$PHASE4_DIR/smb_hosts.txt")
 echo >> "$REPORT_FILE"
@@ -2970,34 +3090,51 @@ if command -v nmap >/dev/null 2>&1; then
     # Create nmap targets file
     tr '\n' ' ' < "$PHASE2_DIR/all_hosts.txt" > "$PHASE5_DIR/nmap_targets.txt"
     
-    # Stage 1: Fast common port scan
-    # Using top 1000 ports for comprehensive coverage while maintaining reasonable speed
-    echo "  Stage 1: Fast common port scan (top 1000 ports)..." >> "$REPORT_FILE"
-    printf "%s%s%s\n" "$COLOR_RESET" "TCP scan (top 1000 ports) → $NMAP_FAST_SCAN" "$COLOR_RESET"
+    # Stages 1 + 2 run in parallel (TCP + UDP scans are independent)
+    _p5_cap=$(_effective_cap 2)
+    _sem_init "$_p5_cap"
+    _p5_pids=""
 
-    nmap -n -sS --top-ports 1000 -T4 --min-rate 2000 --open --reason \
-        -oN "$NMAP_FAST_SCAN" \
-        -iL "$PHASE2_DIR/all_hosts.txt" > /dev/null 2>&1
+    # Stage 1: Fast common port scan (TCP)
+    (
+        _sem_acquire
+        echo "  Stage 1: Fast common port scan (top 1000 ports)..." >> "$REPORT_FILE"
+        printf "%s%s%s\n" "$COLOR_RESET" "TCP scan (top 1000 ports) → $NMAP_FAST_SCAN" "$COLOR_RESET"
+        nmap -n -sS --top-ports 1000 -T4 --min-rate 2000 --open --reason \
+            -oN "$NMAP_FAST_SCAN" \
+            -iL "$PHASE2_DIR/all_hosts.txt" > /dev/null 2>&1
+        _sem_release
+    ) &
+    _p5_pids="$_p5_pids $!"
+
+    # Stage 2: UDP scan on critical ports
+    (
+        _sem_acquire
+        echo "  Stage 2: UDP scan on critical ports (top 20)..." >> "$REPORT_FILE"
+        printf "%s%s%s\n" "$COLOR_RESET" "UDP scan (top 20 ports) → $PHASE5_DIR/raw_scans/nmap_udp_scan.txt" "$COLOR_RESET"
+        nmap -n -sU --top-ports 20 -T4 --open \
+            -iL "$PHASE2_DIR/all_hosts.txt" -oN "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" > /dev/null 2>&1 || true
+        _sem_release
+    ) &
+    _p5_pids="$_p5_pids $!"
+
+    _wait_bg_pids "$_p5_pids"
+    _sem_destroy
+
+    # Process TCP results
     filter_nmap_output < "$NMAP_FAST_SCAN" >> "$REPORT_FILE"
     tcp_open_count=$(grep -c "/tcp.*open" "$NMAP_FAST_SCAN" 2>/dev/null || echo 0)
     printf "%s%s%s\n" "$COLOR_RESET" "TCP scan complete — $tcp_open_count open ports" "$COLOR_RESET"
-    
+
     # Extract high-value targets for comprehensive scanning
     echo "  Identifying high-value targets..." >> "$REPORT_FILE"
     awk '/Nmap scan report for/{host=$5} /(22|80|443|445|3389|21|23|25|53|135|139|1433|3306|5432)\/(tcp|udp).*open/{print host}' \
         "$NMAP_FAST_SCAN" 2>/dev/null | sort -u > "$PHASE5_DIR/high_value_targets.txt" || true
-    
+
     hv_count=$(wc -l < "$PHASE5_DIR/high_value_targets.txt")
     echo "    High-value targets identified: $hv_count" >> "$REPORT_FILE"
 
-    # Stage 2: UDP scan on critical ports
-    # Reduced from 100 to top 20 UDP ports for efficiency
-    # Covers DNS, SNMP, NTP, DHCP, and other critical UDP services
-    echo "  Stage 2: UDP scan on critical ports (top 20)..." >> "$REPORT_FILE"
-    printf "%s%s%s\n" "$COLOR_RESET" "UDP scan (top 20 ports) → $PHASE5_DIR/raw_scans/nmap_udp_scan.txt" "$COLOR_RESET"
-
-    nmap -n -sU --top-ports 20 -T4 --open \
-        -iL "$PHASE2_DIR/all_hosts.txt" -oN "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" > /dev/null 2>&1 || true
+    # Process UDP results
     filter_nmap_output < "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" >> "$REPORT_FILE" 2>/dev/null || true
     udp_open_count=$(grep -cE '[0-9]+/udp[[:space:]]+open[[:space:]]' "$PHASE5_DIR/raw_scans/nmap_udp_scan.txt" 2>/dev/null || echo 0)
     printf "%s%s%s\n" "$COLOR_RESET" "UDP scan complete — $udp_open_count open ports" "$COLOR_RESET"
@@ -3077,48 +3214,116 @@ if command -v nmap >/dev/null 2>&1; then
         nmap -Pn -n -sV -O --version-intensity 2 -T4 $PORT_ARGS \
             -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_inventory" > /dev/null 2>&1 || true
     else
-        # Version detection on discovered open ports only
-        # Using -Pn since hosts are already confirmed up from Phase 2
-        echo "  Stage 1: Version detection and banner grabbing (TCP)..." >> "$REPORT_FILE"
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.1: Version detection and banner grabbing" "$COLOR_RESET"
-        nmap -Pn -n -sV --version-intensity 5 -T4 $PORT_ARGS \
-            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_version_detection" > /dev/null 2>&1 || true
+        # Stages 6.1-6.4: TCP pair runs in parallel with UDP pair
+        _p6s_cap=$(_effective_cap 2)
+        _sem_init "$_p6s_cap"
+        _p6s_pids=""
 
-        # Default script scan on discovered open ports only
-        # Using -Pn since hosts are already confirmed up from Phase 2
-        echo "  Stage 2: Default NSE scripts (TCP)..." >> "$REPORT_FILE"
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.2: Default NSE scripts (TCP)" "$COLOR_RESET"
-        nmap -Pn -n -sC -T4 $PORT_ARGS \
-            -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_default_scripts" > /dev/null 2>&1 || true
+        # TCP group: 6.1 version detection → 6.2 NSE scripts (sequential within group)
+        (
+            _sem_acquire
+            # Stage 1: Version detection and banner grabbing (TCP)
+            # Using -Pn since hosts are already confirmed up from Phase 2
+            echo "  Stage 1: Version detection and banner grabbing (TCP)..." >> "$REPORT_FILE"
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.1: Version detection and banner grabbing" "$COLOR_RESET"
+            nmap -Pn -n -sV --version-intensity 5 -T4 $PORT_ARGS \
+                -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_version_detection" > /dev/null 2>&1 || true
 
-        # UDP service enumeration on discovered open UDP ports
+            # Stage 2: Default NSE scripts (TCP)
+            echo "  Stage 2: Default NSE scripts (TCP)..." >> "$REPORT_FILE"
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.2: Default NSE scripts (TCP)" "$COLOR_RESET"
+            nmap -Pn -n -sC -T4 $PORT_ARGS \
+                -iL "$PHASE2_DIR/all_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_default_scripts" > /dev/null 2>&1 || true
+            _sem_release
+        ) &
+        _p6s_pids="$_p6s_pids $!"
+
+        # UDP group: 6.3 version detection → 6.4 NSE scripts (if UDP ports found)
         if [ -n "$OPEN_UDP_PORTS" ]; then
-            echo "  Stage 3: UDP service version detection..." >> "$REPORT_FILE"
-            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.3: UDP service version detection" "$COLOR_RESET"
-            nmap -Pn -n -sU -sV --version-intensity 5 -T4 -p "$OPEN_UDP_PORTS" \
-                -iL "$PHASE6_DIR/udp_open_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_services" > /dev/null 2>&1 || true
+            (
+                _sem_acquire
+                # Stage 3: UDP service version detection
+                echo "  Stage 3: UDP service version detection..." >> "$REPORT_FILE"
+                printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.3: UDP service version detection" "$COLOR_RESET"
+                nmap -Pn -n -sU -sV --version-intensity 5 -T4 -p "$OPEN_UDP_PORTS" \
+                    -iL "$PHASE6_DIR/udp_open_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_services" > /dev/null 2>&1 || true
 
-            echo "  Stage 4: UDP default NSE scripts..." >> "$REPORT_FILE"
-            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.4: UDP default NSE scripts" "$COLOR_RESET"
-            nmap -Pn -n -sU -sC -T4 -p "$OPEN_UDP_PORTS" \
-                -iL "$PHASE6_DIR/udp_open_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_scripts" > /dev/null 2>&1 || true
+                # Stage 4: UDP default NSE scripts
+                echo "  Stage 4: UDP default NSE scripts..." >> "$REPORT_FILE"
+                printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.4: UDP default NSE scripts" "$COLOR_RESET"
+                nmap -Pn -n -sU -sC -T4 -p "$OPEN_UDP_PORTS" \
+                    -iL "$PHASE6_DIR/udp_open_hosts.txt" -oA "$PHASE6_DIR/raw_scans/nmap_udp_scripts" > /dev/null 2>&1 || true
+                _sem_release
+            ) &
+            _p6s_pids="$_p6s_pids $!"
         fi
 
-        # Service-specific enumeration
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.5: FTP service enumeration" "$COLOR_RESET"
-        enumerate_ftp_services
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.6: SSH service enumeration" "$COLOR_RESET"
-        enumerate_ssh_services
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.7: Web service enumeration" "$COLOR_RESET"
-        enumerate_web_services
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.8: Database service enumeration" "$COLOR_RESET"
-        enumerate_database_services
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.9: SMB service enumeration" "$COLOR_RESET"
-        enumerate_smb_services
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.10: DNS service enumeration" "$COLOR_RESET"
-        enumerate_dns_services
-        printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.11: SNMP service enumeration" "$COLOR_RESET"
-        enumerate_snmp_services
+        _wait_bg_pids "$_p6s_pids"
+        _sem_destroy
+
+        # Service-specific enumerations — all 7 run in parallel
+        _p6e_cap=$(_effective_cap 7)
+        _sem_init "$_p6e_cap"
+        _p6e_pids=""
+
+        (
+            _sem_acquire
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.5: FTP service enumeration" "$COLOR_RESET"
+            enumerate_ftp_services
+            _sem_release
+        ) &
+        _p6e_pids="$_p6e_pids $!"
+
+        (
+            _sem_acquire
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.6: SSH service enumeration" "$COLOR_RESET"
+            enumerate_ssh_services
+            _sem_release
+        ) &
+        _p6e_pids="$_p6e_pids $!"
+
+        (
+            _sem_acquire
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.7: Web service enumeration" "$COLOR_RESET"
+            enumerate_web_services
+            _sem_release
+        ) &
+        _p6e_pids="$_p6e_pids $!"
+
+        (
+            _sem_acquire
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.8: Database service enumeration" "$COLOR_RESET"
+            enumerate_database_services
+            _sem_release
+        ) &
+        _p6e_pids="$_p6e_pids $!"
+
+        (
+            _sem_acquire
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.9: SMB service enumeration" "$COLOR_RESET"
+            enumerate_smb_services
+            _sem_release
+        ) &
+        _p6e_pids="$_p6e_pids $!"
+
+        (
+            _sem_acquire
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.10: DNS service enumeration" "$COLOR_RESET"
+            enumerate_dns_services
+            _sem_release
+        ) &
+        _p6e_pids="$_p6e_pids $!"
+
+        (
+            _sem_acquire
+            printf "%s%s%s\n" "$COLOR_RESET" "Phase 6.11: SNMP service enumeration" "$COLOR_RESET"
+            enumerate_snmp_services
+            _sem_release
+        ) &
+        _p6e_pids="$_p6e_pids $!"
+
+        _wait_bg_pids "$_p6e_pids"
+        _sem_destroy
     fi
     
 else
