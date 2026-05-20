@@ -2652,23 +2652,33 @@ _SEM_FIFO=""
 _sem_init() {
     _sem_slots="$1"
     _SEM_FIFO="/tmp/.mpd_sem_${TIMESTAMP}_$$"
-    mkfifo "$_SEM_FIFO"
+    mkfifo "$_SEM_FIFO" || { echo "ERROR: cannot create semaphore FIFO $_SEM_FIFO" >&2; exit 1; }
     exec 7<>"$_SEM_FIFO"
+    # Register cleanup so Ctrl+C / SIGTERM doesn't leak the FIFO or orphans
+    _sem_prev_trap=$(trap - INT TERM EXIT 2>/dev/null || true)
+    trap 'exec 7>&- 2>/dev/null; rm -f "$_SEM_FIFO"; _SEM_FIFO=""; eval "$_sem_prev_trap"' INT TERM EXIT
     _i=0
     while [ "$_i" -lt "$_sem_slots" ]; do
         printf 'x\n' >&7
         _i=$((_i + 1))
     done
 }
-_sem_acquire() { read -r _sem_tok <&7; }
+# _sem_acquire — read a token; auto-releases on subshell exit via EXIT trap
+_sem_acquire() { read -r _sem_tok <&7; trap '_sem_release' EXIT; }
 _sem_release() { printf 'x\n' >&7; }
-_sem_destroy() { exec 7>&-; rm -f "$_SEM_FIFO"; _SEM_FIFO=""; }
+_sem_destroy() {
+    exec 7>&- 2>/dev/null
+    rm -f "$_SEM_FIFO"
+    _SEM_FIFO=""
+    # Restore previous trap chain (or clear if none)
+    if [ -n "$_sem_prev_trap" ]; then eval "$_sem_prev_trap"; else trap - INT TERM EXIT; fi
+}
 
-# _wait_bg_pids "PID1 PID2 ..." — wait for all; return count of failures
+# _wait_bg_pids "PID1 PID2 ..." — wait for all; return 1 if any failed, 0 otherwise
 _wait_bg_pids() {
     _wbp_fail=0
     for _wbp_p in $1; do
-        wait "$_wbp_p" 2>/dev/null || _wbp_fail=$((_wbp_fail + 1))
+        wait "$_wbp_p" 2>/dev/null || _wbp_fail=1
     done
     return $_wbp_fail
 }
@@ -2967,7 +2977,7 @@ if [ "$dns_configured" = "true" ]; then
             _p3_pids="$_p3_pids $!"
         fi
     done < "$PHASE2_DIR/all_hosts.txt"
-    _wait_bg_pids "$_p3_pids"
+    _wait_bg_pids "$_p3_pids" || echo "  Warning: some DNS lookup sub-shells failed" >> "$REPORT_FILE"
     _sem_destroy
 else
     echo "  Skipping DNS reverse lookups (no nameserver configured)" >> "$REPORT_FILE"
@@ -3022,7 +3032,7 @@ while read -r host; do
                     printf '%s\n' "$_p4_nb_raw" > "$PHASE4_DIR/raw_scans/nmblookup_$(echo "$host" | tr '.' '_').txt"
                     _p4_nb_name=$(printf '%s\n' "$_p4_nb_raw" | grep "<00>" | head -1 | awk '{print $1}')
                     if [ -n "$_p4_nb_name" ]; then
-                        echo "$host	$_p4_nb_name" >> "$PHASE4_DIR/netbios_names.txt"
+                        printf '%s\t%s\n' "$host" "$_p4_nb_name" >> "$PHASE4_DIR/netbios_names.txt"
                         echo "    NetBIOS name: $_p4_nb_name" >> "$REPORT_FILE"
                     fi
                 fi
@@ -3057,7 +3067,7 @@ while read -r host; do
         _p4_pids="$_p4_pids $!"
     fi
 done < "$PHASE2_DIR/all_hosts.txt"
-_wait_bg_pids "$_p4_pids"
+_wait_bg_pids "$_p4_pids" || echo "  Warning: some Windows probe sub-shells failed" >> "$REPORT_FILE"
 _sem_destroy
 
 smb_count=$(wc -l < "$PHASE4_DIR/smb_hosts.txt")
@@ -3118,7 +3128,7 @@ if command -v nmap >/dev/null 2>&1; then
     ) &
     _p5_pids="$_p5_pids $!"
 
-    _wait_bg_pids "$_p5_pids"
+    _wait_bg_pids "$_p5_pids" || echo "  Warning: some port scan sub-shells failed" >> "$REPORT_FILE"
     _sem_destroy
 
     # Process TCP results
@@ -3258,7 +3268,7 @@ if command -v nmap >/dev/null 2>&1; then
             _p6s_pids="$_p6s_pids $!"
         fi
 
-        _wait_bg_pids "$_p6s_pids"
+        _wait_bg_pids "$_p6s_pids" || echo "  Warning: some version/script scan sub-shells failed" >> "$REPORT_FILE"
         _sem_destroy
 
         # Service-specific enumerations — all 7 run in parallel
@@ -3322,7 +3332,7 @@ if command -v nmap >/dev/null 2>&1; then
         ) &
         _p6e_pids="$_p6e_pids $!"
 
-        _wait_bg_pids "$_p6e_pids"
+        _wait_bg_pids "$_p6e_pids" || echo "  Warning: some service enumeration sub-shells failed" >> "$REPORT_FILE"
         _sem_destroy
     fi
     
