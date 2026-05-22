@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 
 	"netutil/internal/executor"
 )
@@ -665,4 +666,62 @@ func parsePhaseProgress(text string) (current, total int, desc string, ok bool) 
 		return
 	}
 	return cur, tot, rest, true
+}
+// VLANStatus represents the progress of a single VLAN scan.
+type VLANStatus struct {
+	ID      string
+	Current int
+	Total   int
+	Done    bool
+}
+
+// ParseVLANBreakdown extracts per-VLAN progress from a progress description
+// like "V100:3/8 V200:done V300:1/8". Returns nil if no VLAN entries found.
+func ParseVLANBreakdown(desc string) []VLANStatus {
+	if desc == "" {
+		return nil
+	}
+	fields := strings.Fields(desc)
+	var result []VLANStatus
+	for _, f := range fields {
+		// Form: "V100:3/8" or "V100:done"
+		colonIdx := strings.IndexByte(f, ':')
+		if colonIdx < 0 {
+			continue
+		}
+		id := f[:colonIdx]
+		// Skip fields that don't look like VLAN identifiers.
+		// Accept: letter-prefixed IDs (V10, vlan10), or numeric IDs ≥2 chars (10, 100).
+		// Reject: single-char or non-alnum-start tokens (phase numbers, punctuation).
+		if colonIdx == 0 {
+			continue
+		}
+		first := rune(id[0])
+		if !unicode.IsLetter(first) && !unicode.IsDigit(first) {
+			continue
+		}
+		// Numeric IDs must be at least 2 chars to avoid phase numbers like "3:".
+		if unicode.IsDigit(first) && colonIdx < 2 {
+			continue
+		}
+		val := f[colonIdx+1:]
+		if val == "done" || val == "✓" {
+			result = append(result, VLANStatus{ID: id, Done: true})
+			continue
+		}
+		slashIdx := strings.IndexByte(val, '/')
+		if slashIdx < 0 {
+			result = append(result, VLANStatus{ID: id})
+			continue
+		}
+		cur, err1 := strconv.Atoi(val[:slashIdx])
+		tot, err2 := strconv.Atoi(val[slashIdx+1:])
+		if err1 != nil || err2 != nil || tot <= 0 {
+			result = append(result, VLANStatus{ID: id})
+			continue
+		}
+		done := cur >= tot
+		result = append(result, VLANStatus{ID: id, Current: cur, Total: tot, Done: done})
+	}
+	return result
 }

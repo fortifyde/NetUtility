@@ -33,6 +33,7 @@ type TUI struct {
 	infoPane        *tview.TextView
 	assessmentPanel *tview.TextView
 	jobsPanel       *tview.TextView
+	statusBar       *tview.TextView
 
 	// State management
 	currentCategory        string
@@ -435,6 +436,7 @@ func NewTUI(scriptsDir, workspaceDir, lang, ver string) *TUI {
 		taskPane:           tview.NewList(),
 		infoPane:           tview.NewTextView(),
 		assessmentPanel:    tview.NewTextView().SetDynamicColors(true).SetScrollable(false),
+		statusBar:          tview.NewTextView().SetDynamicColors(true).SetScrollable(false),
 		jobsPanel:          tview.NewTextView().SetDynamicColors(true).SetScrollable(false),
 		registry:           registry,
 		workspaceDir:       workspaceDir,
@@ -511,6 +513,7 @@ func (t *TUI) startMainViewTicker() {
 				t.app.QueueUpdateDraw(func() {
 					t.updateJobsPanel()
 					t.updateAssessmentPanel()
+					t.updateGlobalStatusBar()
 				})
 			case <-t.mainViewTickerStop:
 				return
@@ -518,8 +521,102 @@ func (t *TUI) startMainViewTicker() {
 		}
 	}()
 }
+// updateGlobalStatusBar renders a one-line progress summary at the very bottom
+// of the screen, visible from every view (main, dashboard, jobs, correlation,
+// output viewer). When no jobs are running the bar is cleared.
+//
+// Job selection priority: auto_discover.sh > multi_phase_discovery.sh >
+// everything else. Among multiple auto_discover instances the earliest
+// (oldest StartTime) wins.
+func (t *TUI) updateGlobalStatusBar() {
+	running := t.jobManager.GetRunningJobs()
+	if len(running) == 0 {
+		t.statusBar.SetText("")
+		return
+	}
+
+	// Pick the most relevant job to display.
+	job := pickStatusBarJob(running)
+
+	// Capture progress once to avoid torn reads between calls.
+	current, total, desc := job.GetPhaseProgress()
+
+	// Check if the description contains VLAN breakdown entries.
+	vlans := jobs.ParseVLANBreakdown(desc)
+	if len(vlans) >= 2 {
+		done := 0
+		for _, v := range vlans {
+			if v.Done {
+				done++
+			}
+		}
+		var parts []string
+		for _, v := range vlans {
+			did := vlanDisplayID(v.ID)
+			if v.Done {
+				parts = append(parts, fmt.Sprintf(t.str.FmtVLANEntryDone, did))
+			} else if v.Total > 0 {
+				parts = append(parts, fmt.Sprintf(t.str.FmtVLANEntry, did, v.Current, v.Total))
+			} else {
+				parts = append(parts, did+":"+t.str.VLANUnknown)
+			}
+		}
+		summary := strings.Join(parts, " ")
+		t.statusBar.SetText(fmt.Sprintf(t.str.FmtGlobalStatusVLANs, job.Name, done, len(vlans), summary))
+		return
+	}
+
+	if total > 0 {
+		progressText := fmt.Sprintf("%d/%d %s", current, total, desc)
+		t.statusBar.SetText(fmt.Sprintf(t.str.FmtGlobalStatusProgress, job.Name, progressText))
+		return
+	}
+
+	// No structured progress — show spinner style.
+	t.statusBar.SetText(fmt.Sprintf(t.str.FmtGlobalStatusSpinner, job.Name))
+}
+// pickStatusBarJob selects the most relevant running job for the global
+// status bar. Priority: auto_discover.sh > multi_phase_discovery.sh >
+// any other job. Ties broken by oldest StartTime.
+func pickStatusBarJob(running []*jobs.Job) *jobs.Job {
+	var best *jobs.Job
+	bestPri := int(^uint(0) >> 1) // max int
+
+	for _, j := range running {
+		pri := jobStatusBarPriority(j)
+		if pri < bestPri || (pri == bestPri && best != nil && j.StartTime.Before(best.StartTime)) {
+			best = j
+			bestPri = pri
+		}
+	}
+	return best
+}
+
+// jobStatusBarPriority returns a lower number for higher-priority jobs.
+// 0 = auto_discover.sh, 1 = multi_phase_discovery.sh, 2 = everything else.
+func jobStatusBarPriority(j *jobs.Job) int {
+	name := j.ScriptPath
+	if strings.Contains(name, "auto_discover") {
+		return 0
+	}
+	if strings.Contains(name, "multi_phase_discovery") {
+		return 1
+	}
+	return 2
+}
+// vlanDisplayID returns a display-friendly VLAN identifier.
+// Numeric-only IDs (e.g., "10", "20") are prefixed with "V" to avoid
+// ambiguous colons in progress strings like "10:2/8".
+// Letter-prefixed IDs (e.g., "V10", "vlan10") are returned as-is.
+func vlanDisplayID(id string) string {
+	if len(id) > 0 && id[0] >= '0' && id[0] <= '9' {
+		return "V" + id
+	}
+	return id
+}
 
 // updateJobsPanel renders the active jobs panel showing running and pending jobs.
+// For multi-VLAN progress, a per-VLAN breakdown is shown on a third line.
 func (t *TUI) updateJobsPanel() {
 	allJobs := t.jobManager.GetAllJobs()
 
@@ -570,7 +667,9 @@ func (t *TUI) updateJobsPanel() {
 		if needsInput {
 			sb.WriteString("  ")
 			sb.WriteString(t.str.FmtJobsPanelNeedsInput)
+			sb.WriteString("\n")
 		} else if status == jobs.JobStatusRunning {
+			// Capture progress once to avoid torn reads.
 			current, total, desc := job.GetPhaseProgress()
 			if total > 0 {
 				sb.WriteString("  ")
@@ -579,8 +678,30 @@ func (t *TUI) updateJobsPanel() {
 				idx := int(time.Now().Unix()) % len(indicatorChars)
 				fmt.Fprintf(&sb, "  %s %s", indicatorChars[idx], t.str.ProgressRunning)
 			}
+			sb.WriteString("\n")
+
+			// Per-VLAN breakdown line (only for multi-VLAN progress).
+			// Reuses desc captured above — no second GetPhaseProgress call.
+			vlans := jobs.ParseVLANBreakdown(desc)
+			if len(vlans) >= 2 {
+				var parts []string
+				for _, v := range vlans {
+					did := vlanDisplayID(v.ID)
+					if v.Done {
+						parts = append(parts, fmt.Sprintf("[green]%s[white]", fmt.Sprintf(t.str.FmtVLANEntryDone, did)))
+					} else if v.Total > 0 {
+						parts = append(parts, fmt.Sprintf("[cyan]%s[white]", fmt.Sprintf(t.str.FmtVLANEntry, did, v.Current, v.Total)))
+					} else {
+						parts = append(parts, fmt.Sprintf("[darkgray]%s:?[white]", did))
+					}
+				}
+				sb.WriteString("  ")
+				sb.WriteString(strings.Join(parts, " "))
+				sb.WriteString("\n")
+			}
+		} else {
+			sb.WriteString("\n")
 		}
-		sb.WriteString("\n")
 	}
 
 	t.jobsPanel.SetText(sb.String())
@@ -860,7 +981,12 @@ func (t *TUI) setupUI() {
 
 	// Setup main page
 	t.pages.AddPage("main", mainLayout, true, true)
-	t.app.SetRoot(t.pages, true)
+
+	// Root layout: pages fill the screen, statusBar sits at the very bottom.
+	root := tview.NewFlex().SetDirection(tview.FlexRow).
+		AddItem(t.pages, 0, 1, true).
+		AddItem(t.statusBar, 1, 0, false)
+	t.app.SetRoot(root, true)
 
 	// Setup global key bindings
 	t.app.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {

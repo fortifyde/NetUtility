@@ -1615,7 +1615,7 @@ create_session_consolidation_reports() {
                 fi
             done
             if [ $service_total -gt 0 ]; then
-                printf "  %-12s: %d hosts\n" "${service_type^^}" "$service_total"
+                printf "  %-12s: %d hosts\n" "$(echo "$service_type" | tr 'a-z' 'A-Z')" "$service_total"
             fi
         done
         echo ""
@@ -1648,7 +1648,7 @@ create_session_consolidation_reports() {
         
         # For each team, consolidate targets from categorized directories
         for team in windows linux network; do
-            echo "== ${team^^} TEAM SESSION SUMMARY =="
+            echo "== $(echo "$team" | tr 'a-z' 'A-Z') TEAM SESSION SUMMARY =="
             total_targets=0
             
             for net_dir in "$SESSION_DISCOVERY_DIR"/vlan_* "$SESSION_DISCOVERY_DIR"/main_network "$SESSION_DISCOVERY_DIR"/network_*; do
@@ -1686,7 +1686,7 @@ create_session_consolidation_reports() {
                 fi
             done
             
-            echo "Total ${team^^} targets: $total_targets"
+            echo "Total $(echo "$team" | tr 'a-z' 'A-Z') targets: $total_targets"
             echo ""
         done
         
@@ -2152,8 +2152,9 @@ if [ -x "$discovery_script" ]; then
                 _pv_parts=""
                 for _pv_id in $_poll_ids; do
                     case "$_pv_id" in
-                        vlan_*) _pv_short="V${_pv_id#vlan_}" ;;
+                    vlan_*) _pv_short="V${_pv_id#vlan_}" ;;
                         network_*) _pv_short="net:$(echo "${_pv_id#network_}" | sed 's/_\([0-9]*\)$/\/\1/')" ;;
+                        [0-9]*) _pv_short="V$_pv_id" ;;
                         *) _pv_short="$_pv_id" ;;
                     esac
                     if [ -f "$TEMP_DIR/status_${_pv_id}.txt" ]; then

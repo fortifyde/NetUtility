@@ -194,3 +194,111 @@ func TestGetAllJobs_Sorting(t *testing.T) {
 		t.Errorf("third job = %s, want j1 (completed)", jobs[2].ID)
 	}
 }
+func TestParseVLANBreakdown(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []VLANStatus
+	}{
+		{
+			name:  "empty string",
+			input: "",
+			want:  nil,
+		},
+		{
+			name:  "no VLAN entries",
+			input: "Phase 3: DNS Lookup",
+			want:  nil,
+		},
+		{
+			name:  "single VLAN with progress",
+			input: "V100:3/8",
+			want:  []VLANStatus{{ID: "V100", Current: 3, Total: 8}},
+		},
+		{
+			name:  "single VLAN done",
+			input: "V200:done",
+			want:  []VLANStatus{{ID: "V200", Done: true}},
+		},
+		{
+			name:  "multiple VLANs mixed",
+			input: "V100:3/8 V200:done V300:1/8",
+			want: []VLANStatus{
+				{ID: "V100", Current: 3, Total: 8},
+				{ID: "V200", Done: true},
+				{ID: "V300", Current: 1, Total: 8},
+			},
+		},
+		{
+			name:  "checkmark variant",
+			input: "V100:✓",
+			want:  []VLANStatus{{ID: "V100", Done: true}},
+		},
+		{
+			name:  "zero current count",
+			input: "V100:0/5",
+			want:  []VLANStatus{{ID: "V100", Current: 0, Total: 5}},
+		},
+		{
+			name:  "completed count equals total",
+			input: "V100:8/8",
+			want:  []VLANStatus{{ID: "V100", Current: 8, Total: 8, Done: true}},
+		},
+		{
+			name:  "invalid value after colon",
+			input: "V100:abc",
+			want:  []VLANStatus{{ID: "V100"}},
+		},
+		{
+			name:  "invalid total",
+			input: "V100:3/0",
+			want:  []VLANStatus{{ID: "V100"}},
+		},
+		{
+			name:  "mixed with non-VLAN text",
+			input: "some text V100:3/8 more text V200:done",
+			want: []VLANStatus{
+				{ID: "V100", Current: 3, Total: 8},
+				{ID: "V200", Done: true},
+			},
+		},
+		{
+			name:  "numeric VLAN IDs (L2 flow)",
+			input: "10:3/8 20:done 30:1/8",
+			want: []VLANStatus{
+				{ID: "10", Current: 3, Total: 8},
+				{ID: "20", Done: true},
+				{ID: "30", Current: 1, Total: 8},
+			},
+		},
+		{
+			name:  "single digit numeric rejected",
+			input: "3: DNS Lookup",
+			want:  nil,
+		},
+		{
+			name:  "mixed letter and numeric VLAN IDs",
+			input: "V100:3/8 20:done 30:1/8",
+			want: []VLANStatus{
+				{ID: "V100", Current: 3, Total: 8},
+				{ID: "20", Done: true},
+				{ID: "30", Current: 1, Total: 8},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseVLANBreakdown(tt.input)
+			if len(got) != len(tt.want) {
+				t.Fatalf("ParseVLANBreakdown(%q) returned %d entries, want %d", tt.input, len(got), len(tt.want))
+			}
+			for i, v := range got {
+				w := tt.want[i]
+				if v.ID != w.ID || v.Current != w.Current || v.Total != w.Total || v.Done != w.Done {
+					t.Errorf("entry[%d] = %+v, want %+v", i, v, w)
+				}
+			}
+		})
+	}
+}

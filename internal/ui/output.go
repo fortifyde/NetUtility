@@ -332,6 +332,14 @@ func (ov *OutputViewer) ConnectToJob(job *jobs.Job) error {
 
 	ov.updateDisplayLocked()
 	ov.updateTitleLocked(job.ScriptPath, "Running")
+
+	// Immediately show current progress in the status line so the user
+	// sees phase state the moment they reconnect, not just "Running".
+	if current, total, desc := job.GetPhaseProgress(); total > 0 {
+		ov.progressText = fmt.Sprintf("[%d/%d] %s", current, total, desc)
+		ov.statusLine.SetText(fmt.Sprintf(ov.str.FmtStatusProgress, ov.progressText))
+	}
+
 	ov.mu.Unlock()
 
 	go ov.pollJobOutput(job, totalLines)
@@ -342,10 +350,24 @@ func (ov *OutputViewer) pollJobOutput(job *jobs.Job, startIdx int) {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	lastIdx := startIdx
+	emittedReconnect := false
 
 	for {
 		select {
 		case <-ticker.C:
+			// Emit a reconnection progress header on the first iteration
+			// if the job already has progress data (user navigated away and back).
+			if !emittedReconnect {
+				emittedReconnect = true
+				if current, total, desc := job.GetPhaseProgress(); total > 0 {
+					progressText := fmt.Sprintf("%d/%d %s", current, total, desc)
+					ov.addOutputLine(executor.OutputLine{
+						Content:   fmt.Sprintf(ov.str.FmtReconnectedProgress, progressText),
+						Timestamp: time.Now(),
+						Source:    "system",
+					})
+				}
+			}
 			allLines := job.GetOutputLines()
 			for i := lastIdx; i < len(allLines); i++ {
 				line := allLines[i]

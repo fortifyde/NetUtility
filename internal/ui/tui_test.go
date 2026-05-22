@@ -3,6 +3,9 @@ package ui
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"netutil/internal/jobs"
 )
 
 func TestFormatCategoryName(t *testing.T) {
@@ -211,6 +214,108 @@ func TestSearchAllCategories(t *testing.T) {
 	for _, r := range tui.searchAllCategories("network") {
 		if r.CategoryName == "" {
 			t.Errorf("result %q has empty CategoryName", r.Task.Name)
+		}
+	}
+}
+func TestPickStatusBarJob(t *testing.T) {
+	baseTime := time.Now()
+
+	tests := []struct {
+		name  string
+		jobs  []*jobs.Job
+		want  string // expected job Name
+	}{
+		{
+			name:  "empty list returns nil",
+			jobs:  nil,
+			want:  "",
+		},
+		{
+			name: "single job",
+			jobs: []*jobs.Job{
+				{Name: "portscan", ScriptPath: "/scripts/scanning/port_service_scan.sh", StartTime: baseTime},
+			},
+			want: "portscan",
+		},
+		{
+			name: "auto_discover beats multi_phase",
+			jobs: []*jobs.Job{
+				{Name: "multi", ScriptPath: "/scripts/discovery/multi_phase_discovery.sh", StartTime: baseTime},
+				{Name: "auto", ScriptPath: "/scripts/discovery/auto_discover.sh", StartTime: baseTime.Add(time.Second)},
+			},
+			want: "auto",
+		},
+		{
+			name: "multi_phase beats portscan",
+			jobs: []*jobs.Job{
+				{Name: "portscan", ScriptPath: "/scripts/scanning/port_service_scan.sh", StartTime: baseTime},
+				{Name: "multi", ScriptPath: "/scripts/discovery/multi_phase_discovery.sh", StartTime: baseTime.Add(time.Second)},
+			},
+			want: "multi",
+		},
+		{
+			name: "multiple auto_discover picks oldest",
+			jobs: []*jobs.Job{
+				{Name: "auto2", ScriptPath: "/scripts/discovery/auto_discover.sh", StartTime: baseTime.Add(2 * time.Second)},
+				{Name: "auto1", ScriptPath: "/scripts/discovery/auto_discover.sh", StartTime: baseTime},
+			},
+			want: "auto1",
+		},
+		{
+			name: "only unrelated jobs picks first by StartTime",
+			jobs: []*jobs.Job{
+				{Name: "later", ScriptPath: "/scripts/scanning/port_service_scan.sh", StartTime: baseTime.Add(time.Second)},
+				{Name: "earlier", ScriptPath: "/scripts/recon/snmp_interrogate.sh", StartTime: baseTime},
+			},
+			want: "earlier",
+		},
+		{
+			name: "auto_discover among many",
+			jobs: []*jobs.Job{
+				{Name: "snmp", ScriptPath: "/scripts/recon/snmp_interrogate.sh", StartTime: baseTime},
+				{Name: "auto", ScriptPath: "/scripts/discovery/auto_discover.sh", StartTime: baseTime.Add(5 * time.Second)},
+				{Name: "portscan", ScriptPath: "/scripts/scanning/port_service_scan.sh", StartTime: baseTime.Add(2 * time.Second)},
+			},
+			want: "auto",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := pickStatusBarJob(tt.jobs)
+			if tt.want == "" {
+				if got != nil {
+					t.Errorf("pickStatusBarJob returned %q, want nil", got.Name)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatalf("pickStatusBarJob returned nil, want %q", tt.want)
+			}
+			if got.Name != tt.want {
+				t.Errorf("pickStatusBarJob returned %q, want %q", got.Name, tt.want)
+			}
+		})
+	}
+}
+func TestVlanDisplayID(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"V10", "V10"},
+		{"V100", "V100"},
+		{"vlan10", "vlan10"},
+		{"10", "V10"},
+		{"20", "V20"},
+		{"100", "V100"},
+		{"net:192.168.1.0/24", "net:192.168.1.0/24"},
+		{"", ""},
+	}
+	for _, tt := range tests {
+		got := vlanDisplayID(tt.input)
+		if got != tt.want {
+			t.Errorf("vlanDisplayID(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

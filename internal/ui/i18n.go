@@ -288,6 +288,20 @@ type Strings struct {
 
 	// ── Filter ────────────────────────────────────────────────────────────────
 	FilterLabel string
+
+	// ── Global status footer ─────────────────────────────────────────────────
+	FmtGlobalStatusProgress string // Sprintf(fmt, jobName, progressText)
+	FmtGlobalStatusSpinner  string // Sprintf(fmt, jobName)
+	FmtGlobalStatusVLANs    string // Sprintf(fmt, jobName, completed, total, vlanSummary)
+
+	// ── VLAN breakdown ────────────────────────────────────────────────────────
+	VLANDone       string
+	VLANUnknown    string
+	FmtVLANEntry   string // Sprintf(fmt, id, current, total)
+	FmtVLANEntryDone string // Sprintf(fmt, id)
+
+	// ── Output viewer re-entry ────────────────────────────────────────────────
+	FmtReconnectedProgress string // Sprintf(fmt, progressText)
 }
 
 // CategoryDisplayLabel returns the localised display label for a category key.
@@ -688,6 +702,20 @@ OutputViewerHelp: `[yellow]Controls:[white]
 	ProgressWaitingInput:     "\u2691 Waiting for input",
 
 	FilterLabel: "Filter: ",
+
+	// Global status footer
+	FmtGlobalStatusProgress: "[green]●[white] %s [cyan]%s[white]",
+	FmtGlobalStatusSpinner:  "[green]●[white] %s",
+	FmtGlobalStatusVLANs:    "[green]●[white] %s [cyan]%d/%d VLANs[white] — %s",
+
+	// VLAN breakdown
+	VLANDone:         "✓",
+	VLANUnknown:      "?",
+	FmtVLANEntry:     "%s:%d/%d",
+	FmtVLANEntryDone: "%s:✓",
+
+	// Output viewer re-entry
+	FmtReconnectedProgress: "──── Reconnected — %s ────",
 }
 
 var stringsDE = &Strings{
@@ -1032,6 +1060,20 @@ OutputViewerHelp: `[yellow]Steuerung:[white]
 	ProgressWaitingInput:     "\u2691 Wartet auf Eingabe",
 
 	FilterLabel: "Filter: ",
+
+	// Global status footer
+	FmtGlobalStatusProgress: "[green]●[white] %s [cyan]%s[white]",
+	FmtGlobalStatusSpinner:  "[green]●[white] %s",
+	FmtGlobalStatusVLANs:    "[green]●[white] %s [cyan]%d/%d VLANs[white] — %s",
+
+	// VLAN breakdown
+	VLANDone:         "✓",
+	VLANUnknown:      "?",
+	FmtVLANEntry:     "%s:%d/%d",
+	FmtVLANEntryDone: "%s:✓",
+
+	// Output viewer re-entry
+	FmtReconnectedProgress: "──── Reconnected — %s ────",
 }
 
 func stringsForLang(lang string) *Strings {
