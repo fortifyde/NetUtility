@@ -80,6 +80,8 @@ func (rp *ResultParser) ParseJobResult(scriptPath, outputContent string, timesta
 		return rp.parseARPResult(result, outputContent)
 	case ScanTypeTestSSL:
 		return rp.parseTestSSLResult(result, outputContent)
+	case ScanTypeNetBIOS:
+		return rp.parseNetBIOSNames(result, outputContent)
 	default:
 		return rp.parseGenericOutput(result, outputContent)
 	}
@@ -93,6 +95,11 @@ func (rp *ResultParser) determineScanType(scriptPath, outputContent string) Scan
 	// ph7 categorization details file — must be checked before generic name patterns
 	if strings.Contains(scriptName, "categorization_details") {
 		return ScanTypeHostCategorization
+	}
+
+	// Phase 4 NetBIOS names file (IP<TAB>NAME lines from nmblookup/nbstat)
+	if strings.Contains(scriptName, "netbios_names") {
+		return ScanTypeNetBIOS
 	}
 
 	if t := rp.detectScanTypeByContent(contentLower, scriptName, outputContent); t != ScanTypePortScan {
@@ -609,10 +616,12 @@ func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 		base := filepath.Base(path)
 		ext := filepath.Ext(path)
 
-		// Accept .nmap, .xml, and .json files, plus categorization_details.txt.
-		// sslscan.txt is excluded: sslscan now outputs per-host XML files instead.
+		// Accept .nmap, .xml, and .json files, plus known structured .txt files.
+		// Generic .txt and .log files are excluded to avoid flooding the host
+		// inventory with spurious entries from human-readable summary reports.
 		// .json files are accepted for testssl.sh output.
-		if ext != ".nmap" && ext != ".xml" && ext != ".json" && base != "categorization_details.txt" {
+		knownTxt := base == "categorization_details.txt" || base == "netbios_names.txt"
+		if ext != ".nmap" && ext != ".xml" && ext != ".json" && !knownTxt {
 			return nil
 		}
 
@@ -806,6 +815,9 @@ func (rp *ResultParser) parseNmapXML(result *ScanResult, content string) (*ScanR
 			continue
 		}
 		for _, name := range h.Hostnames.Names {
+			if net.ParseIP(name.Name) != nil {
+				continue // ignore entries where nmap stored the IP as a hostname
+			}
 			if name.Type == "user" || hostname == "" {
 				hostname = name.Name
 			}
@@ -1062,9 +1074,15 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 
 		if !seenHosts[ip] {
 			seenHosts[ip] = true
+			// targethostname is the IP itself when nikto is invoked with an IP target;
+			// don't store that as a hostname.
+			hostname := details.TargetHost
+			if net.ParseIP(hostname) != nil {
+				hostname = ""
+			}
 			result.Hosts = append(result.Hosts, Host{
 				IP:       ip,
-				Hostname: details.TargetHost,
+				Hostname: hostname,
 				Status:   "up",
 				LastSeen: result.Timestamp,
 				Ports:    make([]Port, 0),
@@ -2151,5 +2169,38 @@ func (rp *ResultParser) parseTestSSLResult(result *ScanResult, content string) (
 		result.Vulnerabilities = append(result.Vulnerabilities, vuln)
 	}
 
+	return result, nil
+}
+
+// parseNetBIOSNames parses the Phase 4 netbios_names.txt file produced by
+// multi_phase_discovery.sh. Each line is IP<TAB>NETBIOS_NAME. The name is
+// stored in Host.Attributes["netbios_name"] so it flows into the correlation
+// hostname fallback chain without overwriting DNS hostnames.
+func (rp *ResultParser) parseNetBIOSNames(result *ScanResult, content string) (*ScanResult, error) {
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.SplitN(line, "\t", 2)
+		if len(fields) != 2 {
+			continue
+		}
+		ip := strings.TrimSpace(fields[0])
+		name := strings.TrimSpace(fields[1])
+		if net.ParseIP(ip) == nil || name == "" {
+			continue
+		}
+		result.Hosts = append(result.Hosts, Host{
+			IP:       ip,
+			Status:   "up",
+			LastSeen: result.Timestamp,
+			Ports:    make([]Port, 0),
+			Attributes: map[string]string{
+				"netbios_name": name,
+			},
+		})
+		result.Targets = append(result.Targets, ip)
+	}
 	return result, nil
 }

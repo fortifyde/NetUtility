@@ -46,6 +46,7 @@ const (
 	ScanTypeFingerprint        ScanType = "fingerprint"
 	ScanTypeARP                ScanType = "arp"
 	ScanTypeTestSSL            ScanType = "testssl"
+	ScanTypeNetBIOS            ScanType = "netbios"
 )
 
 // ScanResult represents the result of a network scan
@@ -481,8 +482,10 @@ func (c *Correlator) mergeHostInfo(existing *Host, new *Host) *Host {
 		existing.LastSeen = new.LastSeen
 	}
 
-	// Merge non-empty fields
-	if new.Hostname != "" && existing.Hostname == "" {
+	// Merge hostname: prefer real names over empty or IP-address placeholders.
+	newIsIP := net.ParseIP(new.Hostname) != nil
+	existingIsIP := existing.Hostname != "" && net.ParseIP(existing.Hostname) != nil
+	if new.Hostname != "" && !newIsIP && (existing.Hostname == "" || existingIsIP) {
 		existing.Hostname = new.Hostname
 	}
 	if new.MACAddress != "" && existing.MACAddress == "" {
