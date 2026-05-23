@@ -335,8 +335,8 @@ func (ov *OutputViewer) ConnectToJob(job *jobs.Job) error {
 
 	// Immediately show current progress in the status line so the user
 	// sees phase state the moment they reconnect, not just "Running".
-	if current, total, desc := job.GetPhaseProgress(); total > 0 {
-		ov.progressText = fmt.Sprintf("[%d/%d] %s", current, total, desc)
+	if current, total, desc, unit := job.GetPhaseProgress(); total > 0 {
+		ov.progressText = fmt.Sprintf("[%d%s/%d%s] %s", current, unit, total, unit, desc)
 		ov.statusLine.SetText(fmt.Sprintf(ov.str.FmtStatusProgress, ov.progressText))
 	}
 
@@ -359,8 +359,8 @@ func (ov *OutputViewer) pollJobOutput(job *jobs.Job, startIdx int) {
 			// if the job already has progress data (user navigated away and back).
 			if !emittedReconnect {
 				emittedReconnect = true
-				if current, total, desc := job.GetPhaseProgress(); total > 0 {
-					progressText := fmt.Sprintf("%d/%d %s", current, total, desc)
+				if current, total, desc, unit := job.GetPhaseProgress(); total > 0 {
+					progressText := fmt.Sprintf("%d%s/%d%s %s", current, unit, total, unit, desc)
 					ov.addOutputLine(executor.OutputLine{
 						Content:   fmt.Sprintf(ov.str.FmtReconnectedProgress, progressText),
 						Timestamp: time.Now(),
@@ -832,7 +832,12 @@ func (ov *OutputViewer) ShowHelp() {
 }
 
 func (ov *OutputViewer) FocusView() {
-	ov.app.SetFocus(ov.outputView)
+	if ov.connectedJob != nil && ov.connectedJob.NeedsInput() {
+		ov.app.SetFocus(ov.inputField)
+		ov.statusLine.SetText(ov.str.StatusWaitingInput)
+	} else {
+		ov.app.SetFocus(ov.outputView)
+	}
 }
 
 func (ov *OutputViewer) updateTitleLocked(scriptPath, status string) {

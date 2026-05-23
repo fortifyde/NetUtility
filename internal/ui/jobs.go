@@ -278,9 +278,9 @@ func (jv *JobsViewer) getJobProgress(job *jobs.Job) string {
 		if job.NeedsInput() {
 			return jv.str.ProgressWaitingInput
 		}
-		current, total, desc := job.GetPhaseProgress()
+		current, total, desc, unit := job.GetPhaseProgress()
 		if total > 0 {
-			return renderProgressBar(current, total, desc)
+			return renderProgressBar(current, total, desc, unit)
 		}
 		indicators := []string{"⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"}
 		idx := int(time.Now().Unix()) % len(indicators)
@@ -296,7 +296,7 @@ func (jv *JobsViewer) getJobProgress(job *jobs.Job) string {
 	}
 }
 
-func renderProgressBar(current, total int, desc string) string {
+func renderProgressBar(current, total int, desc, unit string) string {
 	const barWidth = 10
 	filled := current * barWidth / total
 	if filled > barWidth {
@@ -304,9 +304,9 @@ func renderProgressBar(current, total int, desc string) string {
 	}
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", barWidth-filled)
 	if desc != "" {
-		return fmt.Sprintf("[%s] %d/%d %s", bar, current, total, desc)
+		return fmt.Sprintf("[%s] %d%s/%d%s %s", bar, current, unit, total, unit, desc)
 	}
-	return fmt.Sprintf("[%s] %d/%d", bar, current, total)
+	return fmt.Sprintf("[%s] %d%s/%d%s", bar, current, unit, total, unit)
 }
 
 // viewJobOutput opens the output viewer for the selected job.

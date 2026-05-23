@@ -92,6 +92,19 @@ is_ip_in_cidr() {
     return 1
 }
 
+# Format seconds as H:MM:SS (or M:SS when <1 hour) for progress display.
+_format_hms() {
+    _secs=$1
+    _h=$((_secs / 3600))
+    _m=$((_secs % 3600 / 60))
+    _s=$((_secs % 60))
+    if [ "$_h" -gt 0 ]; then
+        printf '%d:%02d:%02d' "$_h" "$_m" "$_s"
+    else
+        printf '%d:%02d' "$_m" "$_s"
+    fi
+}
+
 # Function to prompt user for IP address choice with validation
 prompt_ip_choice() {
     suggested_ip="$1"
@@ -339,6 +352,28 @@ fi
 echo "Starting promiscuous capture for $capture_duration minutes..." >&2
 echo "Capture file: $capture_file" >&2
 
+# ── TUI progress marker poller for Stage 1 capture ──────────────────────
+# Emits ##NETUTIL:PROGRESS## markers every 5 s while tshark is running.
+# Total duration is capture_duration minutes (converted to seconds).
+_capture_start=$(date +%s)
+_capture_total=$((capture_duration * 60))
+_capture_sentinel="$TEMP_DIR/capture_progress_$$"
+_capture_progress_pid=""
+(
+    while [ ! -f "$_capture_sentinel" ]; do
+        _now=$(date +%s)
+        _elapsed=$((_now - _capture_start))
+        if [ "$_elapsed" -ge "$_capture_total" ]; then
+            break
+        fi
+        _remaining=$((_capture_total - _elapsed))
+        printf '##NETUTIL:PROGRESS## [%ds/%ds] Capturing on %s\n' \
+            "$_elapsed" "$_capture_total" "$target_interface"
+        sleep 5
+    done
+) &
+_capture_progress_pid=$!
+
 if command -v tshark >/dev/null 2>&1; then
     # Use tshark for capture - first attempt
     timeout $((capture_duration * 60)) tshark -i "$target_interface" -w "$capture_file" -q 2>/dev/null
@@ -371,6 +406,14 @@ if command -v tshark >/dev/null 2>&1; then
             fi
         fi
     fi
+
+    # Stop capture progress poller
+    if [ -n "$_capture_progress_pid" ]; then
+        touch "$_capture_sentinel"
+        wait "$_capture_progress_pid" 2>/dev/null
+        rm -f "$_capture_sentinel"
+    fi
+
     
     if [ $capture_exit_code -eq 0 ] || [ $capture_exit_code -eq 124 ]; then  # 124 = timeout
         echo "✓ Promiscuous capture completed successfully" >&2
@@ -402,6 +445,12 @@ echo "Capture size: $(du -h "$capture_file" | cut -f1)" >&2
     fi
 else
     echo "✗ tshark not available - cannot perform capture" >&2
+    # Stop capture progress poller (started above)
+    if [ -n "$_capture_progress_pid" ]; then
+        touch "$_capture_sentinel"
+        wait "$_capture_progress_pid" 2>/dev/null
+        rm -f "$_capture_sentinel"
+    fi
     echo "Status: FAILED (tshark not available)" >> "$WORKFLOW_REPORT"
     log_error "tshark not available for promiscuous capture"
     exit 1

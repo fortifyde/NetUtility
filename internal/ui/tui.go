@@ -552,7 +552,7 @@ func (t *TUI) updateGlobalStatusBar() {
 	job := pickStatusBarJob(running)
 
 	// Capture progress once to avoid torn reads between calls.
-	current, total, desc := job.GetPhaseProgress()
+	current, total, desc, unit := job.GetPhaseProgress()
 
 	// Check if the description contains VLAN breakdown entries.
 	vlans := jobs.ParseVLANBreakdown(desc)
@@ -580,7 +580,7 @@ func (t *TUI) updateGlobalStatusBar() {
 	}
 
 	if total > 0 {
-		progressText := fmt.Sprintf("%d/%d %s", current, total, desc)
+		progressText := fmt.Sprintf("%d%s/%d%s %s", current, unit, total, unit, desc)
 		t.statusBar.SetText(fmt.Sprintf(t.str.FmtGlobalStatusProgress, job.Name, progressText))
 		return
 	}
@@ -683,10 +683,18 @@ func (t *TUI) updateJobsPanel() {
 			sb.WriteString("\n")
 		} else if status == jobs.JobStatusRunning {
 			// Capture progress once to avoid torn reads.
-			current, total, desc := job.GetPhaseProgress()
+			current, total, desc, unit := job.GetPhaseProgress()
+			vlans := jobs.ParseVLANBreakdown(desc)
+			hasVLANs := len(vlans) >= 2
 			if total > 0 {
 				sb.WriteString("  ")
-				sb.WriteString(renderProgressBar(current, total, desc))
+				// Omit desc from progress bar when a VLAN breakdown follows —
+				// otherwise the same per-VLAN text appears twice.
+				barDesc := desc
+				if hasVLANs {
+					barDesc = ""
+				}
+				sb.WriteString(renderProgressBar(current, total, barDesc, unit))
 			} else {
 				idx := int(time.Now().Unix()) % len(indicatorChars)
 				fmt.Fprintf(&sb, "  %s %s", indicatorChars[idx], t.str.ProgressRunning)
@@ -694,9 +702,7 @@ func (t *TUI) updateJobsPanel() {
 			sb.WriteString("\n")
 
 			// Per-VLAN breakdown line (only for multi-VLAN progress).
-			// Reuses desc captured above — no second GetPhaseProgress call.
-			vlans := jobs.ParseVLANBreakdown(desc)
-			if len(vlans) >= 2 {
+			if hasVLANs {
 				var parts []string
 				for _, v := range vlans {
 					did := vlanDisplayID(v.ID)

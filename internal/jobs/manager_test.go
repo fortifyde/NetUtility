@@ -7,22 +7,24 @@ import (
 
 func TestParsePhaseProgress_StandardForm(t *testing.T) {
 	tests := []struct {
-		input  string
-		wantC  int
-		wantT  int
-		wantD  string
-		wantOK bool
+		input   string
+		wantC   int
+		wantT   int
+		wantD   string
+		wantU   string
+		wantOK  bool
 	}{
-		{"[3/8] Phase 3: DNS Reverse Lookup", 3, 8, "Phase 3: DNS Reverse Lookup", true},
-		{"[1/1] Done", 1, 1, "Done", true},
-		{"[2/3 VLANs] V100:3/8 V200:done", 2, 3, "V100:3/8 V200:done", true},
-		{"", 0, 0, "", false},
-		{"no brackets", 0, 0, "", false},
-		{"[invalid] text", 0, 0, "", false},
-		{"[0/0]", 0, 0, "", false},
+		{"[3/8] Phase 3: DNS Reverse Lookup", 3, 8, "Phase 3: DNS Reverse Lookup", "", true},
+		{"[1/1] Done", 1, 1, "Done", "", true},
+		{"[2/3 VLANs] V100:3/8 V200:done", 2, 3, "V100:3/8 V200:done", "", true},
+		{"[300s/600s] Capturing on eth0", 300, 600, "Capturing on eth0", "s", true},
+		{"", 0, 0, "", "", false},
+		{"no brackets", 0, 0, "", "", false},
+		{"[invalid] text", 0, 0, "", "", false},
+		{"[0/0]", 0, 0, "", "", false},
 	}
 	for _, tt := range tests {
-		c, tot, d, ok := parsePhaseProgress(tt.input)
+		c, tot, d, u, ok := parsePhaseProgress(tt.input)
 		if ok != tt.wantOK {
 			t.Errorf("parsePhaseProgress(%q) ok=%v, want %v", tt.input, ok, tt.wantOK)
 			continue
@@ -30,9 +32,9 @@ func TestParsePhaseProgress_StandardForm(t *testing.T) {
 		if !ok {
 			continue
 		}
-		if c != tt.wantC || tot != tt.wantT || d != tt.wantD {
-			t.Errorf("parsePhaseProgress(%q) = (%d, %d, %q), want (%d, %d, %q)",
-				tt.input, c, tot, d, tt.wantC, tt.wantT, tt.wantD)
+		if c != tt.wantC || tot != tt.wantT || d != tt.wantD || u != tt.wantU {
+			t.Errorf("parsePhaseProgress(%q) = (%d, %d, %q, %q), want (%d, %d, %q, %q)",
+				tt.input, c, tot, d, u, tt.wantC, tt.wantT, tt.wantD, tt.wantU)
 		}
 	}
 }
@@ -137,10 +139,15 @@ func TestJob_IsCompleted(t *testing.T) {
 
 func TestJob_PhaseProgress(t *testing.T) {
 	j := &Job{}
-	j.SetPhaseProgress(3, 8, "DNS Lookup")
-	c, tot, d := j.GetPhaseProgress()
-	if c != 3 || tot != 8 || d != "DNS Lookup" {
-		t.Errorf("GetPhaseProgress = (%d, %d, %q), want (3, 8, DNS Lookup)", c, tot, d)
+	j.SetPhaseProgress(3, 8, "DNS Lookup", "")
+	c, tot, d, u := j.GetPhaseProgress()
+	if c != 3 || tot != 8 || d != "DNS Lookup" || u != "" {
+		t.Errorf("GetPhaseProgress = (%d, %d, %q, %q), want (3, 8, DNS Lookup, )", c, tot, d, u)
+	}
+	j.SetPhaseProgress(300, 600, "Capturing on eth0", "s")
+	c, tot, d, u = j.GetPhaseProgress()
+	if c != 300 || tot != 600 || d != "Capturing on eth0" || u != "s" {
+		t.Errorf("GetPhaseProgress = (%d, %d, %q, %q), want (300, 600, Capturing on eth0, s)", c, tot, d, u)
 	}
 }
 

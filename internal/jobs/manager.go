@@ -44,6 +44,7 @@ type Job struct {
 	PhaseCurrent int
 	PhaseTotal   int
 	PhaseDesc    string
+	PhaseUnit    string // e.g. "s" for seconds, "" for counts
 
 	// cancelled is set atomically by CancelJob before Stop() is called,
 	// so monitorJob sees it after job.Executor.Wait() returns.
@@ -176,8 +177,8 @@ func (jm *JobManager) monitorJob(job *Job) {
 					text := lines[i].Content
 					const pfx = "##NETUTIL:PROGRESS## "
 					if strings.HasPrefix(text, pfx) {
-						if c, t, d, ok := parsePhaseProgress(text[len(pfx):]); ok {
-							job.SetPhaseProgress(c, t, d)
+						if c, t, d, u, ok := parsePhaseProgress(text[len(pfx):]); ok {
+							job.SetPhaseProgress(c, t, d, u)
 						}
 						continue
 					}
@@ -608,19 +609,20 @@ func (j *Job) NeedsInput() bool {
 }
 
 // SetPhaseProgress stores phase progress thread-safely.
-func (j *Job) SetPhaseProgress(current, total int, desc string) {
+func (j *Job) SetPhaseProgress(current, total int, desc, unit string) {
 	j.mu.Lock()
 	j.PhaseCurrent = current
 	j.PhaseTotal = total
 	j.PhaseDesc = desc
+	j.PhaseUnit = unit
 	j.mu.Unlock()
 }
 
 // GetPhaseProgress returns the last-seen phase progress.
-func (j *Job) GetPhaseProgress() (int, int, string) {
+func (j *Job) GetPhaseProgress() (int, int, string, string) {
 	j.mu.RLock()
 	defer j.mu.RUnlock()
-	return j.PhaseCurrent, j.PhaseTotal, j.PhaseDesc
+	return j.PhaseCurrent, j.PhaseTotal, j.PhaseDesc, j.PhaseUnit
 }
 
 // GetOutputLines safely returns a copy of the output lines.
@@ -640,9 +642,10 @@ func (j *Job) GetOutputLines() []executor.OutputLine {
 //
 //	"[3/8] Phase 3: DNS Reverse Lookup"        → current=3, total=8
 //	"[2/3 VLANs] V100:3/8 V200:done V300:1/8" → current=2, total=3
+//	"[300s/600s] Capturing on eth0"            → current=300, total=600, unit="s"
 //
 // Returns ok=false when the format is not recognised.
-func parsePhaseProgress(text string) (current, total int, desc string, ok bool) {
+func parsePhaseProgress(text string) (current, total int, desc, unit string, ok bool) {
 	if len(text) == 0 || text[0] != '[' {
 		return
 	}
@@ -660,12 +663,20 @@ func parsePhaseProgress(text string) (current, total int, desc string, ok bool) 
 	if sp := strings.IndexByte(totalField, ' '); sp >= 0 {
 		totalField = totalField[:sp]
 	}
-	cur, err1 := strconv.Atoi(strings.TrimSpace(bracket[:slashIdx]))
-	tot, err2 := strconv.Atoi(strings.TrimSpace(totalField))
+	curStr := strings.TrimSpace(bracket[:slashIdx])
+	totStr := strings.TrimSpace(totalField)
+	// Detect unit suffix (e.g. "300s" → unit "s").
+	if strings.HasSuffix(curStr, "s") && strings.HasSuffix(totStr, "s") {
+		unit = "s"
+		curStr = strings.TrimSuffix(curStr, "s")
+		totStr = strings.TrimSuffix(totStr, "s")
+	}
+	cur, err1 := strconv.Atoi(curStr)
+	tot, err2 := strconv.Atoi(totStr)
 	if err1 != nil || err2 != nil || tot <= 0 {
 		return
 	}
-	return cur, tot, rest, true
+	return cur, tot, rest, unit, true
 }
 // VLANStatus represents the progress of a single VLAN scan.
 type VLANStatus struct {
