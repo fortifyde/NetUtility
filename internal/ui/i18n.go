@@ -290,9 +290,10 @@ type Strings struct {
 	FilterLabel string
 
 	// ── Global status footer ─────────────────────────────────────────────────
-	FmtGlobalStatusProgress string // Sprintf(fmt, jobName, progressText)
-	FmtGlobalStatusSpinner  string // Sprintf(fmt, jobName)
-	FmtGlobalStatusVLANs    string // Sprintf(fmt, jobName, completed, total, vlanSummary)
+	FmtGlobalStatusProgress   string // Sprintf(fmt, jobName, progressText)
+	FmtGlobalStatusSpinner    string // Sprintf(fmt, jobName)
+	FmtGlobalStatusVLANs      string // Sprintf(fmt, jobName, completed, total, vlanSummary)
+	FmtGlobalStatusNeedsInput string // Sprintf(fmt, jobName)
 
 	// ── VLAN breakdown ────────────────────────────────────────────────────────
 	VLANDone       string
@@ -707,6 +708,7 @@ OutputViewerHelp: `[yellow]Controls:[white]
 	FmtGlobalStatusProgress: "[green]●[white] %s [cyan]%s[white]",
 	FmtGlobalStatusSpinner:  "[green]●[white] %s",
 	FmtGlobalStatusVLANs:    "[green]●[white] %s [cyan]%d/%d VLANs[white] — %s",
+	FmtGlobalStatusNeedsInput: "[yellow]\u2691[white] %s [yellow]waiting for input[white]",
 
 	// VLAN breakdown
 	VLANDone:         "✓",
@@ -1065,6 +1067,7 @@ OutputViewerHelp: `[yellow]Steuerung:[white]
 	FmtGlobalStatusProgress: "[green]●[white] %s [cyan]%s[white]",
 	FmtGlobalStatusSpinner:  "[green]●[white] %s",
 	FmtGlobalStatusVLANs:    "[green]●[white] %s [cyan]%d/%d VLANs[white] — %s",
+	FmtGlobalStatusNeedsInput: "[yellow]\u2691[white] %s [yellow]wartet auf Eingabe[white]",
 
 	// VLAN breakdown
 	VLANDone:         "✓",

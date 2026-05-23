@@ -535,6 +535,19 @@ func (t *TUI) updateGlobalStatusBar() {
 		return
 	}
 
+	// If any job is waiting for input, show that job at highest priority.
+	var inputJobs []*jobs.Job
+	for _, j := range running {
+		if j.NeedsInput() {
+			inputJobs = append(inputJobs, j)
+		}
+	}
+	if len(inputJobs) > 0 {
+		job := pickStatusBarJob(inputJobs)
+		t.statusBar.SetText(fmt.Sprintf(t.str.FmtGlobalStatusNeedsInput, job.Name))
+		return
+	}
+
 	// Pick the most relevant job to display.
 	job := pickStatusBarJob(running)
 
