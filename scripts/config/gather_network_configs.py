@@ -402,19 +402,20 @@ def try_connect(ip: str, username: str, password: str,
 
 def extract_hostname(version_output: str) -> str:
     """Extract hostname from version output."""
+    # Key-value forms — check first so NX-OS "Device name:" wins over "Kernel uptime is".
+    m = re.search(r"^\s*(?:hostname|device\s+name|system\s+name)\s*:\s*(.+)",
+                  version_output, re.MULTILINE | re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
     # Cisco IOS: "<hostname> uptime is ..."
-    m = re.search(r"^([A-Za-z0-9._-]+) uptime is", version_output, re.MULTILINE)
+    # Exclude "Kernel uptime is ..." (NX-OS kernel uptime, not a hostname).
+    m = re.search(r"^(?!Kernel\b)([A-Za-z0-9._-]+) uptime is", version_output, re.MULTILINE)
     if m:
         return m.group(1)
     # "You are connected to <hostname>"
     m = re.search(r"connected to ([A-Za-z0-9._-]+)", version_output, re.IGNORECASE)
     if m:
         return m.group(1)
-    # Generic: "hostname: ..." or "device name: ..." or "system name: ..."
-    m = re.search(r"^\s*(?:hostname|device\s+name|system\s+name)\s*:\s*(.+)",
-                  version_output, re.MULTILINE | re.IGNORECASE)
-    if m:
-        return m.group(1).strip()
     return "Unknown"
 
 

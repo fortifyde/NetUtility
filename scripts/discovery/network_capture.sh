@@ -124,6 +124,50 @@ case $option in
         ;;
 esac
 
+# ── TUI progress marker poller ──────────────────────────────────────────────
+# Format seconds as H:MM:SS (or M:SS when <1 hour).
+_format_hms() {
+    _secs=$1
+    _h=$((_secs / 3600))
+    _m=$((_secs % 3600 / 60))
+    _s=$((_secs % 60))
+    if [ "$_h" -gt 0 ]; then
+        printf '%d:%02d:%02d' "$_h" "$_m" "$_s"
+    else
+        printf '%d:%02d' "$_m" "$_s"
+    fi
+}
+
+_start_time=$(date +%s)
+_progress_sentinel="/tmp/netutil_capture_progress_$$"
+_progress_pid=""
+
+# Emit ##NETUTIL:PROGRESS## markers every 5 s while tshark is running.
+# Timed mode:  [elapsed/total] M:SS of M:SS (M:SS remaining)
+# Manual mode: Capturing: M:SS elapsed (manual stop)
+(
+    while [ ! -f "$_progress_sentinel" ]; do
+        _now=$(date +%s)
+        _elapsed=$((_now - _start_time))
+        _elapsed_fmt=$(_format_hms "$_elapsed")
+        if [ "$duration" -gt 0 ]; then
+            if [ "$_elapsed" -ge "$duration" ]; then
+                break
+            fi
+            _remaining=$((duration - _elapsed))
+            _total_fmt=$(_format_hms "$duration")
+            _remaining_fmt=$(_format_hms "$_remaining")
+            printf '##NETUTIL:PROGRESS## [%d/%d] %s of %s (%s remaining)\n' \
+                "$_elapsed" "$duration" "$_elapsed_fmt" "$_total_fmt" "$_remaining_fmt"
+        else
+            printf '##NETUTIL:PROGRESS## Capturing: %s elapsed (manual stop)\n' \
+                "$_elapsed_fmt"
+        fi
+        sleep 5
+    done
+) &
+_progress_pid=$!
+
 echo "Starting packet capture on interface $interface..."
 log_info "Starting capture: interface=$interface duration=$duration_text file=$CAPTURE_FILE" "$SCRIPT_NAME"
 echo "Duration: $duration_text"
@@ -178,6 +222,13 @@ if [ $capture_exit_code -ne 0 ] && [ $capture_exit_code -ne 124 ] && [ "$(id -u)
             success_message "Capture completed in fallback location: $FALLBACK_FILE"
         fi
     fi
+fi
+
+# Stop progress marker poller
+if [ -n "$_progress_pid" ]; then
+    touch "$_progress_sentinel" 2>/dev/null
+    wait "$_progress_pid" 2>/dev/null
+    rm -f "$_progress_sentinel"
 fi
 
 echo "tshark exit code: $capture_exit_code"

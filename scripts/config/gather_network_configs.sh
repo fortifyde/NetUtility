@@ -710,14 +710,18 @@ process_device() {
     echo "" >> "$metadata_file"
 
     # Extract hostname from version if possible
-    # Cisco IOS: "<hostname> uptime is ..." or "You are connected to <hostname>"
-    # Cisco NX-OS: "Hostname: ..." or "Device name: ..."
-    # HP Comware: embedded in "HPE Comware Platform Software ..."
+    # Cisco NX-OS: "Device name: <name>" (indented under Hardware)
+    # Cisco IOS:   "<hostname> uptime is ..." or "You are connected to <hostname>"
+    # HP Comware:  embedded in "HPE Comware Platform Software ..."
     # Aruba/ProVision: "System Name: ..." or " hostname ..."
+    #
+    # grep returns matches in input order; head -1 picks the first.
+    # On NX-OS, "Device name:" precedes "Kernel uptime is" so it wins naturally.
+    # The grep -vi "^kernel uptime" is a safety net in case output order differs.
     hostname=$(echo "$version_output" | grep -iE \
-        "^[A-Za-z0-9._-]+ uptime is|\
-^[[:space:]]*(hostname|device name|system name):|\
-system name |connected to [A-Za-z0-9._-]+" | head -1)
+        "^[[:space:]]*(hostname|device name|system name):|\
+^[A-Za-z0-9._-]+ uptime is|\
+system name |connected to [A-Za-z0-9._-]+" | grep -vi "^kernel uptime" | head -1)
 
     # Parse the actual hostname value from the matched line
     if [ -n "$hostname" ]; then
