@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1034,6 +1035,9 @@ func splitXMLDocuments(content string) []string {
 // parseNiktoXMLResult parses nikto XML output into vulnerabilities.
 // Nikto appends per-host XML to the same file, producing concatenated XML
 // documents. We split on <?xml boundaries and parse each document separately.
+// Items are aggregated per (ip, port) across all <scandetails> blocks and
+// deduplicated by (id, url, method, title) to prevent re-runs of nikto from
+// producing duplicate findings.
 func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) (*ScanResult, error) {
 	allDetails := rp.parseNiktoScanDetails(content)
 
@@ -1041,7 +1045,15 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 		return rp.parseGenericOutput(result, content)
 	}
 
+	type hostPortKey struct {
+		ip   string
+		port int
+	}
+
 	seenHosts := make(map[string]bool)
+	allItems := make(map[hostPortKey][]niktoItem)
+	seenItemKeys := make(map[hostPortKey]map[string]bool)
+
 	for _, details := range allDetails {
 		ip := details.TargetIP
 		if ip == "" {
@@ -1065,7 +1077,29 @@ func (rp *ResultParser) parseNiktoXMLResult(result *ScanResult, content string) 
 			port, _ = strconv.Atoi(details.TargetPort)
 		}
 
-		groups := groupNiktoItems(details.Items, ip, port)
+		hpKey := hostPortKey{ip: ip, port: port}
+		if seenItemKeys[hpKey] == nil {
+			seenItemKeys[hpKey] = make(map[string]bool)
+		}
+
+		for _, item := range details.Items {
+			title := item.Description
+			if title == "" {
+				title = item.DescAttr
+			}
+			if title == "" {
+				title = item.Text
+			}
+			itemKey := item.ID + "|" + item.URL + "|" + item.Method + "|" + title
+			if !seenItemKeys[hpKey][itemKey] {
+				seenItemKeys[hpKey][itemKey] = true
+				allItems[hpKey] = append(allItems[hpKey], item)
+			}
+		}
+	}
+
+	for hpKey, items := range allItems {
+		groups := groupNiktoItems(items, hpKey.ip, hpKey.port)
 		emitNiktoVulnerabilities(result, groups, result.Timestamp)
 	}
 
@@ -1187,6 +1221,7 @@ func consolidateNiktoGroup(items []niktoItemGroup) string {
 	}
 
 	if len(suffixes) > 0 {
+		sort.Strings(suffixes)
 		return fmt.Sprintf("%s (%d): %s", prefix, len(items), strings.Join(suffixes, ", "))
 	}
 	return fmt.Sprintf("%s (%d instances)", prefix, len(items))
