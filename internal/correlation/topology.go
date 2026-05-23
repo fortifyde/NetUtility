@@ -104,7 +104,7 @@ func (tg *TopologyGenerator) GenerateHTMLViewer(correlations map[string]*Correla
 			if corr.HostInfo != nil {
 				hj.Hostname = corr.HostInfo.Hostname
 				if hj.Hostname == "" {
-					hj.Hostname, _ = corr.HostInfo.Attributes["netbios_name"]
+					hj.Hostname = corr.HostInfo.Attributes["netbios_name"]
 				}
 				hj.MAC = corr.HostInfo.MACAddress
 				hj.OS = corr.HostInfo.OS
