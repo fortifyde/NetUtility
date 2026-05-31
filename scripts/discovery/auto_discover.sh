@@ -205,15 +205,15 @@ echo "Workflow started: $(date)" >> "$WORKFLOW_REPORT"
 echo "Reports directory: $REPORT_SESSION_DIR" >> "$WORKFLOW_REPORT"
 echo >> "$WORKFLOW_REPORT"
 
-echo "This VLAN-aware workflow follows logical sequence for comprehensive network discovery:"
-echo "1. Interface state verification"
-echo "2. Promiscuous packet capture"
-echo "3. VLAN analysis (identify VLANs and network ranges)"
-echo "4. VLAN Host configuration"
-echo "5. IP configuration"
-echo "6. VLAN-specific discovery"
-echo "7. Analysis"
-echo
+echo "This VLAN-aware workflow follows logical sequence for comprehensive network discovery:" >&2
+echo "1. Interface state verification" >&2
+echo "2. Promiscuous packet capture" >&2
+echo "3. VLAN analysis (identify VLANs and network ranges)" >&2
+echo "4. VLAN Host configuration" >&2
+echo "5. IP configuration" >&2
+echo "6. VLAN-specific discovery" >&2
+echo "7. Analysis" >&2
+echo >&2
 
 log_info "Starting VLAN-aware auto-discovery workflow"
 
@@ -272,7 +272,7 @@ esac
 echo >&2
 
 # Workflow configuration
-echo
+echo >&2
 echo "Workflow configuration:" >&2
 echo "The auto-discovery workflow will capture network traffic in promiscuous mode" >&2
 echo "to discover VLANs and network topology before performing discovery." >&2
@@ -282,7 +282,7 @@ echo "  • 2 minutes  - Quick scan for basic VLAN discovery" >&2
 echo "  • 5 minutes  - Standard capture" >&2
 echo "  • 10 minutes - Extended capture (recommended)" >&2
 echo "  • 15+ minutes - Comprehensive capture for complex environments" >&2
-echo
+echo >&2
 echo "Enter capture duration in minutes (default 10): " >&2
 read capture_duration
 capture_duration=${capture_duration:-10}
@@ -312,7 +312,7 @@ echo >> "$WORKFLOW_REPORT"
 
 # Stage 1: Promiscuous Packet Capture
 if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 1/5: PACKET CAPTURE — Promiscuous capture" "$COLOR_RESET"
+    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 1/5: PACKET CAPTURE — Promiscuous capture" "$COLOR_RESET" >&2
 elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "STAGE 1: PACKET CAPTURE"
 else
@@ -339,15 +339,26 @@ fi
 # Capture traffic
 CAPTURE_DIR="$WORKDIR/captures"
 mkdir -p "$CAPTURE_DIR"
-capture_file="$CAPTURE_DIR/auto_discover_capture_${TIMESTAMP}.pcap"
-
-# Test if directory is writable before attempting capture
-test_file="$CAPTURE_DIR/.write_test_$$"
-if ! touch "$test_file" 2>/dev/null; then
-    echo "⚠ Capture directory not writable, will use fallback location if needed" >&2
-else
-    rm -f "$test_file"
+# Ensure the capture path is usable by tshark/dumpcap.
+# tshark 4.x spawns dumpcap, which opens the interface as root then drops
+# privileges to an unprivileged user (e.g. "nobody").  That user must be
+# able to traverse every directory from / down to the output file AND the
+# output directory must be owned by root (dumpcap refuses to write into
+# directories owned by another user as a symlink-attack mitigation).
+# The Go binary's FixWorkspaceOwnership sets the workspace root to
+# kali:kali 0750, which blocks traversal by the dropped-privilege user.
+# Temporarily open the path and re-own the captures directory.
+_workdir_mode_restore=""
+if [ "$(id -u)" -eq 0 ]; then
+    # Make workspace root traversable (o+rx) for the privilege-dropped writer
+    if [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
+        _workdir_mode_restore=$(stat -c '%a' "$WORKDIR" 2>/dev/null)
+        chmod o+rx "$WORKDIR"
+    fi
+    chown 0:0 "$CAPTURE_DIR" 2>/dev/null || true
+    chmod 755 "$CAPTURE_DIR"
 fi
+capture_file="$CAPTURE_DIR/auto_discover_capture_${TIMESTAMP}.pcap"
 
 echo "Starting promiscuous capture for $capture_duration minutes..." >&2
 echo "Capture file: $capture_file" >&2
@@ -368,7 +379,7 @@ _capture_progress_pid=""
         fi
         _remaining=$((_capture_total - _elapsed))
         printf '##NETUTIL:PROGRESS## [%ds/%ds] Capturing on %s\n' \
-            "$_elapsed" "$_capture_total" "$target_interface"
+            "$_elapsed" "$_capture_total" "$target_interface" >&2
         sleep 5
     done
 ) &
@@ -376,31 +387,47 @@ _capture_progress_pid=$!
 
 if command -v tshark >/dev/null 2>&1; then
     # Use tshark for capture - first attempt
-    timeout $((capture_duration * 60)) tshark -i "$target_interface" -w "$capture_file" -q 2>/dev/null
+    _capture_err="$TEMP_DIR/tshark_capture_err_1.txt"
+    timeout $((capture_duration * 60)) tshark -i "$target_interface" -w "$capture_file" -q 2>"$_capture_err"
     capture_exit_code=$?
-    
-    # If tshark failed with permission issue and we're root, try fallback location
+    if [ $capture_exit_code -ne 0 ] && [ $capture_exit_code -ne 124 ]; then
+        _capture_diag=$(cat "$_capture_err" 2>/dev/null || echo "(no stderr captured)")
+        log_error "tshark capture attempt 1 failed (exit $capture_exit_code) writing to $capture_file: $_capture_diag"
+        echo "⚠ Capture failed (exit $capture_exit_code). See log for details." >&2
+    else
+        rm -f "$_capture_err"
+    fi
+
+    # If tshark failed and we're root, try fallback location
     if [ $capture_exit_code -ne 0 ] && [ $capture_exit_code -ne 124 ] && [ "$(id -u)" -eq 0 ]; then
         echo "Capture failed in workflow directory, trying fallback location..." >&2
         FALLBACK_DIR="/tmp/netutil-captures"
         mkdir -p "$FALLBACK_DIR"
         chmod 755 "$FALLBACK_DIR"
         FALLBACK_FILE="$FALLBACK_DIR/promiscuous_capture_$(date +%Y%m%d_%H%M%S).pcap"
-        
+
         echo "Fallback capture file: $FALLBACK_FILE" >&2
-        timeout $((capture_duration * 60)) tshark -i "$target_interface" -w "$FALLBACK_FILE" -q 2>/dev/null
+        _capture_err="$TEMP_DIR/tshark_capture_err_2.txt"
+        timeout $((capture_duration * 60)) tshark -i "$target_interface" -w "$FALLBACK_FILE" -q 2>"$_capture_err"
         capture_exit_code=$?
-        
+        if [ $capture_exit_code -ne 0 ] && [ $capture_exit_code -ne 124 ]; then
+            _capture_diag=$(cat "$_capture_err" 2>/dev/null || echo "(no stderr captured)")
+            log_error "tshark fallback capture failed (exit $capture_exit_code) writing to $FALLBACK_FILE: $_capture_diag"
+        else
+            rm -f "$_capture_err"
+        fi
+
         # If successful in fallback location, copy to workflow directory
         if ([ $capture_exit_code -eq 0 ] || [ $capture_exit_code -eq 124 ]) && [ -f "$FALLBACK_FILE" ]; then
             echo "Capture successful in fallback location, copying to workflow directory..." >&2
-            if cp "$FALLBACK_FILE" "$capture_file" 2>/dev/null; then
+            if cp "$FALLBACK_FILE" "$capture_file"; then
                 echo "✓ Capture copied to workflow directory" >&2
                 # Update file permissions for original user if running as root
                 if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
                     chown "$SUDO_UID:$SUDO_GID" "$capture_file" 2>/dev/null || true
                 fi
             else
+                log_error "Failed to copy capture from $FALLBACK_FILE to $capture_file"
                 echo "⚠ Failed to copy to workflow directory, using fallback location" >&2
                 capture_file="$FALLBACK_FILE"
             fi
@@ -420,9 +447,14 @@ if command -v tshark >/dev/null 2>&1; then
         echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
         log_network_operation "Promiscuous capture" "$target_interface" "Completed - $(du -h "$capture_file" | cut -f1)"
 
-        # Ensure proper file ownership if running as sudo
+        # Restore ownership and permissions that were temporarily changed for dumpcap
         if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
             chown "$SUDO_UID:$SUDO_GID" "$capture_file" 2>/dev/null || true
+            chown "$SUDO_UID:$SUDO_GID" "$CAPTURE_DIR" 2>/dev/null || true
+        fi
+        # Restore workspace root permissions (was opened to o+rx for dumpcap traversal)
+        if [ -n "$_workdir_mode_restore" ] && [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
+            chmod "$_workdir_mode_restore" "$WORKDIR" 2>/dev/null || true
         fi
 
         # Get basic capture stats
@@ -468,7 +500,7 @@ echo >> "$WORKFLOW_REPORT"
 
 # Stage 2: Traffic Analysis
 if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 2/5: TRAFFIC ANALYSIS — VLAN and network extraction" "$COLOR_RESET"
+    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 2/5: TRAFFIC ANALYSIS — VLAN and network extraction" "$COLOR_RESET" >&2
 elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "STAGE 2: TRAFFIC ANALYSIS"
 else
@@ -545,7 +577,7 @@ if [ "$vlan_count" -gt 0 ]; then
                 if grep -q "^$vlan$" "$TEMP_DIR/discovered_vlans.txt"; then
                     selected_vlans="$selected_vlans $vlan"
                 else
-                    echo "⚠ Warning: VLAN $vlan was not discovered in traffic, skipping"
+                    echo "⚠ Warning: VLAN $vlan was not discovered in traffic, skipping" >&2
                 fi
             done
             if [ -n "$selected_vlans" ]; then
@@ -666,7 +698,7 @@ if [ "$vlan_count" -gt 0 ]; then
     else
         touch "$TEMP_DIR/selected_vlans.txt"  # Create empty file
         selected_vlan_count=0
-        echo "No VLANs will be configured"
+        echo "No VLANs will be configured" >&2
     fi
     else
         # L3 mode: no sub-interface selection needed; source VLAN selected later
@@ -742,7 +774,7 @@ fi
 
 # Stage 3: Interface Configuration
 if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 3/5: INTERFACE CONFIGURATION — VLAN interface setup" "$COLOR_RESET"
+    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 3/5: INTERFACE CONFIGURATION — VLAN interface setup" "$COLOR_RESET" >&2
 elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "STAGE 3: INTERFACE CONFIGURATION"
 else
@@ -958,34 +990,34 @@ echo "  Created: $vlan_interface" >> "$WORKFLOW_REPORT"
                                 head -1)
                             if [ -n "$calc_network" ]; then
                                 network_base=$(echo "$calc_network" | cut -d'.' -f1-3)
-                                echo "  Calculated network: $calc_network"
+                                echo "  Calculated network: $calc_network" >&2
                             fi
                             if [ -n "$calc_broadcast" ]; then
                                 suggested_ip="$(int_to_ip $(( $(ip_to_int "$calc_broadcast") - 2 )))${suggested_cidr}"
                             fi
                         fi
                         
-                        echo "  Discovered IPs: $(echo "$vlan_ips" | head -3 | tr '\n' ' ')"
-                        echo "  Estimated network: $network_base.0$suggested_cidr"
-                        echo "  Suggested IP: $suggested_ip"
+                        echo "  Discovered IPs: $(echo "$vlan_ips" | head -3 | tr '\n' ' ')" >&2
+                        echo "  Estimated network: $network_base.0$suggested_cidr" >&2
+                        echo "  Suggested IP: $suggested_ip" >&2
                         echo >&2
                         
                         # Prompt user for IP choice
                         chosen_ip=$(prompt_ip_choice "$suggested_ip" "$network_base" "$vlan_interface")
                         
                         if [ -n "$chosen_ip" ]; then
-                            echo "  Assigning IP: $chosen_ip"
+                            echo "  Assigning IP: $chosen_ip" >&2
                             
                             if ip addr add "$chosen_ip" dev "$vlan_interface" 2>/dev/null; then
-                                echo "✓ IP address $chosen_ip assigned to $vlan_interface"
+                                echo "✓ IP address $chosen_ip assigned to $vlan_interface" >&2
                                 echo "    IP assigned: $chosen_ip" >> "$WORKFLOW_REPORT"
                                 log_config_change "IP assigned to VLAN interface" "$vlan_interface: $chosen_ip"
                             else
-                                echo "⚠ Failed to assign IP $chosen_ip to $vlan_interface"
+                                echo "⚠ Failed to assign IP $chosen_ip to $vlan_interface" >&2
                                 log_warn "Failed to assign IP $chosen_ip to $vlan_interface"
                             fi
                         else
-                            echo "⚠ No valid IP provided, skipping IP assignment for $vlan_interface"
+                            echo "⚠ No valid IP provided, skipping IP assignment for $vlan_interface" >&2
                             log_warn "No valid IP provided for $vlan_interface"
                         fi
                     else
@@ -1107,32 +1139,32 @@ echo "  Created: $vlan_interface" >> "$WORKFLOW_REPORT"
                                 head -1)
                             if [ -n "$calc_network" ]; then
                                 network_base=$(echo "$calc_network" | cut -d'.' -f1-3)
-                                echo "  Calculated network: $calc_network"
+                                echo "  Calculated network: $calc_network" >&2
                             fi
                             if [ -n "$calc_broadcast" ]; then
                                 suggested_ip="$(int_to_ip $(( $(ip_to_int "$calc_broadcast") - 2 )))${suggested_cidr}"
                             fi
                         fi
 
-                        echo "  Discovered IPs: $(echo "$vlan_ips" | head -3 | tr '\n' ' ')"
-                        echo "  Estimated network: $network_base.0$suggested_cidr"
-                        echo "  Suggested IP: $suggested_ip"
+                        echo "  Discovered IPs: $(echo "$vlan_ips" | head -3 | tr '\n' ' ')" >&2
+                        echo "  Estimated network: $network_base.0$suggested_cidr" >&2
+                        echo "  Suggested IP: $suggested_ip" >&2
                         echo >&2
 
                         chosen_ip=$(prompt_ip_choice "$suggested_ip" "$network_base" "$vlan_interface")
 
                         if [ -n "$chosen_ip" ]; then
-                            echo "  Assigning IP: $chosen_ip"
+                            echo "  Assigning IP: $chosen_ip" >&2
                             if ip addr add "$chosen_ip" dev "$vlan_interface" 2>/dev/null; then
-                                echo "✓ IP address $chosen_ip assigned to $vlan_interface"
+                                echo "✓ IP address $chosen_ip assigned to $vlan_interface" >&2
                                 echo "    IP assigned: $chosen_ip" >> "$WORKFLOW_REPORT"
                                 log_config_change "IP assigned to VLAN interface" "$vlan_interface: $chosen_ip"
                             else
-                                echo "⚠ Failed to assign IP $chosen_ip to $vlan_interface"
+                                echo "⚠ Failed to assign IP $chosen_ip to $vlan_interface" >&2
                                 log_warn "Failed to assign IP $chosen_ip to $vlan_interface"
                             fi
                         else
-                            echo "⚠ No valid IP provided, skipping IP assignment for $vlan_interface"
+                            echo "⚠ No valid IP provided, skipping IP assignment for $vlan_interface" >&2
                             log_warn "No valid IP provided for $vlan_interface"
                         fi
                     else
@@ -1306,33 +1338,33 @@ echo "    Suggested IP: $suggested_ip" >&2
             
             # Validate IP format
             if [ -n "$chosen_ip" ] && echo "$chosen_ip" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'; then
-                echo "  Assigning IP: $chosen_ip"
+                echo "  Assigning IP: $chosen_ip" >&2
                 
                 if ip addr add "$chosen_ip" dev "$target_interface" 2>/dev/null; then
-                    echo "✓ IP address $chosen_ip assigned to $target_interface"
+                    echo "✓ IP address $chosen_ip assigned to $target_interface" >&2
                     echo "    IP assigned: $chosen_ip" >> "$WORKFLOW_REPORT"
                     log_config_change "IP assigned to main interface" "$target_interface: $chosen_ip"
                     interfaces_configured=$((interfaces_configured + 1))
                     ip_assigned=1
                 else
-                    echo "✗ Failed to assign IP address $chosen_ip to $target_interface"
-                    echo "    Error: IP may already be in use or interface issue"
+                    echo "✗ Failed to assign IP address $chosen_ip to $target_interface" >&2
+                    echo "    Error: IP may already be in use or interface issue" >&2
                     echo "    IP assignment failed: $chosen_ip" >> "$WORKFLOW_REPORT"
                     log_error "Failed to assign IP address $chosen_ip to $target_interface"
                     
                     if [ $retry_count -lt $max_retries ]; then
-                        echo "    Please try a different IP address (attempt $retry_count of $max_retries)..."
+                        echo "    Please try a different IP address (attempt $retry_count of $max_retries)..." >&2
                         suggested_ip=""  # Clear suggestion for retry
                     fi
                 fi
             else
-                echo "✗ Invalid IP address format: '$chosen_ip'"
-                echo "    Format should be: x.x.x.x/xx (e.g., 192.168.1.100/24)"
+                echo "✗ Invalid IP address format: '$chosen_ip'" >&2
+                echo "    Format should be: x.x.x.x/xx (e.g., 192.168.1.100/24)" >&2
                 echo "    Invalid IP format: $chosen_ip" >> "$WORKFLOW_REPORT"
                 log_error "Invalid IP address format provided: $chosen_ip"
                 
                 if [ $retry_count -lt $max_retries ]; then
-                    echo "    Please try again (attempt $retry_count of $max_retries)..."
+                    echo "    Please try again (attempt $retry_count of $max_retries)..." >&2
                     suggested_ip=""  # Clear suggestion for retry
                 fi
             fi
@@ -1340,8 +1372,8 @@ echo "    Suggested IP: $suggested_ip" >&2
         
         # Ensure IP was assigned - critical requirement
         if [ $ip_assigned -eq 0 ]; then
-            echo "✗ CRITICAL ERROR: Failed to assign IP address after $max_retries attempts"
-            echo "    Cannot proceed with discovery without interface IP configuration"
+            echo "✗ CRITICAL ERROR: Failed to assign IP address after $max_retries attempts" >&2
+            echo "    Cannot proceed with discovery without interface IP configuration" >&2
             echo "    Status: FAILED (no IP assigned)" >> "$WORKFLOW_REPORT"
             log_error "Critical failure: No IP address assigned to main interface after $max_retries attempts"
             exit 1
@@ -1597,7 +1629,7 @@ print_vlan_discovery_overview() {
 # Session-level consolidation and reporting functions
 create_session_consolidation_reports() {
     if [ -z "$SESSION_DISCOVERY_DIR" ]; then
-        echo "No session directory available for consolidation"
+        echo "No session directory available for consolidation" >&2
         return 1
     fi
     
@@ -1855,12 +1887,12 @@ review_and_confirm_networks() {
 
 # Stage 4: Network Discovery
 if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4/5: NETWORK DISCOVERY — Multi-phase scan execution" "$COLOR_RESET"
+    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4/5: NETWORK DISCOVERY — Multi-phase scan execution" "$COLOR_RESET" >&2
 elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "STAGE 4: NETWORK DISCOVERY"
 else
     echo >&2
-    echo "=== Stage 4: Network Discovery ==="
+    echo "=== Stage 4: Network Discovery ===" >&2
 fi
 echo "--- STAGE 4: NETWORK DISCOVERY ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
@@ -1872,7 +1904,7 @@ discovery_script="$(dirname "$0")/../discovery/multi_phase_discovery.sh"
 
 if [ -x "$discovery_script" ]; then
     if [ "$selected_vlan_count" -gt 0 ]; then
-        echo "Running VLAN-aware discovery with separate results per VLAN..."
+        echo "Running VLAN-aware discovery with separate results per VLAN..." >&2
         echo "VLAN-aware discovery initiated" >&2 >> "$WORKFLOW_REPORT"
         
         # Create session-based discovery structure with VLAN organization
@@ -1899,7 +1931,7 @@ if [ -x "$discovery_script" ]; then
         # Stage 4a: Network Collection
         # Collect all VLAN networks upfront before starting discoveries
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4a: NETWORK COLLECTION — Collecting discovery networks for all VLANs" "$COLOR_RESET"
+            printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4a: NETWORK COLLECTION — Collecting discovery networks for all VLANs" "$COLOR_RESET" >&2
         elif command -v print_phase_header >/dev/null 2>&1; then
             print_phase_header "STAGE 4a: NETWORK COLLECTION" >&2
             color_info "Collecting discovery networks for all VLANs..." >&2
@@ -2053,7 +2085,7 @@ if [ -x "$discovery_script" ]; then
             vlan_network_count=$(wc -l < "$VLAN_NETWORKS_FILE" | tr -d ' ')
         fi
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4b: NETWORK DISCOVERY EXECUTION — Running network discovery on configured VLANs" "$COLOR_RESET"
+            printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4b: NETWORK DISCOVERY EXECUTION — Running network discovery on configured VLANs" "$COLOR_RESET" >&2
         elif command -v print_phase_header >/dev/null 2>&1; then
             print_phase_header "STAGE 4b: NETWORK DISCOVERY EXECUTION" >&2
             color_info "Running network discovery on configured VLANs..." >&2
@@ -2223,7 +2255,7 @@ if [ -x "$discovery_script" ]; then
                     fi
                 done
                 printf '##NETUTIL:PROGRESS## [%s/%s VLANs]%s\n' \
-                    "$_pv_done" "$_pv_total" "$_pv_parts"
+                    "$_pv_done" "$_pv_total" "$_pv_parts" >&2
                 sleep 2
             done
         ) &
@@ -2275,9 +2307,9 @@ if [ -x "$discovery_script" ]; then
         
         # Summary
         if [ $discovery_success -gt 0 ]; then
-            echo "✓ VLAN-aware discovery completed: $discovery_success VLANs discovered successfully"
+            echo "✓ VLAN-aware discovery completed: $discovery_success VLANs discovered successfully" >&2
             echo "Status: SUCCESS ($discovery_success VLANs)" >> "$WORKFLOW_REPORT"
-            echo "Discovery results organized in session: $SESSION_DISCOVERY_DIR"
+            echo "Discovery results organized in session: $SESSION_DISCOVERY_DIR" >&2
             
             # Update latest symlinks for session results
             update_latest_links "discovery" "$SESSION_DISCOVERY_DIR"
@@ -2293,29 +2325,29 @@ if [ -x "$discovery_script" ]; then
                 vlan_name=$(basename "$vlan_dir")
                 echo "- $vlan_name: $([ -f "$vlan_dir/meta/discovery_output.txt" ] && echo "SUCCESS" || echo "FAILED")" >> "$discovery_summary"
             done
-            echo "VLAN discovery summary: $discovery_summary"
+            echo "VLAN discovery summary: $discovery_summary" >&2
             
             # Finalize session metadata
             echo "Session completed: $(date)" >> "$SESSION_METADATA"
-            echo "Total successful VLANs: $discovery_success"
+            echo "Total successful VLANs: $discovery_success" >&2
             
             # Create session-level consolidation and reporting
             create_session_consolidation_reports >> "$SESSION_METADATA"
         else
-            echo "✗ All VLAN discoveries failed"
+            echo "✗ All VLAN discoveries failed" >&2
             echo "Status: FAILED" >> "$WORKFLOW_REPORT"
             log_error "All VLAN discoveries failed in auto-discovery workflow"
         fi
     else
         # No VLANs scenario - standard discovery on main interface with network confirmation
-        echo "Running standard discovery on main interface..."
+        echo "Running standard discovery on main interface..." >&2
         echo "Standard discovery initiated" >> "$WORKFLOW_REPORT"
         
         # Get current network range from main interface
         main_interface_network=$(get_network_range "$target_interface")
         
         if [ -n "$main_interface_network" ]; then
-            echo "Current interface network: $main_interface_network"
+            echo "Current interface network: $main_interface_network" >&2
             echo "    Interface network: $main_interface_network" >> "$WORKFLOW_REPORT"
             
             # Extract captured traffic networks for additional suggestions
@@ -2362,14 +2394,14 @@ if [ -x "$discovery_script" ]; then
             case "$network_choice" in
                 1)
                     discovery_network="$main_interface_network"
-                    echo "✓ Using interface network: $discovery_network"
+                    echo "✓ Using interface network: $discovery_network" >&2
                     echo "    Discovery network: $discovery_network (interface)" >> "$WORKFLOW_REPORT"
                     ;;
                 2)
                     if [ -n "$main_ips" ]; then
                         # Show traffic networks for selection
-                        echo "Available networks from traffic:"
-                        echo "$traffic_networks" | head -5 | nl -v1 -w2 -s') '
+                        echo "Available networks from traffic:" >&2
+                        echo "$traffic_networks" | head -5 | nl -v1 -w2 -s') ' >&2
                         echo >&2
                         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
                             printf "%sSelect network (1-%s): %s\n" "$PROMPT_COLOR" "$(echo "$traffic_networks" | head -5 | wc -l)" "$COLOR_RESET" >&2
@@ -2380,10 +2412,10 @@ if [ -x "$discovery_script" ]; then
                         
                         discovery_network=$(echo "$traffic_networks" | sed -n "${traffic_choice}p")
                         if [ -n "$discovery_network" ]; then
-                            echo "✓ Using traffic network: $discovery_network"
+                            echo "✓ Using traffic network: $discovery_network" >&2
                             echo "    Discovery network: $discovery_network (traffic)" >> "$WORKFLOW_REPORT"
                         else
-                            echo "Invalid selection, using interface network: $main_interface_network"
+                            echo "Invalid selection, using interface network: $main_interface_network" >&2
                             discovery_network="$main_interface_network"
                             echo "    Discovery network: $discovery_network (fallback)" >> "$WORKFLOW_REPORT"
                         fi
@@ -2398,10 +2430,10 @@ if [ -x "$discovery_script" ]; then
 
                         if [ -n "$custom_network" ] && echo "$custom_network" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
                             discovery_network="$custom_network"
-                            echo "✓ Using custom network: $discovery_network"
+                            echo "✓ Using custom network: $discovery_network" >&2
                             echo "    Discovery network: $discovery_network (custom)" >> "$WORKFLOW_REPORT"
                         else
-                            echo "Invalid format, using interface network: $main_interface_network"
+                            echo "Invalid format, using interface network: $main_interface_network" >&2
                             discovery_network="$main_interface_network"
                             echo "    Discovery network: $discovery_network (fallback)" >> "$WORKFLOW_REPORT"
                         fi
@@ -2418,16 +2450,16 @@ if [ -x "$discovery_script" ]; then
                     
                     if [ -n "$custom_network" ] && echo "$custom_network" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+/[0-9]+$'; then
                         discovery_network="$custom_network"
-                        echo "✓ Using custom network: $discovery_network"
+                        echo "✓ Using custom network: $discovery_network" >&2
                         echo "    Discovery network: $discovery_network (custom)" >> "$WORKFLOW_REPORT"
                     else
-                        echo "Invalid format, using interface network: $main_interface_network"
+                        echo "Invalid format, using interface network: $main_interface_network" >&2
                         discovery_network="$main_interface_network"
                         echo "    Discovery network: $discovery_network (fallback)" >> "$WORKFLOW_REPORT"
                     fi
                     ;;
                 *)
-                    echo "Invalid choice, using interface network: $main_interface_network"
+                    echo "Invalid choice, using interface network: $main_interface_network" >&2
                     discovery_network="$main_interface_network"
                     echo "    Discovery network: $discovery_network (default)" >> "$WORKFLOW_REPORT"
                     ;;
@@ -2436,10 +2468,10 @@ if [ -x "$discovery_script" ]; then
             log_info "Discovery network selected: $discovery_network"
             
         else
-            echo "⚠ No network range found for interface $target_interface"
+            echo "⚠ No network range found for interface $target_interface" >&2
             echo "    Status: SKIPPED (no network)" >> "$WORKFLOW_REPORT"
             log_error "No network range found for main interface $target_interface"
-            echo "✗ Cannot proceed with discovery - interface has no network configuration"
+            echo "✗ Cannot proceed with discovery - interface has no network configuration" >&2
             exit 1
         fi
         
@@ -2464,7 +2496,7 @@ if [ -x "$discovery_script" ]; then
         } > "$SESSION_METADATA"
 
         if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-            printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4: NETWORK DISCOVERY EXECUTION — Running network discovery on main interface" "$COLOR_RESET"
+            printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 4: NETWORK DISCOVERY EXECUTION — Running network discovery on main interface" "$COLOR_RESET" >&2
         elif command -v print_phase_header >/dev/null 2>&1; then
             print_phase_header "STAGE 4: NETWORK DISCOVERY EXECUTION" >&2
             color_info "Running network discovery on $discovery_network..." >&2
@@ -2495,12 +2527,12 @@ if [ -x "$discovery_script" ]; then
         unset AUTO_DISCOVERY_MAIN_DIR AUTO_DISCOVERY_SESSION_DIR
         
         if [ $discovery_exit_code -eq 0 ]; then
-            echo "✓ Network discovery completed successfully"
+            echo "✓ Network discovery completed successfully" >&2
             echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
             
             # Results are now directly in main network directory
-            echo "Discovery results saved to: $SESSION_DISCOVERY_DIR"
-            echo "Main network results in: $MAIN_NETWORK_DIR"
+            echo "Discovery results saved to: $SESSION_DISCOVERY_DIR" >&2
+            echo "Main network results in: $MAIN_NETWORK_DIR" >&2
             
             # Update session metadata with success
             echo "Main Network: SUCCESS - Network $discovery_network" >> "$SESSION_METADATA"
@@ -2517,13 +2549,13 @@ if [ -x "$discovery_script" ]; then
             head -50 "$MAIN_NETWORK_DIR/meta/discovery_output.txt" >> "$WORKFLOW_REPORT"
             echo "... (full output in session results)" >> "$WORKFLOW_REPORT"
         else
-            echo "✗ Network discovery failed"
+            echo "✗ Network discovery failed" >&2
             echo "Status: FAILED" >> "$WORKFLOW_REPORT"
             log_error "Network discovery failed in auto-discovery workflow"
         fi
     fi
 else
-    echo "✗ Discovery script not found"
+    echo "✗ Discovery script not found" >&2
     echo "Status: FAILED (script not found)" >> "$WORKFLOW_REPORT"
     log_error "Discovery script not found for auto-discovery workflow"
 fi
@@ -2533,19 +2565,19 @@ echo >> "$WORKFLOW_REPORT"
 
 # Stage 5: Advanced Analysis
 if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
-    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 5/5: ADVANCED ANALYSIS — Packet analysis and reporting" "$COLOR_RESET"
+    printf "%s%s%s\n" "$COLOR_YELLOW" "Stage 5/5: ADVANCED ANALYSIS — Packet analysis and reporting" "$COLOR_RESET" >&2
 elif command -v print_phase_header >/dev/null 2>&1; then
     print_phase_header "STAGE 5: ADVANCED ANALYSIS"
 else
     echo >&2
-    echo "=== Stage 5: Advanced Analysis ==="
+    echo "=== Stage 5: Advanced Analysis ===" >&2
 fi
 echo "--- STAGE 5: ADVANCED ANALYSIS ---" >> "$WORKFLOW_REPORT"
 echo "Started: $(date)" >> "$WORKFLOW_REPORT"
 
 log_info "Starting Stage 5: Advanced analysis"
 
-echo "Running advanced packet analysis..."
+echo "Running advanced packet analysis..." >&2
 analysis_script="$(dirname "$0")/../analysis/advanced_packet_analysis.sh"
 
 if [ -x "$analysis_script" ]; then
@@ -2553,7 +2585,7 @@ if [ -x "$analysis_script" ]; then
     analysis_exit_code=$?
     
     if [ $analysis_exit_code -eq 0 ]; then
-        echo "✓ Advanced analysis completed successfully"
+        echo "✓ Advanced analysis completed successfully" >&2
         echo "Status: SUCCESS" >> "$WORKFLOW_REPORT"
         
         # Update latest symlinks for analysis results
@@ -2563,15 +2595,15 @@ if [ -x "$analysis_script" ]; then
             update_latest_links "analysis" "$latest_analysis"
             # Copy analysis report to session reports
             cp "$latest_analysis" "$REPORT_SESSION_DIR/advanced_analysis.txt" 2>/dev/null || true
-            echo "Advanced analysis report copied to session reports"
+            echo "Advanced analysis report copied to session reports" >&2
         fi
     else
-        echo "✗ Advanced analysis failed"
+        echo "✗ Advanced analysis failed" >&2
         echo "Status: FAILED" >> "$WORKFLOW_REPORT"
         log_error "Advanced analysis failed in auto-discovery workflow"
     fi
 else
-    echo "✗ Advanced analysis script not found"
+    echo "✗ Advanced analysis script not found" >&2
     echo "Status: FAILED (script not found)" >> "$WORKFLOW_REPORT"
     log_error "Advanced analysis script not found for auto-discovery workflow"
 fi
@@ -2604,8 +2636,8 @@ else
     echo "=== Auto-Discovery Complete ===" >&2
 fi
 if [ "$discovery_mode" = "l3" ] && [ -f "$VLAN_NETWORKS_FILE" ]; then
-    echo
-    echo "L3 Network Discovery Overview:"
+    echo >&2
+    echo "L3 Network Discovery Overview:" >&2
     # Extract labels column for overview function
     cut -d' ' -f1 "$VLAN_NETWORKS_FILE" > "$TEMP_DIR/l3_labels.txt"
     print_vlan_discovery_overview \
@@ -2613,8 +2645,8 @@ if [ "$discovery_mode" = "l3" ] && [ -f "$VLAN_NETWORKS_FILE" ]; then
         "$VLAN_NETWORKS_FILE" \
         "$SESSION_DISCOVERY_DIR"
 elif [ -f "$TEMP_DIR/selected_vlans.txt" ]; then
-    echo
-    echo "VLAN Discovery Overview:"
+    echo >&2
+    echo "VLAN Discovery Overview:" >&2
     print_vlan_discovery_overview \
         "$TEMP_DIR/selected_vlans.txt" \
         "$VLAN_NETWORKS_FILE" \
@@ -2625,32 +2657,32 @@ fi
 update_latest_links "captures" "$capture_file"
 update_latest_links "reports" "$REPORT_SESSION_DIR"
 
-echo
-echo "Results:"
-echo "  📁 $WORKDIR/"
-echo "    ├── 📊 reports/$SESSION_NAME/ (consolidated reports)"
-echo "    │   ├── auto_discovery_report.txt"
+echo >&2
+echo "Results:" >&2
+echo "  📁 $WORKDIR/" >&2
+echo "    ├── 📊 reports/$SESSION_NAME/ (consolidated reports)" >&2
+echo "    │   ├── auto_discovery_report.txt" >&2
 if [ "$interfaces_configured" -gt 0 ]; then
-    echo "    │   ├── vlan_discovery_summary.txt"
+    echo "    │   ├── vlan_discovery_summary.txt" >&2
 fi
 if [ -f "$REPORT_SESSION_DIR/advanced_analysis.txt" ]; then
-    echo "    │   └── advanced_analysis.txt"
+    echo "    │   └── advanced_analysis.txt" >&2
 fi
-echo "    ├── 📦 captures/ (packet captures)"
-echo "    │   └── auto_discover_capture_${TIMESTAMP}.pcap"
-echo "    ├── 🔍 discovery/ (network discovery results)"
+echo "    ├── 📦 captures/ (packet captures)" >&2
+echo "    │   └── auto_discover_capture_${TIMESTAMP}.pcap" >&2
+echo "    ├── 🔍 discovery/ (network discovery results)" >&2
 if [ "$interfaces_configured" -gt 0 ]; then
     find "$SESSION_DISCOVERY_DIR" -maxdepth 1 -name "vlan_*" -type d 2>/dev/null | while read -r vlan_dir; do
         vlan_name=$(basename "$vlan_dir")
-        echo "    │   └── $vlan_name/"
+        echo "    │   └── $vlan_name/" >&2
     done
 fi
-echo "    └── 🔗 latest/ (symlinks to most recent results)"
-echo "        ├── discovery -> (latest discovery session)"
-echo "        ├── analysis -> (latest analysis results)"
-echo "        ├── captures -> (latest capture file)"
-echo "        └── reports -> (latest reports session)"
-echo
+echo "    └── 🔗 latest/ (symlinks to most recent results)" >&2
+echo "        ├── discovery -> (latest discovery session)" >&2
+echo "        ├── analysis -> (latest analysis results)" >&2
+echo "        ├── captures -> (latest capture file)" >&2
+echo "        └── reports -> (latest reports session)" >&2
+echo >&2
 
 fix_ownership "$WORKDIR/discovery" "$REPORT_SESSION_DIR"
 log_info "Auto-discovery workflow completed successfully"

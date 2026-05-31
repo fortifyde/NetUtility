@@ -18,11 +18,11 @@ SCRIPT_NAME="$(basename "$0")"
 print_phase_header "LLDP/CDP Neighbor Discovery"
 log_info "=== Script started ===" "$SCRIPT_NAME"
 echo >&2
-echo "This script discovers Layer-2 network neighbors via LLDP and CDP:"
-echo "  - Device hostname and management IP"
-echo "  - Local/remote interface mapping"
-echo "  - Device type (switch, router, phone, AP)"
-echo "  - VLAN advertisements"
+echo "This script discovers Layer-2 network neighbors via LLDP and CDP:" >&2
+echo "  - Device hostname and management IP" >&2
+echo "  - Local/remote interface mapping" >&2
+echo "  - Device type (switch, router, phone, AP)" >&2
+echo "  - VLAN advertisements" >&2
 echo >&2
 
 # Setup results directory under workspace
@@ -31,6 +31,24 @@ RESULTS_BASE="$WORKDIR/discovery/lldp_cdp"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SESSION_DIR="$RESULTS_BASE/lldp_cdp_${TIMESTAMP}"
 mkdir -p "$SESSION_DIR"
+# Ensure the capture path is usable by tshark/dumpcap.
+# tshark 4.x spawns dumpcap, which opens the interface as root then drops
+# privileges to an unprivileged user (e.g. "nobody").  That user must be
+# able to traverse every directory from / down to the output file AND the
+# output directory must be owned by root (dumpcap refuses to write into
+# directories owned by another user as a symlink-attack mitigation).
+# The Go binary's FixWorkspaceOwnership sets the workspace to
+# <user>:<group> 0750, which blocks traversal by the dropped-privilege user.
+# Temporarily open the path and re-own the output directory.
+_workdir_mode_restore=""
+if [ "$(id -u)" -eq 0 ]; then
+    if [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
+        _workdir_mode_restore=$(stat -c '%a' "$WORKDIR" 2>/dev/null)
+        chmod o+rx "$WORKDIR"
+    fi
+    chown 0:0 "$SESSION_DIR" 2>/dev/null || true
+    chmod 755 "$SESSION_DIR"
+fi
 
 # Interface selection
 interface=$(select_interface "Select interface for LLDP/CDP capture" "lldp_cdp")
@@ -79,11 +97,11 @@ XML_OUTPUT="$SESSION_DIR/lldp_cdp_results.xml"
 # ===========================================================================
 emit_progress "Capturing LLDP/CDP Frames" 1 3
 print_subphase "Phase 1: Capturing LLDP/CDP Frames"
-echo "Capturing LLDP/CDP frames on $interface for ${capture_duration} seconds..."
-echo "LLDP frames use multicast 01:80:C2:00:00:0E (EtherType 0x88CC)"
-echo "CDP frames use multicast 01:00:0C:CC:CC:CC"
-echo "Note: Interface must be connected to a switch/router that sends LLDP/CDP."
-echo "      If nothing is captured, the upstream device may not advertise neighbors."
+echo "Capturing LLDP/CDP frames on $interface for ${capture_duration} seconds..." >&2
+echo "LLDP frames use multicast 01:80:C2:00:00:0E (EtherType 0x88CC)" >&2
+echo "CDP frames use multicast 01:00:0C:CC:CC:CC" >&2
+echo "Note: Interface must be connected to a switch/router that sends LLDP/CDP." >&2
+echo "      If nothing is captured, the upstream device may not advertise neighbors." >&2
 echo >&2
 
 # Capture LLDP and CDP frames via tshark
@@ -119,6 +137,10 @@ if [ $tshark_exit -ne 0 ]; then
     echo "  - Another capture process is using the interface" >&2
     echo "  - Missing libpcap / dumpcap permissions" >&2
     rm -f "$tshark_err_file"
+    # Restore workspace root permissions on error path
+    if [ -n "$_workdir_mode_restore" ] && [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
+        chmod "$_workdir_mode_restore" "$WORKDIR" 2>/dev/null || true
+    fi
     exit 1
 fi
 rm -f "$tshark_err_file"
@@ -126,7 +148,7 @@ rm -f "$tshark_err_file"
 # Also try lldpctl as an alternative if tshark captured nothing
 if [ ! -s "$PCAP_FILE" ]; then
     if command -v lldpctl >/dev/null 2>&1; then
-        echo "No LLDP frames captured via tshark. Trying lldpctl..."
+        echo "No LLDP frames captured via tshark. Trying lldpctl..." >&2
         log_info "Trying lldpctl as fallback" "$SCRIPT_NAME"
         {
             echo "=== LLDP Neighbor Discovery Results (lldpctl) ==="
@@ -157,7 +179,7 @@ else
     emit_progress "Parsing LLDP Neighbors" 2 3
     print_subphase "Phase 2: Parsing LLDP Neighbors"
 
-    echo "Parsing LLDP neighbor information..."
+    echo "Parsing LLDP neighbor information..." >&2
 
     # Extract LLDP details from capture using tshark display filters
     {
@@ -186,7 +208,7 @@ else
     } > "$LLDP_OUTPUT"
 
     # Extract CDP details
-    echo "Parsing CDP neighbor information..."
+    echo "Parsing CDP neighbor information..." >&2
 
     {
         echo "=== CDP Neighbor Discovery Results ==="
@@ -341,10 +363,21 @@ else
     } > "$COMBINED_OUTPUT"
 
     success_message "Phase 3 complete: Summary generated"
+
+    # Restore ownership and permissions temporarily changed for dumpcap
+    if [ -n "$SUDO_UID" ] && [ -n "$SUDO_GID" ]; then
+        chown "$SUDO_UID:$SUDO_GID" "$PCAP_FILE" 2>/dev/null || true
+        chown "$SUDO_UID:$SUDO_GID" "$SESSION_DIR" 2>/dev/null || true
+    fi
+fi
+
+# Restore workspace root permissions (opened to o+rx for dumpcap traversal)
+if [ -n "$_workdir_mode_restore" ] && [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
+    chmod "$_workdir_mode_restore" "$WORKDIR" 2>/dev/null || true
 fi
 
 echo >&2
 success_message "LLDP/CDP discovery complete"
 log_info "=== Script completed ===" "$SCRIPT_NAME"
-echo "Results saved to: $SESSION_DIR"
+echo "Results saved to: $SESSION_DIR" >&2
 echo "$SESSION_DIR"
