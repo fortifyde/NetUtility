@@ -822,7 +822,7 @@ HelpText: `[yellow]Navigation:[white]
 	FmtExecutionOptions:  "Maximale Anzahl gleichzeitiger Jobs erreicht.\n\nWie soll '%s' ausgeführt werden?",
 
 	// Category display names
-	CatNetworkSetup:     "Netzwerk-Einrichtung",
+	CatNetworkSetup:     "Host-Einrichtung",
 	CatSystemUtilities:  "Werkzeuge",
 	CatNetworkDiscovery: "Discovery",
 	CatCaptureAnalysis:  "Analyse",
