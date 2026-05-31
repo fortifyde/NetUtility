@@ -1507,3 +1507,68 @@ fix_ownership() {
         chown -R "$SUDO_USER:$SUDO_USER" "$@" 2>/dev/null || true
     fi
 }
+
+# Prepare a directory path for tshark/dumpcap capture output.
+#
+# tshark 4.x spawns dumpcap, which opens the capture interface as root then
+# drops privileges to an unprivileged user (e.g. "nobody").  That user must be
+# able to traverse every directory from / down to the output file, AND the
+# immediate output directory must be owned by root (dumpcap refuses to write
+# into directories owned by another user as a symlink-attack mitigation).
+#
+# The Go binary's FixWorkspaceOwnership/FixWorkspacePermissions sets workspace
+# directories to <user>:<group> 0750, which blocks traversal.  This function
+# temporarily opens o+rx on every intermediate directory from $WORKDIR down to
+# the capture output directory, and re-owns the output directory to root.
+#
+# Saves original modes in a global variable for tshark_restore_path to undo.
+#
+# Usage: tshark_prepare_path <output_dir> [<workdir>]
+#   output_dir  - directory where tshark will write the pcap file
+#   workdir     - workspace root (defaults to $NETUTIL_WORKDIR or $HOME)
+_tshark_saved_modes=""
+tshark_prepare_path() {
+    [ "$(id -u)" -eq 0 ] || return 0
+    local _out_dir="${1:-.}"
+    local _workdir="${2:-${NETUTIL_WORKDIR:-$HOME}}"
+    _tshark_saved_modes=""
+
+    # Open the workspace root itself for traversal
+    local _mode
+    _mode=$(stat -c '%a' "$_workdir" 2>/dev/null) || _mode=""
+    if [ -n "$_mode" ]; then
+        chmod o+rx "$_workdir" 2>/dev/null || true
+        _tshark_saved_modes="$_workdir:$_mode"
+    fi
+    # Walk from workdir down to output_dir, opening o+rx on each intermediate
+    local _current="$_workdir"
+    local _rel="${_out_dir#$_workdir}"
+    _rel="${_rel#/}"
+    while [ -n "$_rel" ]; do
+        local _next="${_rel%%/*}"
+        _rel="${_rel#$_next}"
+        _rel="${_rel#/}"
+        [ -n "$_next" ] || break
+        _current="$_current/$_next"
+        [ -d "$_current" ] || continue
+        _mode=$(stat -c '%a' "$_current" 2>/dev/null) || continue
+        chmod o+rx "$_current" 2>/dev/null || true
+        _tshark_saved_modes="$_current:$_mode $_tshark_saved_modes"
+    done
+
+    # Re-own the immediate output directory to root (dumpcap requirement)
+    chown 0:0 "$_out_dir" 2>/dev/null || true
+    chmod 755 "$_out_dir"
+}
+
+# Restore directory permissions saved by tshark_prepare_path.
+tshark_restore_path() {
+    [ -n "$_tshark_saved_modes" ] || return 0
+    local _entry
+    for _entry in $_tshark_saved_modes; do
+        local _path="${_entry%:*}"
+        local _mode="${_entry##*:}"
+        [ -n "$_path" ] && [ -n "$_mode" ] && chmod "$_mode" "$_path" 2>/dev/null || true
+    done
+    _tshark_saved_modes=""
+}

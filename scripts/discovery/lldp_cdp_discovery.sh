@@ -31,24 +31,8 @@ RESULTS_BASE="$WORKDIR/discovery/lldp_cdp"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 SESSION_DIR="$RESULTS_BASE/lldp_cdp_${TIMESTAMP}"
 mkdir -p "$SESSION_DIR"
-# Ensure the capture path is usable by tshark/dumpcap.
-# tshark 4.x spawns dumpcap, which opens the interface as root then drops
-# privileges to an unprivileged user (e.g. "nobody").  That user must be
-# able to traverse every directory from / down to the output file AND the
-# output directory must be owned by root (dumpcap refuses to write into
-# directories owned by another user as a symlink-attack mitigation).
-# The Go binary's FixWorkspaceOwnership sets the workspace to
-# <user>:<group> 0750, which blocks traversal by the dropped-privilege user.
-# Temporarily open the path and re-own the output directory.
-_workdir_mode_restore=""
-if [ "$(id -u)" -eq 0 ]; then
-    if [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
-        _workdir_mode_restore=$(stat -c '%a' "$WORKDIR" 2>/dev/null)
-        chmod o+rx "$WORKDIR"
-    fi
-    chown 0:0 "$SESSION_DIR" 2>/dev/null || true
-    chmod 755 "$SESSION_DIR"
-fi
+# Prepare capture path for tshark/dumpcap (opens traversal, re-owns output dir)
+tshark_prepare_path "$SESSION_DIR" "$WORKDIR"
 
 # Interface selection
 interface=$(select_interface "Select interface for LLDP/CDP capture" "lldp_cdp")
@@ -137,10 +121,8 @@ if [ $tshark_exit -ne 0 ]; then
     echo "  - Another capture process is using the interface" >&2
     echo "  - Missing libpcap / dumpcap permissions" >&2
     rm -f "$tshark_err_file"
-    # Restore workspace root permissions on error path
-    if [ -n "$_workdir_mode_restore" ] && [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
-        chmod "$_workdir_mode_restore" "$WORKDIR" 2>/dev/null || true
-    fi
+    # Restore directory permissions on error path
+    tshark_restore_path
     exit 1
 fi
 rm -f "$tshark_err_file"
@@ -371,12 +353,9 @@ else
     fi
 fi
 
-# Restore workspace root permissions (opened to o+rx for dumpcap traversal)
-if [ -n "$_workdir_mode_restore" ] && [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
-    chmod "$_workdir_mode_restore" "$WORKDIR" 2>/dev/null || true
-fi
+# Restore directory permissions (opened for dumpcap traversal)
+tshark_restore_path
 
-echo >&2
 success_message "LLDP/CDP discovery complete"
 log_info "=== Script completed ===" "$SCRIPT_NAME"
 echo "Results saved to: $SESSION_DIR" >&2

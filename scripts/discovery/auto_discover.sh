@@ -339,25 +339,8 @@ fi
 # Capture traffic
 CAPTURE_DIR="$WORKDIR/captures"
 mkdir -p "$CAPTURE_DIR"
-# Ensure the capture path is usable by tshark/dumpcap.
-# tshark 4.x spawns dumpcap, which opens the interface as root then drops
-# privileges to an unprivileged user (e.g. "nobody").  That user must be
-# able to traverse every directory from / down to the output file AND the
-# output directory must be owned by root (dumpcap refuses to write into
-# directories owned by another user as a symlink-attack mitigation).
-# The Go binary's FixWorkspaceOwnership sets the workspace root to
-# kali:kali 0750, which blocks traversal by the dropped-privilege user.
-# Temporarily open the path and re-own the captures directory.
-_workdir_mode_restore=""
-if [ "$(id -u)" -eq 0 ]; then
-    # Make workspace root traversable (o+rx) for the privilege-dropped writer
-    if [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
-        _workdir_mode_restore=$(stat -c '%a' "$WORKDIR" 2>/dev/null)
-        chmod o+rx "$WORKDIR"
-    fi
-    chown 0:0 "$CAPTURE_DIR" 2>/dev/null || true
-    chmod 755 "$CAPTURE_DIR"
-fi
+# Prepare capture path for tshark/dumpcap (opens traversal, re-owns output dir)
+tshark_prepare_path "$CAPTURE_DIR" "$WORKDIR"
 capture_file="$CAPTURE_DIR/auto_discover_capture_${TIMESTAMP}.pcap"
 
 echo "Starting promiscuous capture for $capture_duration minutes..." >&2
@@ -452,10 +435,7 @@ if command -v tshark >/dev/null 2>&1; then
             chown "$SUDO_UID:$SUDO_GID" "$capture_file" 2>/dev/null || true
             chown "$SUDO_UID:$SUDO_GID" "$CAPTURE_DIR" 2>/dev/null || true
         fi
-        # Restore workspace root permissions (was opened to o+rx for dumpcap traversal)
-        if [ -n "$_workdir_mode_restore" ] && [ -n "$WORKDIR" ] && [ -d "$WORKDIR" ]; then
-            chmod "$_workdir_mode_restore" "$WORKDIR" 2>/dev/null || true
-        fi
+        tshark_restore_path
 
         # Get basic capture stats
         if command -v capinfos >/dev/null 2>&1; then
