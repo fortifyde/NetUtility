@@ -707,6 +707,7 @@ func (cv *CorrelationViewer) generatePackage() {
 				cv.pages.AddPage("package-result", modal, true, true)
 				cv.app.SetFocus(modal)
 			})
+			cv.app.Sync()
 			return
 		}
 		cv.app.QueueUpdateDraw(func() {
@@ -720,6 +721,7 @@ func (cv *CorrelationViewer) generatePackage() {
 			cv.pages.AddPage("package-result", modal, true, true)
 			cv.app.SetFocus(modal)
 		})
+		cv.app.Sync()
 	}()
 }
 
