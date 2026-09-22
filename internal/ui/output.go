@@ -627,7 +627,12 @@ func (ov *OutputViewer) formatLinesLocked(lines []executor.OutputLine) string {
 			fmt.Fprintf(&content, "[%s]%s[white] ", color, line.Source)
 		}
 
-		lineContent := tview.TranslateANSI(line.Content)
+		// Escape script-authored bracket sequences so tview renders them literally
+		// ([OK], [ERROR], ...), THEN translate genuine ANSI colors. Order matters:
+		// escaping after translation would break the tags TranslateANSI produces,
+		// and built-in bash scripts rely on ANSI passthrough (colors.sh emits
+		// \033[3xm sequences).
+		lineContent := tview.TranslateANSI(tview.Escape(line.Content))
 
 		if !strings.Contains(lineContent, "[") {
 			if strings.Contains(strings.ToLower(lineContent), "error") {
