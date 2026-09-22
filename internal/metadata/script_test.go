@@ -673,3 +673,26 @@ func TestLoadMetadataIntegration(t *testing.T) {
 		t.Error("Should have at least one category")
 	}
 }
+
+func TestTemplateMetadataLoads(t *testing.T) {
+	registry := NewScriptRegistry("../../scripts")
+	metaPath := filepath.Join("..", "..", "scripts", ".templates", "script_template.meta.yaml")
+
+	metadata, err := registry.loadScriptMetadata(metaPath)
+	if err != nil {
+		t.Fatalf("loadScriptMetadata() failed to load template metadata: %v", err)
+	}
+
+	if metadata.Script.Name != "Script Template" {
+		t.Errorf("Name = %q, want %q", metadata.Script.Name, "Script Template")
+	}
+	if metadata.Script.File != "script_template.sh" {
+		t.Errorf("File = %q, want %q", metadata.Script.File, "script_template.sh")
+	}
+	if metadata.Script.Category != "template" {
+		t.Errorf("Category = %q, want %q", metadata.Script.Category, "template")
+	}
+	if len(metadata.Script.Parameters) != 3 {
+		t.Errorf("len(Parameters) = %d, want 3", len(metadata.Script.Parameters))
+	}
+}

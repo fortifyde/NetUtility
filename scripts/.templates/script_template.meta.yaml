@@ -1,25 +1,14 @@
+# Minimal script metadata template.
+# Required fields: name, file, category. Everything else is optional.
+# Optional fields shown here: description, parameters, output.
+# Script language is taken from the script's shebang line, not from metadata.
+
 script:
   name: "Script Template"
-  # name_de: "Skriptvorlage"  # Optional: German display name
-  description: "Template demonstrating standardized script patterns and best practices"
-  # description_de: "Vorlage zur Demonstration standardisierter Skriptmuster und bewährter Methoden"  # Optional: German description
+  description: "Template demonstrating required metadata fields"
   category: "template"
-  subcategory: "development"
-  
   file: "script_template.sh"
-  requires_root: false
-  estimated_duration: "1-2 minutes"
-  
-  cli_shortcuts:
-    - "template"
-    - "example"
-  keywords:
-    - "template"
-    - "example"
-    - "demo"
-    - "pattern"
-    - "standard"
-  
+
   parameters:
     - name: "interface"
       type: "interface"
@@ -38,48 +27,10 @@ script:
         range:
           min: 1
           max: 3600
-  
-  dependencies:
-    tools:
-      - name: "ip"
-        package: "iproute2"
-        check_command: "which ip"
-      - name: "grep"
-        package: "grep"
-        check_command: "which grep"
-      - name: "sed"
-        package: "sed"
-        check_command: "which sed"
-      - name: "awk"
-        package: "gawk"
-        check_command: "which awk"
-    scripts:
-      - "../common/logging.sh"
-      - "../common/utils.sh"
-      - "../common/validation.sh"
-  
+
   output:
     creates_files: true
     file_patterns:
       - "template_output_*.txt"
     workspace_subdirs:
       - "template-results"
-  
-  tags:
-    - "template"
-    - "development"
-    - "example"
-    - "best-practices"
-  risk_level: "low"
-  network_access: false
-  modifies_system: false
-  
-  examples:
-    - description: "Run template script"
-      command: "netutil template"
-    - description: "Run with custom timeout"
-      command: "netutil template --timeout 600"
-  
-  version: "1.0"
-  author: "fortifyde"
-  last_updated: "2025-01-18"

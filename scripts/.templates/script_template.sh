@@ -7,8 +7,9 @@
 # =============================================================================
 # SCRIPT METADATA (for automatic discovery)
 # =============================================================================
-# Corresponding .meta.yaml file should exist for this script
-# See: script_template.meta.yaml
+# Only name, file, and category are required in the .meta.yaml file
+# (see script_template.meta.yaml)
+# Language is determined by the shebang line below — use '#!/usr/bin/env python3' for Python scripts; the runner auto-detects it (fallback: bash).
 
 # =============================================================================
 # INITIALIZATION AND IMPORTS
