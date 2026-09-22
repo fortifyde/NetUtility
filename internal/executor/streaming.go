@@ -227,11 +227,14 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 	}
 	result.SetFinal(success, exitCode, finalErr, time.Now())
 
-	// Close stdin
+	// Close stdin under the same lock that publishes it, so a concurrent
+	// SendInput never races the teardown.
+	e.mu.Lock()
 	if e.stdin != nil {
 		_ = e.stdin.Close()
 		e.stdin = nil
 	}
+	e.mu.Unlock()
 }
 
 // partialLineFlushDelay is how long readOutput waits for a writer to
