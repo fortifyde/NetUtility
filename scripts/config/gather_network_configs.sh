@@ -498,6 +498,7 @@ exec_ssh_command() {
 
     _pty_flag="-T"
     [ "${SSH_REQUIRES_PTY:-0}" = "1" ] && _pty_flag="-tt"
+    [ "${7:-}" = "compliance" ] && _pty_flag="-tt"   # compliance needs PTY echo for attribution
 
     _filter="clean_output"
     [ "${7:-}" = "compliance" ] && _filter="clean_output_compliance"

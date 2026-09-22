@@ -381,7 +381,6 @@ def try_connect(ip: str, username: str, password: str,
             return "subprocess", {
                 "ip": ip, "username": username, "password": password,
                 "enable_pass": enable_pass, "ssh_config": ssh_config_file,
-                "pty": True,
             }
     except (subprocess.TimeoutExpired, FileNotFoundError):
         pass
@@ -583,7 +582,10 @@ def process_device(ip: str, username: str, password: str,
             for cmd in vc.compliance_cmds:
                 try:
                     if conn:
-                        output = conn.send_command(cmd, read_timeout=60)
+                        output = _netmiko_send_with_fallback(
+                            conn, cmd, ip=ip, username=username, password=password,
+                            enable_pass=enable_pass, vendor=vendor,
+                            terminal_cmd=term_cmd, read_timeout=60)
                     else:
                         output = _exec_ssh_subprocess(
                             ssh_opts, cmd, terminal_cmd=term_cmd,
@@ -593,6 +595,8 @@ def process_device(ip: str, username: str, password: str,
                             f.write(f"\n=== {cmd} ===\n{output}\n")
                         write_log(f"SUCCESS: {cmd}")
                     else:
+                        with open(compliance_file, "a") as f:
+                            f.write(f"\n=== {cmd} ===\n(no output)\n")
                         log_warning(f"Empty output: {cmd}")
                         write_log(f"EMPTY: {cmd}")
                 except Exception as e:
@@ -625,6 +629,50 @@ def process_device(ip: str, username: str, password: str,
                 pass
 
 
+def _is_paginated(output: str | None) -> bool:
+    return bool(output) and any(marker in output for marker in PAGINATION_MARKERS)
+
+
+def _netmiko_send_with_fallback(conn, cmd: str, *, ip: str, username: str,
+                                password: str, enable_pass, vendor,
+                                terminal_cmd, read_timeout: int = 60) -> str:
+    """send_command with the same resilience ladder as _exec_ssh_subprocess:
+    retry with fallback terminal command on failure/pagination, then pexpect.
+
+    Triggers on: raised exception (ReadTimeout from --More-- stalls and the
+    session desync they cause), pagination markers, or empty output.
+    """
+    output = ""
+    try:
+        output = conn.send_command(cmd, read_timeout=read_timeout)
+    except Exception:
+        output = ""
+    if output and not _is_paginated(output):
+        return output
+    try:
+        conn.clear_buffer()          # drain stale output from a desynced session
+    except Exception:
+        pass
+    fallback = TERMINAL_FALLBACK.get(vendor or "", "")
+    if fallback and fallback != terminal_cmd:
+        try:
+            conn.send_command(fallback, read_timeout=10)
+            output = conn.send_command(cmd, read_timeout=read_timeout)
+        except Exception:
+            output = ""
+        if output and not _is_paginated(output):
+            return output
+    if HAS_PEXPECT and (not output or _is_paginated(output)):
+        _opts = {"ip": ip, "username": username, "password": password, "ssh_config": None}
+        pexpect_output = _exec_ssh_pexpect(_opts, cmd, terminal_cmd, enable_pass,
+                                           timeout=read_timeout)
+        if pexpect_output:
+            output = pexpect_output
+    if _is_paginated(output):
+        output = "!!! WARNING: OUTPUT MAY BE TRUNCATED !!!\n" + (output or "")
+    return output or ""
+
+
 def _collect_config(conn, ssh_opts, cmd: str | None, dest: Path,
                     ip: str, label: str, log_file: Path,
                     terminal_cmd: str | None = None,
@@ -646,42 +694,10 @@ def _collect_config(conn, ssh_opts, cmd: str | None, dest: Path,
     log_step(f"Executing: {cmd} on {ip}")
     try:
         if conn:
-            output = conn.send_command(cmd, read_timeout=120)
-
-            # Check for pagination in netmiko output
-            if output and any(marker in output for marker in PAGINATION_MARKERS):
-                log_warning(f"Pagination detected in {label}, attempting fallback...")
-                write_log(f"WARNING: Pagination detected for {cmd}")
-
-                # Try fallback terminal command
-                fallback = TERMINAL_FALLBACK.get(vendor, "") if vendor else ""
-                if fallback and fallback != terminal_cmd:
-                    log_step(f"Retrying with fallback: {fallback}")
-                    try:
-                        conn.send_command(fallback, read_timeout=10)
-                    except Exception:
-                        pass
-                    output = conn.send_command(cmd, read_timeout=120)
-
-                # If still paginated, try pexpect
-                if output and any(marker in output for marker in PAGINATION_MARKERS):
-                    if HAS_PEXPECT:
-                        # Build ssh_opts from connection info for pexpect fallback
-                        _opts = {
-                            "ip": ip,
-                            "username": username,
-                            "password": password,
-                            "ssh_config": None,
-                        }
-                        pexpect_output = _exec_ssh_pexpect(
-                            _opts, cmd, terminal_cmd, enable_pass, timeout=120)
-                        if pexpect_output:
-                            output = pexpect_output
-
-                    if any(marker in (output or "") for marker in PAGINATION_MARKERS):
-                        log_warning(f"Output may be truncated: {label}")
-                        write_log(f"WARNING: Output may be truncated for {cmd}")
-                        output = "!!! WARNING: OUTPUT MAY BE TRUNCATED !!!\n" + (output or "")
+            output = _netmiko_send_with_fallback(
+                conn, cmd, ip=ip, username=username, password=password,
+                enable_pass=enable_pass, vendor=vendor, terminal_cmd=terminal_cmd,
+                read_timeout=120)
         else:
             output = _exec_ssh_subprocess(
                 ssh_opts, cmd, terminal_cmd=terminal_cmd,
@@ -725,7 +741,7 @@ def _record_failure(failures_file: Path, ip: str, reason: str):
 # ---------------------------------------------------------------------------
 
 def _clean_output(raw: str) -> str:
-    """Remove ANSI codes, pagination artifacts, and command echoes from SSH output."""
+    """Remove ANSI codes, pagination artifacts, and carriage returns; keeps command echo lines."""
     # Remove ANSI escape sequences
     cleaned = re.sub(r'\x1b\[[0-9;]*[a-zA-Z]', '', raw)
     # Remove --More-- lines
