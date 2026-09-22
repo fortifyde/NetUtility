@@ -251,93 +251,112 @@ const maxPendingLine = 1024 * 1024
 // as its own line once the writer stalls for partialLineFlushDelay, so
 // prompts appear before the user answers, not after.
 func (e *StreamingExecutor) readOutput(pipe io.Reader, source string, result *StreamingResult) {
+	em := &lineEmitter{e: e, source: source, result: result}
 	var pending []byte
 	chunk := make([]byte, 32*1024)
-	var dropped int
-
-	emit := func(content string) bool {
-		line := OutputLine{
-			Content:   content,
-			Timestamp: time.Now(),
-			Source:    source,
-		}
-		result.AppendLine(line)
-
-		// If we previously dropped lines, emit a notice once the channel has room.
-		if dropped > 0 {
-			notice := OutputLine{
-				Content:   fmt.Sprintf("[%d lines dropped — output buffer was full]", dropped),
-				Timestamp: time.Now(),
-				Source:    "system",
-			}
-			select {
-			case e.outputChan <- notice:
-				dropped = 0
-			case <-e.ctx.Done():
-				return false
-			default:
-			}
-		}
-
-		select {
-		case e.outputChan <- line:
-		case <-e.ctx.Done():
-			return false
-		default:
-			// Channel still full — count the drop; notice will be emitted next iteration.
-			dropped++
-		}
-		return true
-	}
-
-	// process emits every complete line in pending, leaving the
-	// newline-less tail (if any) in place.
-	process := func() bool {
-		for {
-			i := bytes.IndexByte(pending, '\n')
-			if i < 0 {
-				return true
-			}
-			line := strings.TrimSuffix(string(pending[:i]), "\r") // parity with bufio.ScanLines
-			pending = pending[i+1:]
-			if !emit(line) {
-				return false
-			}
-		}
-	}
 
 	for {
 		n, err := pipe.Read(chunk)
 		if n > 0 {
 			pending = append(pending, chunk[:n]...)
-			if !process() {
+			if !em.process(&pending) {
 				return
 			}
 			if len(pending) >= maxPendingLine {
-				if !emit(string(pending)) {
+				if !em.emit(string(pending)) {
 					return
 				}
 				pending = pending[:0]
-			} else if len(pending) > 0 && !e.flushPartialLine(pipe, chunk, &pending, emit, process) {
+			} else if len(pending) > 0 && !e.flushPartialLine(pipe, chunk, &pending, em) {
 				return
 			}
 		}
 		if err != nil {
 			// Flush a trailing partial line before closing out the reader.
 			if len(pending) > 0 {
-				if !emit(string(pending)) {
+				if !em.emit(string(pending)) {
 					return
 				}
 				pending = nil
 			}
 			if err != io.EOF {
-				select {
-				case e.errorChan <- fmt.Errorf("error reading %s: %w", source, err):
-				case <-e.ctx.Done():
-				default:
-				}
+				e.reportReadError(source, err)
 			}
 			return
+		}
+	}
+}
+
+// reportReadError forwards a reader error to the error channel without ever
+// blocking the reader loop.
+func (e *StreamingExecutor) reportReadError(source string, err error) {
+	select {
+	case e.errorChan <- fmt.Errorf("error reading %s: %w", source, err):
+	case <-e.ctx.Done():
+	default:
+	}
+}
+
+// lineEmitter forwards decoded output lines to the executor's output
+// channel, tracking how many lines were dropped while the channel was full
+// so a single notice can be emitted once it has room again.
+type lineEmitter struct {
+	e       *StreamingExecutor
+	source  string
+	result  *StreamingResult
+	dropped int
+}
+
+// emit appends the line to the output history and forwards it to the output
+// channel, dropping rather than blocking when the channel is full. It
+// returns false once the executor context is done.
+func (em *lineEmitter) emit(content string) bool {
+	line := OutputLine{
+		Content:   content,
+		Timestamp: time.Now(),
+		Source:    em.source,
+	}
+	em.result.AppendLine(line)
+
+	// If we previously dropped lines, emit a notice once the channel has room.
+	if em.dropped > 0 {
+		notice := OutputLine{
+			Content:   fmt.Sprintf("[%d lines dropped — output buffer was full]", em.dropped),
+			Timestamp: time.Now(),
+			Source:    "system",
+		}
+		select {
+		case em.e.outputChan <- notice:
+			em.dropped = 0
+		case <-em.e.ctx.Done():
+			return false
+		default:
+		}
+	}
+
+	select {
+	case em.e.outputChan <- line:
+	case <-em.e.ctx.Done():
+		return false
+	default:
+		// Channel still full — count the drop; notice will be emitted next iteration.
+		em.dropped++
+	}
+	return true
+}
+
+// process emits every complete line in pending, leaving the newline-less
+// tail (if any) in place. Returns false when the executor context is done.
+func (em *lineEmitter) process(pending *[]byte) bool {
+	for {
+		i := bytes.IndexByte(*pending, '\n')
+		if i < 0 {
+			return true
+		}
+		line := strings.TrimSuffix(string((*pending)[:i]), "\r") // parity with bufio.ScanLines
+		*pending = (*pending)[i+1:]
+		if !em.emit(line) {
+			return false
 		}
 	}
 }
@@ -347,7 +366,7 @@ func (e *StreamingExecutor) readOutput(pipe io.Reader, source string, result *St
 // processed normally; on timeout the partial tail is emitted as its own
 // line. Readers without deadline support fall back to the previous
 // hold-until-newline behavior.
-func (e *StreamingExecutor) flushPartialLine(pipe io.Reader, chunk []byte, pending *[]byte, emit func(string) bool, process func() bool) bool {
+func (e *StreamingExecutor) flushPartialLine(pipe io.Reader, chunk []byte, pending *[]byte, em *lineEmitter) bool {
 	dl, ok := pipe.(interface{ SetReadDeadline(time.Time) error })
 	if !ok {
 		return true
@@ -359,11 +378,11 @@ func (e *StreamingExecutor) flushPartialLine(pipe io.Reader, chunk []byte, pendi
 	_ = dl.SetReadDeadline(time.Time{})
 	if n > 0 {
 		*pending = append(*pending, chunk[:n]...)
-		return process()
+		return em.process(pending)
 	}
 	if os.IsTimeout(err) {
 		// Writer stalled — flush the newline-less tail (a script prompt).
-		flushed := emit(string(*pending))
+		flushed := em.emit(string(*pending))
 		*pending = nil
 		return flushed
 	}
