@@ -228,3 +228,44 @@ func TestFilterOutput(t *testing.T) {
 		t.Errorf("FilterOutput(stderr) = %d lines, want 1", len(stderr))
 	}
 }
+
+func TestExecuteScriptStreaming_PartialPromptLineFlushedBeforeInput(t *testing.T) {
+	script := writeScript(t, `printf "Select mode [1-2, default 1]: " >&2
+read -r mode
+echo "got:$mode"`)
+	e := NewStreamingExecutor()
+	result, outCh, _ := e.ExecuteScriptStreaming(script)
+
+	// The newline-less prompt must become a visible stderr line while the
+	// script still blocks on read — i.e. before any input is sent.
+	timeout := time.After(5 * time.Second)
+	promptSeen := false
+	for !promptSeen {
+		select {
+		case line := <-outCh:
+			if line.Source == "stderr" && strings.Contains(line.Content, "Select mode") {
+				promptSeen = true
+			}
+		case <-timeout:
+			t.Fatal("prompt without trailing newline was not flushed before input was sent")
+		}
+	}
+
+	if err := e.SendInput("2"); err != nil {
+		t.Fatalf("SendInput: %v", err)
+	}
+	e.Wait()
+
+	success, _, _, _, _ := result.GetFinal()
+	if !success {
+		t.Error("expected success=true")
+	}
+	var got strings.Builder
+	for line := range outCh {
+		got.WriteString(line.Content)
+		got.WriteByte('\n')
+	}
+	if !strings.Contains(got.String(), "got:2") {
+		t.Errorf("script did not process the input, output: %q", got.String())
+	}
+}

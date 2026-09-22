@@ -1,7 +1,7 @@
 package executor
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -234,24 +234,33 @@ func (e *StreamingExecutor) executeScript(scriptPath string, result *StreamingRe
 	}
 }
 
-// readOutput reads output from a pipe and sends it to the output channel
+// partialLineFlushDelay is how long readOutput waits for a writer to
+// continue an unfinished line before flushing it as its own output line.
+// Interactive script prompts ("Select mode [1-2, default 1]: ") are written
+// without a trailing newline; without this flush they stay invisible until
+// the script's next write — which, while it blocks on read, happens only
+// after the user has already answered.
+const partialLineFlushDelay = 50 * time.Millisecond
+
+// maxPendingLine bounds the buffer for writers that never emit a newline
+// (parity with the previous bufio.Scanner line limit).
+const maxPendingLine = 1024 * 1024
+
+// readOutput reads output from a pipe and sends it to the output channel.
+// Complete lines are emitted as they arrive. A newline-less tail is flushed
+// as its own line once the writer stalls for partialLineFlushDelay, so
+// prompts appear before the user answers, not after.
 func (e *StreamingExecutor) readOutput(pipe io.Reader, source string, result *StreamingResult) {
-	scanner := bufio.NewScanner(pipe)
-
-	// Set a reasonable buffer size for long lines
-	buf := make([]byte, 0, 64*1024)
-	scanner.Buffer(buf, 1024*1024)
-
+	var pending []byte
+	chunk := make([]byte, 32*1024)
 	var dropped int
 
-	for scanner.Scan() {
+	emit := func(content string) bool {
 		line := OutputLine{
-			Content:   scanner.Text(),
+			Content:   content,
 			Timestamp: time.Now(),
 			Source:    source,
 		}
-
-		// Store in result (thread-safe — two goroutines call readOutput concurrently)
 		result.AppendLine(line)
 
 		// If we previously dropped lines, emit a notice once the channel has room.
@@ -265,7 +274,7 @@ func (e *StreamingExecutor) readOutput(pipe io.Reader, source string, result *St
 			case e.outputChan <- notice:
 				dropped = 0
 			case <-e.ctx.Done():
-				return
+				return false
 			default:
 			}
 		}
@@ -273,20 +282,93 @@ func (e *StreamingExecutor) readOutput(pipe io.Reader, source string, result *St
 		select {
 		case e.outputChan <- line:
 		case <-e.ctx.Done():
-			return
+			return false
 		default:
 			// Channel still full — count the drop; notice will be emitted next iteration.
 			dropped++
 		}
+		return true
 	}
 
-	if err := scanner.Err(); err != nil {
-		select {
-		case e.errorChan <- fmt.Errorf("error reading %s: %w", source, err):
-		case <-e.ctx.Done():
-		default:
+	// process emits every complete line in pending, leaving the
+	// newline-less tail (if any) in place.
+	process := func() bool {
+		for {
+			i := bytes.IndexByte(pending, '\n')
+			if i < 0 {
+				return true
+			}
+			line := strings.TrimSuffix(string(pending[:i]), "\r") // parity with bufio.ScanLines
+			pending = pending[i+1:]
+			if !emit(line) {
+				return false
+			}
 		}
 	}
+
+	for {
+		n, err := pipe.Read(chunk)
+		if n > 0 {
+			pending = append(pending, chunk[:n]...)
+			if !process() {
+				return
+			}
+			if len(pending) >= maxPendingLine {
+				if !emit(string(pending)) {
+					return
+				}
+				pending = pending[:0]
+			} else if len(pending) > 0 && !e.flushPartialLine(pipe, chunk, &pending, emit, process) {
+				return
+			}
+		}
+		if err != nil {
+			// Flush a trailing partial line before closing out the reader.
+			if len(pending) > 0 {
+				if !emit(string(pending)) {
+					return
+				}
+				pending = nil
+			}
+			if err != io.EOF {
+				select {
+				case e.errorChan <- fmt.Errorf("error reading %s: %w", source, err):
+				case <-e.ctx.Done():
+				default:
+				}
+			}
+			return
+		}
+	}
+}
+
+// flushPartialLine waits up to partialLineFlushDelay for the writer to
+// continue an unfinished line. If more data arrives it is appended and
+// processed normally; on timeout the partial tail is emitted as its own
+// line. Readers without deadline support fall back to the previous
+// hold-until-newline behavior.
+func (e *StreamingExecutor) flushPartialLine(pipe io.Reader, chunk []byte, pending *[]byte, emit func(string) bool, process func() bool) bool {
+	dl, ok := pipe.(interface{ SetReadDeadline(time.Time) error })
+	if !ok {
+		return true
+	}
+	if err := dl.SetReadDeadline(time.Now().Add(partialLineFlushDelay)); err != nil {
+		return true
+	}
+	n, err := pipe.Read(chunk)
+	_ = dl.SetReadDeadline(time.Time{})
+	if n > 0 {
+		*pending = append(*pending, chunk[:n]...)
+		return process()
+	}
+	if os.IsTimeout(err) {
+		// Writer stalled — flush the newline-less tail (a script prompt).
+		flushed := emit(string(*pending))
+		*pending = nil
+		return flushed
+	}
+	// EOF or real error: leave the tail for the main loop's error path.
+	return true
 }
 
 // SendInput sends input to the running script
