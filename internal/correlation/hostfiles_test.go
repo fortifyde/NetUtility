@@ -1,6 +1,7 @@
 package correlation
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -340,5 +341,162 @@ func TestRemoveHostFromHostfiles_NoDiscoveryDir(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(ws, "discovery")); !os.IsNotExist(err) {
 		t.Errorf("discovery/ unexpectedly created: %v", err)
+	}
+}
+
+func TestSyncManualOverridesToHostfiles_AppliesOverridesAfterRescan(t *testing.T) {
+	ws := t.TempDir()
+	discoveryDir := filepath.Join(ws, "discovery")
+
+	// Fresh scan output: the host landed in the linux files even though the
+	// override says network_device — exactly what a rescan produces today.
+	hf := makeSession(t, discoveryDir, "main_network", map[string]string{
+		"linux_hosts.txt":          "10.0.0.7\n10.0.0.8\n",
+		"linux_hosts_enriched.txt": "10.0.0.7 web01 linux [ssh]\n",
+	})
+
+	c := newCorrelatorWithDataDir(ws, t.TempDir())
+	if err := c.SetManualCategory("10.0.0.7", "network_device"); err != nil {
+		t.Fatalf("SetManualCategory: %v", err)
+	}
+	if err := c.SyncManualOverridesToHostfiles(); err != nil {
+		t.Fatalf("SyncManualOverridesToHostfiles: %v", err)
+	}
+
+	nd := readFile(t, filepath.Join(hf, "network_devices.txt"))
+	if !strings.Contains(nd, "10.0.0.7") {
+		t.Errorf("10.0.0.7 not found in network_devices.txt:\n%s", nd)
+	}
+	lin := readFile(t, filepath.Join(hf, "linux_hosts.txt"))
+	if strings.Contains(lin, "10.0.0.7") {
+		t.Errorf("10.0.0.7 still in linux_hosts.txt:\n%s", lin)
+	}
+	if !strings.Contains(lin, "10.0.0.8") {
+		t.Errorf("10.0.0.8 unexpectedly removed from linux_hosts.txt:\n%s", lin)
+	}
+	linEnriched := readFile(t, filepath.Join(hf, "linux_hosts_enriched.txt"))
+	if strings.Contains(linEnriched, "10.0.0.7") {
+		t.Errorf("10.0.0.7 still in linux_hosts_enriched.txt:\n%s", linEnriched)
+	}
+	ndEnriched := readFile(t, filepath.Join(hf, "network_devices_enriched.txt"))
+	if !strings.Contains(ndEnriched, "10.0.0.7 web01 network_device [ssh]") {
+		t.Errorf("10.0.0.7 enriched line not carried over with rewritten category in network_devices_enriched.txt:\n%s", ndEnriched)
+	}
+}
+
+func TestSyncManualOverridesToHostfiles_NoWritesWhenSettled(t *testing.T) {
+	ws := t.TempDir()
+	discoveryDir := filepath.Join(ws, "discovery")
+
+	// Settled session: the host already sits exactly where the override wants
+	// it. The line order (override IP first) and the double spaces in the
+	// enriched line would not survive a rewrite, so any write is detectable
+	// bytewise.
+	hf := makeSession(t, discoveryDir, "main_network", map[string]string{
+		"network_devices.txt":          "10.0.0.7\n10.0.0.8\n",
+		"network_devices_enriched.txt": "10.0.0.7  sw01  network_device  [snmp,lag]\n",
+	})
+
+	c := newCorrelatorWithDataDir(ws, t.TempDir())
+	if err := c.SetManualCategory("10.0.0.7", "network_device"); err != nil {
+		t.Fatalf("SetManualCategory: %v", err)
+	}
+	for i := range 2 {
+		if err := c.SyncManualOverridesToHostfiles(); err != nil {
+			t.Fatalf("SyncManualOverridesToHostfiles run %d: %v", i+1, err)
+		}
+	}
+
+	if got := readFile(t, filepath.Join(hf, "network_devices.txt")); got != "10.0.0.7\n10.0.0.8\n" {
+		t.Errorf("settled network_devices.txt was rewritten:\n%s", got)
+	}
+	if got := readFile(t, filepath.Join(hf, "network_devices_enriched.txt")); got != "10.0.0.7  sw01  network_device  [snmp,lag]\n" {
+		t.Errorf("settled network_devices_enriched.txt was rewritten:\n%s", got)
+	}
+	if got := readFile(t, filepath.Join(hf, "linux_hosts.txt")); got != "" {
+		t.Errorf("linux_hosts.txt unexpectedly created:\n%s", got)
+	}
+}
+
+func TestSyncManualOverridesToHostfiles_SkipsArchive(t *testing.T) {
+	ws := t.TempDir()
+	discoveryDir := filepath.Join(ws, "discovery")
+
+	// Archived session — must remain an immutable snapshot.
+	archivedHF := makeNestedSession(t, discoveryDir, "archive/old_session", map[string]string{
+		"linux_hosts.txt": "10.0.0.1\n",
+	})
+	// Live session — sync applies here.
+	liveHF := makeSession(t, discoveryDir, "live_session", map[string]string{
+		"linux_hosts.txt": "10.0.0.1\n",
+	})
+
+	c := newCorrelatorWithDataDir(ws, t.TempDir())
+	if err := c.SetManualCategory("10.0.0.1", "network_device"); err != nil {
+		t.Fatalf("SetManualCategory: %v", err)
+	}
+	if err := c.SyncManualOverridesToHostfiles(); err != nil {
+		t.Fatalf("SyncManualOverridesToHostfiles: %v", err)
+	}
+
+	if got := readFile(t, filepath.Join(archivedHF, "linux_hosts.txt")); got != "10.0.0.1\n" {
+		t.Errorf("archived linux_hosts.txt was modified:\n%s", got)
+	}
+	if got := readFile(t, filepath.Join(archivedHF, "network_devices.txt")); got != "" {
+		t.Errorf("archived session gained network_devices.txt:\n%s", got)
+	}
+
+	nd := readFile(t, filepath.Join(liveHF, "network_devices.txt"))
+	if !strings.Contains(nd, "10.0.0.1") {
+		t.Errorf("10.0.0.1 not healed into live network_devices.txt:\n%s", nd)
+	}
+	if got := readFile(t, filepath.Join(liveHF, "linux_hosts.txt")); strings.Contains(got, "10.0.0.1") {
+		t.Errorf("10.0.0.1 still in live linux_hosts.txt:\n%s", got)
+	}
+}
+
+func TestSyncManualOverridesToHostfiles_UnknownCategorySkipped(t *testing.T) {
+	ws := t.TempDir()
+	discoveryDir := filepath.Join(ws, "discovery")
+
+	hf := makeSession(t, discoveryDir, "session1", map[string]string{
+		"linux_hosts.txt": "10.0.0.1\n",
+	})
+
+	// Hand-edited override store with a bogus category, plus the
+	// correlations.json that LoadResults requires before it reads overrides.
+	dataDir := t.TempDir()
+	corrDir := filepath.Join(dataDir, "correlations")
+	if err := os.MkdirAll(corrDir, 0750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(corrDir, "correlations.json"), []byte("{}"), 0600); err != nil {
+		t.Fatalf("writing correlations.json: %v", err)
+	}
+	overrideData, err := json.MarshalIndent(map[string]string{"10.0.0.1": "banana"}, "", "  ")
+	if err != nil {
+		t.Fatalf("marshalling overrides: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(corrDir, "manual_categories.json"), overrideData, 0600); err != nil {
+		t.Fatalf("writing manual_categories.json: %v", err)
+	}
+
+	c := newCorrelatorWithDataDir(ws, dataDir)
+	if err := c.LoadResults(); err != nil {
+		t.Fatalf("LoadResults: %v", err)
+	}
+	if err := c.SyncManualOverridesToHostfiles(); err != nil {
+		t.Fatalf("SyncManualOverridesToHostfiles: %v", err)
+	}
+
+	if got := readFile(t, filepath.Join(hf, "linux_hosts.txt")); got != "10.0.0.1\n" {
+		t.Errorf("linux_hosts.txt changed by unknown-category override:\n%s", got)
+	}
+	entries, err := os.ReadDir(hf)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "linux_hosts.txt" {
+		t.Errorf("unexpected files in hostfiles dir: %v", entries)
 	}
 }

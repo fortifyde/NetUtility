@@ -486,6 +486,12 @@ func (t *TUI) loadWorkspaceResults() {
 	if err := t.correlator.MergeScreenshotFiles(); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: Failed to merge screenshot files: %v\n", err)
 	}
+
+	// Re-apply manual category overrides to session hostfiles — new scans
+	// write auto-categorized hostfiles that would otherwise lose them.
+	if err := t.correlator.SyncManualOverridesToHostfiles(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: Failed to sync manual categories to hostfiles: %v\n", err)
+	}
 }
 
 // startCorrelationWorker re-scans the workspace after each completed job to pick up new result files.
