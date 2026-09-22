@@ -283,14 +283,15 @@ func TestPickStatusBarJob(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := pickStatusBarJob(tt.jobs)
-			if tt.want == "" {
-				if got != nil {
-					t.Errorf("pickStatusBarJob returned %q, want nil", got.Name)
+			if got == nil {
+				if tt.want != "" {
+					t.Fatalf("pickStatusBarJob returned nil, want %q", tt.want)
 				}
 				return
 			}
-			if got == nil {
-				t.Fatalf("pickStatusBarJob returned nil, want %q", tt.want)
+			if tt.want == "" {
+				t.Errorf("pickStatusBarJob returned %q, want nil", got.Name)
+				return
 			}
 			if got.Name != tt.want {
 				t.Errorf("pickStatusBarJob returned %q, want %q", got.Name, tt.want)
