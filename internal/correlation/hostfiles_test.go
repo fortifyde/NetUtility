@@ -271,3 +271,74 @@ func TestMoveHostInHostfilesSkipsArchive(t *testing.T) {
 		t.Errorf("10.0.0.1 not found in live linux_hosts.txt:\n%s", liveLin)
 	}
 }
+
+func TestRemoveHostFromHostfiles_RemovesFromAllCategoryFiles(t *testing.T) {
+	ws := t.TempDir()
+	discoveryDir := filepath.Join(ws, "discovery")
+
+	hf := makeSession(t, discoveryDir, "session1", map[string]string{
+		"windows_hosts.txt":          "10.0.0.1\n10.0.0.2\n",
+		"windows_hosts_enriched.txt": "# header\n10.0.0.1 WINHOST windows [smb]\n",
+		"linux_hosts.txt":            "10.0.0.99\n",
+	})
+
+	if err := RemoveHostFromHostfiles(ws, "10.0.0.1"); err != nil {
+		t.Fatalf("RemoveHostFromHostfiles: %v", err)
+	}
+
+	win := readFile(t, filepath.Join(hf, "windows_hosts.txt"))
+	if strings.Contains(win, "10.0.0.1") {
+		t.Errorf("10.0.0.1 still in windows_hosts.txt:\n%s", win)
+	}
+	if !strings.Contains(win, "10.0.0.2") {
+		t.Errorf("10.0.0.2 unexpectedly removed from windows_hosts.txt:\n%s", win)
+	}
+
+	enriched := readFile(t, filepath.Join(hf, "windows_hosts_enriched.txt"))
+	if strings.Contains(enriched, "10.0.0.1") {
+		t.Errorf("10.0.0.1 still in windows_hosts_enriched.txt:\n%s", enriched)
+	}
+	if !strings.Contains(enriched, "# header") {
+		t.Errorf("comment line dropped from windows_hosts_enriched.txt:\n%s", enriched)
+	}
+
+	lin := readFile(t, filepath.Join(hf, "linux_hosts.txt"))
+	if lin != "10.0.0.99\n" {
+		t.Errorf("linux_hosts.txt changed:\n%s", lin)
+	}
+
+	// No new files may appear in the session hostfiles dir.
+	entries, err := os.ReadDir(hf)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	got := map[string]bool{}
+	for _, e := range entries {
+		got[e.Name()] = true
+	}
+	want := map[string]bool{
+		"windows_hosts.txt":          true,
+		"windows_hosts_enriched.txt": true,
+		"linux_hosts.txt":            true,
+	}
+	for name := range want {
+		if !got[name] {
+			t.Errorf("expected file %s missing from hostfiles dir: %v", name, got)
+		}
+	}
+	for name := range got {
+		if !want[name] {
+			t.Errorf("unexpected file %s created in hostfiles dir", name)
+		}
+	}
+}
+
+func TestRemoveHostFromHostfiles_NoDiscoveryDir(t *testing.T) {
+	ws := t.TempDir()
+	if err := RemoveHostFromHostfiles(ws, "10.0.0.1"); err != nil {
+		t.Fatalf("RemoveHostFromHostfiles: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "discovery")); !os.IsNotExist(err) {
+		t.Errorf("discovery/ unexpectedly created: %v", err)
+	}
+}

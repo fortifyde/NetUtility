@@ -1281,17 +1281,49 @@ func (c *Correlator) saveExcludedHosts() error {
 	return nil
 }
 
-// ExcludeHosts adds IPs to the permanent exclusion list, removes them from in-memory
-// correlations, and persists both files.
+// ExcludeHosts adds IPs to the permanent exclusion list, removes them from
+// in-memory correlations and manual overrides, and persists the changed files.
 func (c *Correlator) ExcludeHosts(ips []string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+
+	// Merge the on-disk store first: exclude_team_ips.sh writes the same file
+	// and may have added entries since our LoadResults. saveExcludedHosts
+	// writes the whole map, so skipping the merge would clobber them.
+	if path := c.excludedHostsPath(); path != "" {
+		data, err := os.ReadFile(path) //nolint:gosec // G304: path from trusted workspace
+		if err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("reading excluded_hosts.json: %w", err)
+		}
+		if err == nil {
+			var disk map[string]bool
+			if err := json.Unmarshal(data, &disk); err != nil {
+				return fmt.Errorf("parsing excluded_hosts.json: %w", err)
+			}
+			for ip, excluded := range disk {
+				c.excludedHosts[ip] = excluded
+			}
+		}
+	}
+
+	overrideChanged := false
 	for _, ip := range ips {
 		c.excludedHosts[ip] = true
 		delete(c.correlations, ip)
+		if _, ok := c.manualOverrides[ip]; ok {
+			delete(c.manualOverrides, ip)
+			overrideChanged = true
+		}
 	}
 	if err := c.saveExcludedHosts(); err != nil {
 		return err
+	}
+	// Only write manual_categories.json when an override was actually dropped;
+	// otherwise we would create an empty file where none existed.
+	if overrideChanged {
+		if err := c.saveManualOverrides(); err != nil {
+			return err
+		}
 	}
 	return c.saveResults()
 }

@@ -316,6 +316,9 @@ func (cv *CorrelationViewer) setupKeyBindings() {
 			case ' ':
 				cv.openCategorizationModal()
 				return nil
+			case 'e':
+				cv.openExcludeModal()
+				return nil
 			case 's':
 				cv.showScreenshotModal()
 				return nil
@@ -684,6 +687,57 @@ func (cv *CorrelationViewer) openCategorizationModal() {
 
 	cv.pages.AddPage("host-categorize", modal, true, true)
 	cv.app.SetFocus(list)
+}
+
+// openExcludeModal asks for confirmation, then permanently excludes the
+// selected host from hostlists, correlations, and future scan results.
+func (cv *CorrelationViewer) openExcludeModal() {
+	ip := cv.selectedHost
+	if ip == "" {
+		return
+	}
+	closeModal := func() {
+		cv.pages.RemovePage("host-exclude")
+		cv.app.SetFocus(cv.hostsList)
+	}
+	modal := tview.NewModal().
+		SetText(fmt.Sprintf(cv.str.ExclModalText, ip)).
+		AddButtons([]string{cv.str.BtnYes, cv.str.BtnNo}).
+		SetFocus(0). // Yes preselected; Enter confirms, arrows move, Esc cancels.
+		SetDoneFunc(func(buttonIndex int, _ string) {
+			closeModal()
+			if buttonIndex != 0 {
+				return // No (1) or Esc (-1)
+			}
+			go func() {
+				if err := cv.correlator.ExcludeHosts([]string{ip}); err != nil {
+					cv.app.QueueUpdateDraw(func() {
+						errModal := tview.NewModal().
+							SetText(fmt.Sprintf("Failed to exclude host:\n%v", err)).
+							AddButtons([]string{cv.str.BtnOK}).
+							SetDoneFunc(func(_ int, _ string) {
+								cv.pages.RemovePage("exclude-result")
+								cv.app.SetFocus(cv.hostsList)
+							})
+						cv.pages.AddPage("exclude-result", errModal, true, true)
+						cv.app.SetFocus(errModal)
+					})
+					return
+				}
+				if cv.workspaceDir != "" {
+					_ = correlation.RemoveHostFromHostfiles(cv.workspaceDir, ip)
+				}
+				cv.app.QueueUpdateDraw(func() {
+					// Clear the IP so updateHostsList selects the neighbor at
+					// the old row position instead of re-selecting the host.
+					cv.selectedHost = ""
+					cv.updateHostsList()
+					cv.updateDetailsPanel()
+				})
+			}()
+		})
+	cv.pages.AddPage("host-exclude", modal, true, true)
+	cv.app.SetFocus(modal)
 }
 
 // generatePackage creates a distribution archive and shows a result modal.

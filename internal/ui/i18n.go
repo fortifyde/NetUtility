@@ -266,6 +266,7 @@ type Strings struct {
 	CatModalLinux              string
 	CatModalNetDevice          string
 	FmtCatModalTitle           string // Sprintf(fmt, ip)
+	ExclModalText              string // Sprintf(fmt, ip)
 	// ── Topology viewer ────────────────────────────────────────────────────
 	FmtTopoResult string // Sprintf(fmt, htmlPath)
 	TopoNoData    string
@@ -652,7 +653,7 @@ OutputViewerHelp: `[yellow]Controls:[white]
 [aqua]/[white]      Search hosts            [aqua]s[white]  View screenshot
 [aqua]Space[white]  Categorize host         [aqua]p[white]  Create Hostfile Package
 [aqua]f[white]      %s                      [aqua]t[white]  Generate Network Topology
-[aqua]Esc/q[white]  Close
+[aqua]e[white]      Exclude host            [aqua]Esc/q[white]  Close
 
 [gray]Ctrl+J[white] Jobs  [gray]Ctrl+D[white] Dashboard  [gray]Ctrl+N[white] Hosts  [gray]Ctrl+Z[white] Main`,
 	CorrResetSearch:            "Reset search",
@@ -682,6 +683,7 @@ OutputViewerHelp: `[yellow]Controls:[white]
 	CatModalLinux:              "Linux",
 	CatModalNetDevice:          "Network Device",
 	FmtCatModalTitle:           "Categorize %s",
+	ExclModalText:              "Exclude %s?\n\nThe host is removed from hostlists, the consolidated correlations file, and future scan results.",
 
 	// Topology viewer
 	FmtTopoResult: "Topology viewer generated:\n\n%s",
@@ -1011,7 +1013,7 @@ OutputViewerHelp: `[yellow]Steuerung:[white]
 [aqua]/[white]      Hosts suchen            [aqua]s[white]  Screenshot anzeigen
 [aqua]Space[white]  Host kategorisieren     [aqua]p[white]  Hostfile-Paket erstellen
 [aqua]f[white]      %s                      [aqua]t[white]  Netzwerktopologie erstellen
-[aqua]Esc/q[white]  Schließen
+[aqua]e[white]      Host ausschließen       [aqua]Esc/q[white]  Schließen
 
 [gray]Ctrl+J[white] Jobs  [gray]Ctrl+D[white] Dashboard  [gray]Ctrl+N[white] Hosts  [gray]Ctrl+Z[white] Hauptmenü`,
 	CorrResetSearch:            "Suche zurücksetzen",
@@ -1041,6 +1043,7 @@ OutputViewerHelp: `[yellow]Steuerung:[white]
 	CatModalLinux:              "Linux",
 	CatModalNetDevice:          "Netzwerkgerät",
 	FmtCatModalTitle:           "Host kategorisieren: %s",
+	ExclModalText:              "%s ausschließen?\n\nDer Host wird aus Hostlisten, der konsolidierten Korrelationsdatei und künftigen Scanergebnissen entfernt.",
 
 	// Topology viewer
 	FmtTopoResult: "Topologie-Viewer erstellt:\n\n%s",

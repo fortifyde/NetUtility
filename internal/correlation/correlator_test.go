@@ -1441,3 +1441,102 @@ func TestInferHostSubtype(t *testing.T) {
 		})
 	}
 }
+
+func TestExcludeHosts_MergesDiskStateAndDropsOverride(t *testing.T) {
+	dir := t.TempDir()
+	corrDir := filepath.Join(dir, "correlations")
+	if err := os.MkdirAll(corrDir, 0750); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Seed correlations.json with two hosts directly.
+	correlations := map[string]*CorrelationResult{
+		"10.0.0.1": {
+			Host:     "10.0.0.1",
+			HostInfo: &Host{IP: "10.0.0.1", Attributes: map[string]string{"category": "windows"}},
+		},
+		"10.0.0.2": {
+			Host:     "10.0.0.2",
+			HostInfo: &Host{IP: "10.0.0.2", Attributes: map[string]string{"category": "linux"}},
+		},
+	}
+	corrData, _ := json.Marshal(correlations)
+	if err := os.WriteFile(filepath.Join(corrDir, "correlations.json"), corrData, 0600); err != nil {
+		t.Fatalf("writing correlations.json: %v", err)
+	}
+
+	// Manual override for the host we will exclude.
+	overrides := map[string]string{"10.0.0.1": "linux"}
+	overrideData, _ := json.Marshal(overrides)
+	if err := os.WriteFile(filepath.Join(corrDir, "manual_categories.json"), overrideData, 0600); err != nil {
+		t.Fatalf("writing manual_categories.json: %v", err)
+	}
+
+	// Store seeded before load, as if exclude_team_ips.sh had run earlier.
+	if err := os.WriteFile(filepath.Join(corrDir, "excluded_hosts.json"), []byte(`{"9.9.9.9":true}`), 0600); err != nil {
+		t.Fatalf("writing excluded_hosts.json: %v", err)
+	}
+
+	c := newCorrelatorWithDataDir("/ws", dir)
+	if err := c.LoadResults(); err != nil {
+		t.Fatalf("LoadResults: %v", err)
+	}
+
+	// The script writes another entry after our LoadResults.
+	if err := os.WriteFile(filepath.Join(corrDir, "excluded_hosts.json"), []byte(`{"9.9.9.9":true,"8.8.8.8":true}`), 0600); err != nil {
+		t.Fatalf("rewriting excluded_hosts.json: %v", err)
+	}
+
+	if err := c.ExcludeHosts([]string{"10.0.0.1"}); err != nil {
+		t.Fatalf("ExcludeHosts: %v", err)
+	}
+
+	// The persisted store must contain the script's entries and ours.
+	exclData, err := os.ReadFile(filepath.Join(corrDir, "excluded_hosts.json")) //nolint:gosec // G304: test path
+	if err != nil {
+		t.Fatalf("reading excluded_hosts.json: %v", err)
+	}
+	var excluded map[string]bool
+	if err := json.Unmarshal(exclData, &excluded); err != nil {
+		t.Fatalf("unmarshalling excluded_hosts.json: %v", err)
+	}
+	for _, ip := range []string{"9.9.9.9", "8.8.8.8", "10.0.0.1"} {
+		if !excluded[ip] {
+			t.Errorf("excluded_hosts.json missing %q: %s", ip, exclData)
+		}
+	}
+
+	// correlations.json: excluded host gone, other host kept.
+	corrData2, err := os.ReadFile(filepath.Join(corrDir, "correlations.json")) //nolint:gosec // G304: test path
+	if err != nil {
+		t.Fatalf("reading correlations.json: %v", err)
+	}
+	var persisted map[string]json.RawMessage
+	if err := json.Unmarshal(corrData2, &persisted); err != nil {
+		t.Fatalf("unmarshalling correlations.json: %v", err)
+	}
+	if _, ok := persisted["10.0.0.1"]; ok {
+		t.Errorf("correlations.json still contains 10.0.0.1")
+	}
+	if _, ok := persisted["10.0.0.2"]; !ok {
+		t.Errorf("correlations.json lost 10.0.0.2")
+	}
+
+	// manual_categories.json: excluded host's override dropped.
+	ovData, err := os.ReadFile(filepath.Join(corrDir, "manual_categories.json")) //nolint:gosec // G304: test path
+	if err != nil {
+		t.Fatalf("reading manual_categories.json: %v", err)
+	}
+	var persistedOverrides map[string]string
+	if err := json.Unmarshal(ovData, &persistedOverrides); err != nil {
+		t.Fatalf("unmarshalling manual_categories.json: %v", err)
+	}
+	if _, ok := persistedOverrides["10.0.0.1"]; ok {
+		t.Errorf("manual_categories.json still contains 10.0.0.1")
+	}
+
+	// In-memory view: excluded host gone.
+	if _, ok := c.GetAllCorrelations()["10.0.0.1"]; ok {
+		t.Errorf("GetAllCorrelations still returns 10.0.0.1")
+	}
+}

@@ -192,6 +192,45 @@ func removeIPFromFile(path, ip string) (bool, error) {
 	return true, os.WriteFile(path, []byte(out), 0644) //nolint:gosec // G306: workspace output — user must be able to read/edit
 }
 
+// RemoveHostFromHostfiles removes ip from every category file (plain and
+// enriched) in every session hostfiles/ directory under workspaceDir/discovery/.
+// Best-effort per session, mirroring MoveHostInHostfiles: walks discovery/ at
+// any depth, skips into hostfiles/ dirs only, records the first session error.
+func RemoveHostFromHostfiles(workspaceDir, ip string) error {
+	discoveryDir := filepath.Join(workspaceDir, "discovery")
+	if _, err := os.Stat(discoveryDir); os.IsNotExist(err) {
+		return nil
+	}
+
+	var firstErr error
+	err := filepath.WalkDir(discoveryDir, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		if d.Name() == "archive" && filepath.Dir(path) == discoveryDir {
+			// Archived sessions are immutable snapshots — never rewritten.
+			return fs.SkipDir
+		}
+		if d.Name() != "hostfiles" {
+			return nil
+		}
+		// Found a hostfiles/ directory — strip ip from every category file.
+		for _, fname := range allCategoryFilenames {
+			if _, err := removeIPFromFile(filepath.Join(path, fname), ip); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return fs.SkipDir // Don't recurse into hostfiles/
+	})
+	if err != nil {
+		return fmt.Errorf("walking discovery dir: %w", err)
+	}
+	return firstErr
+}
+
 // extractEnrichedDataForIP reads an enriched file and returns the line for a specific IP.
 // Returns the full line (with hostname, category, tags) or empty string if not found.
 func extractEnrichedDataForIP(filepath, ip string) string {
