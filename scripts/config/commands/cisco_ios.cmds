@@ -45,6 +45,7 @@ show port-security
 show port-security address
 show access-lists
 show ip access-lists
+show dot1x
 
 # AAA and Authentication
 show aaa

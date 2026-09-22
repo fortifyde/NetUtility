@@ -48,6 +48,7 @@ show processes memory
 # Security and Access Control
 show port-security
 show access-lists
+show dot1x all
 
 # AAA and Authentication
 show aaa
