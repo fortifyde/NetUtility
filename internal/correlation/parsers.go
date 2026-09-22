@@ -610,6 +610,11 @@ func (rp *ResultParser) ScanWorkspaceForResults() ([]*ScanResult, error) {
 			return nil // skip unreadable entries
 		}
 		if d.IsDir() {
+			// discovery/archive holds archived sessions; they must not re-enter the
+			// host inventory as stale duplicates.
+			if path == "discovery/archive" {
+				return fs.SkipDir
+			}
 			return nil
 		}
 

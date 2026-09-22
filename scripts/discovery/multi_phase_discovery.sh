@@ -233,7 +233,17 @@ fi
 
 if [ "$_network_count" -ge 2 ]; then
     # --- Multi-network concurrent dispatch ---
-    SESSION_ROOT_DIR="$DISCOVERY_DIR"
+    SESSION_ROOT_DIR="$DISCOVERY_DIR/discovery_${TIMESTAMP}"
+    mkdir -p "$SESSION_ROOT_DIR"
+    {
+        echo "=== Multi-Network Discovery Session Metadata ==="
+        echo "Session ID: discovery_${TIMESTAMP}"
+        echo "Started: $(date)"
+        echo "Interface: $selected_interface"
+        echo "Networks: $_all_scan_networks"
+        echo "Session directory: $SESSION_ROOT_DIR"
+        echo ""
+    } > "$SESSION_ROOT_DIR/session_metadata.txt"
 
     echo >&2
     if [ "$NETUTIL_FORCE_COLOR" = "1" ]; then
@@ -279,7 +289,7 @@ if [ "$_network_count" -ge 2 ]; then
         else
             _net_label="routed_$(echo "$_net" | sed 's|/|_|g')"
         fi
-        _net_dir="$DISCOVERY_DIR/${_net_label}_${TIMESTAMP}"
+        _net_dir="$SESSION_ROOT_DIR/${_net_label}"
         _net_status="/tmp/.mnet_st_${_net_idx}_${TIMESTAMP}_$$"
         mkdir -p "$_net_dir/meta"
         echo "$_net_dir" >> "$_mnet_dirs_file"
@@ -292,7 +302,7 @@ if [ "$_network_count" -ge 2 ]; then
             export MANUAL_NETWORK_RANGE="$_net"
             [ "$_net_label" != "local_network" ] && [ "$_net_label" != "vlan${DETECTED_VLAN_ID}" ] && export ROUTED_VLAN_MODE="true"
             export AUTO_DISCOVERY_SESSION="true"
-            export AUTO_DISCOVERY_SESSION_DIR="$DISCOVERY_DIR"
+            export AUTO_DISCOVERY_SESSION_DIR="$SESSION_ROOT_DIR"
             export AUTO_DISCOVERY_VLAN_ID="$_net_label"
             export AUTO_DISCOVERY_VLAN_DIR="$_net_dir"
             { "$0" "$selected_interface" 8>&-; echo $? > "$_net_status"; } 2>&1 | \
@@ -310,7 +320,7 @@ if [ "$_network_count" -ge 2 ]; then
             _pv_done=0
             _pv_parts=""
             while IFS= read -r _pv_dir; do
-                _pv_label=$(basename "$_pv_dir" | sed "s/_${TIMESTAMP}$//")
+                _pv_label=$(basename "$_pv_dir")
                 case "$_pv_label" in
                     vlan*)       _pv_short="V${_pv_label#vlan}" ;;
                     local_network) _pv_short="local" ;;
@@ -382,7 +392,9 @@ if [ "$_network_count" -ge 2 ]; then
     rm -f "$_mnet_fifo"
 
     echo "Multi-network discovery complete: $_success_count/$_network_count successful" >&2
-    echo "Results in: $DISCOVERY_DIR" >&2
+    echo "Results in: $SESSION_ROOT_DIR" >&2
+    echo "Session completed: $(date)" >> "$SESSION_ROOT_DIR/session_metadata.txt"
+    update_latest_links "discovery" "$SESSION_ROOT_DIR"
     exit 0
 
 elif [ "$scan_local_network" = "false" ] && [ -n "$additional_networks" ]; then
@@ -421,49 +433,19 @@ else
     if [ "${ROUTED_VLAN_MODE:-false}" = "true" ]; then
         _ronly_san=$(echo "$network_range" | sed 's|[./]|_|g')
         SESSION_DIR="$DISCOVERY_DIR/routed_${_ronly_san}"
-        # Handle existing session
-        if [ -d "$SESSION_DIR" ]; then
-            echo "Found existing discovery session: $SESSION_DIR" >&2
-            if confirm_action "Remove existing session and start fresh?"; then
-                echo "Removing existing session..." >&2
-                rm -rf "$SESSION_DIR"
-            else
-                echo "Reusing existing session directory." >&2
-            fi
-        fi
         echo "Standalone routed discovery mode: $network_range"
         log_info "Multiphase discovery running in standalone routed mode: $network_range"
     elif [ "$IS_VLAN_INTERFACE" = "true" ]; then
         SESSION_DIR="$DISCOVERY_DIR/vlan${DETECTED_VLAN_ID}"
-        # Handle existing session
-        if [ -d "$SESSION_DIR" ]; then
-            echo "Found existing discovery session: $SESSION_DIR" >&2
-            if confirm_action "Remove existing session and start fresh?"; then
-                echo "Removing existing session..." >&2
-                rm -rf "$SESSION_DIR"
-            else
-                echo "Reusing existing session directory." >&2
-            fi
-        fi
         echo "Standalone discovery mode: VLAN $DETECTED_VLAN_ID"
         log_info "Multiphase discovery running in standalone VLAN mode: VLAN $DETECTED_VLAN_ID"
     else
         SESSION_DIR="$DISCOVERY_DIR/main_network"
-        # Handle existing session
-        if [ -d "$SESSION_DIR" ]; then
-            echo "Found existing discovery session: $SESSION_DIR" >&2
-            if confirm_action "Remove existing session and start fresh?"; then
-                echo "Removing existing session..." >&2
-                rm -rf "$SESSION_DIR"
-            else
-                echo "Reusing existing session directory." >&2
-            fi
-        fi
         echo "Standalone discovery mode: Main network"
         log_info "Multiphase discovery running in standalone main network mode"
     fi
     SESSION_ROOT_DIR="$SESSION_DIR"
-    mkdir -p "$SESSION_DIR"
+    ensure_fresh_session_dir "$SESSION_DIR" "$TIMESTAMP"
     echo "Results will be organized in: $SESSION_DIR"
 fi
 

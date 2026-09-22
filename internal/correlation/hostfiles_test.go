@@ -238,3 +238,36 @@ func TestMoveHostInHostfiles_L3BareIDDir(t *testing.T) {
 		t.Errorf("10.0.0.50 not found in network_devices.txt:\n%s", nd)
 	}
 }
+
+func TestMoveHostInHostfilesSkipsArchive(t *testing.T) {
+	ws := t.TempDir()
+	discoveryDir := filepath.Join(ws, "discovery")
+
+	// Archived session — must remain an immutable snapshot
+	makeNestedSession(t, discoveryDir, "archive/old", map[string]string{
+		"windows_hosts.txt": "10.0.0.1\n",
+	})
+	// Live session — recategorization applies here
+	makeNestedSession(t, discoveryDir, "live", map[string]string{
+		"windows_hosts.txt": "10.0.0.1\n",
+	})
+
+	if err := MoveHostInHostfiles(ws, "10.0.0.1", "linux"); err != nil {
+		t.Fatalf("MoveHostInHostfiles: %v", err)
+	}
+
+	archivedWin := readFile(t, filepath.Join(discoveryDir, "archive", "old", "hostfiles", "windows_hosts.txt"))
+	if archivedWin != "10.0.0.1\n" {
+		t.Errorf("archived windows_hosts.txt was modified:\n%s", archivedWin)
+	}
+
+	liveHF := filepath.Join(discoveryDir, "live", "hostfiles")
+	liveWin := readFile(t, filepath.Join(liveHF, "windows_hosts.txt"))
+	if strings.Contains(liveWin, "10.0.0.1") {
+		t.Errorf("10.0.0.1 still in live windows_hosts.txt:\n%s", liveWin)
+	}
+	liveLin := readFile(t, filepath.Join(liveHF, "linux_hosts.txt"))
+	if !strings.Contains(liveLin, "10.0.0.1") {
+		t.Errorf("10.0.0.1 not found in live linux_hosts.txt:\n%s", liveLin)
+	}
+}

@@ -539,7 +539,7 @@ if [ -d "$DISCOVERY_DIR" ]; then
     printf "%s%s%s\n" "$COLOR_RESET" "Scanning $DISCOVERY_DIR" "$COLOR_RESET" >&2
 
     for session_dir in "$DISCOVERY_DIR"/*; do
-        [ ! -d "$session_dir" ] && continue
+        [ "$(basename "$session_dir")" = "archive" ] && continue
         process_session_tree "$session_dir"
     done
 else

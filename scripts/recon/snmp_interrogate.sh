@@ -64,7 +64,7 @@ print_subphase "Phase 1: Target Selection and Configuration"
 _snmp_hostlists=""
 if [ -d "$WORKDIR/discovery" ]; then
     # Find the most recent snmp_targets.txt from multi-phase discovery
-    _snmp_hostlists=$(find "$WORKDIR/discovery" -name "snmp_targets.txt" -path "*/service_targets/*" 2>/dev/null | sort -r | head -5)
+    _snmp_hostlists=$(find "$WORKDIR/discovery" -name "snmp_targets.txt" -path "*/service_targets/*" -not -path "$WORKDIR/discovery/archive/*" 2>/dev/null | sort -r | head -5)
 fi
 
 if [ -n "$_snmp_hostlists" ]; then

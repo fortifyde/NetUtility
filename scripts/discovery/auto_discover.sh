@@ -1522,7 +1522,7 @@ if [ "$discovery_mode" = "l3" ]; then
     # Create session discovery directory for L3
     DISCOVERY_DIR="$WORKDIR/discovery"
     SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery"
-    ensure_clean_session_dir "$SESSION_DISCOVERY_DIR"
+    ensure_fresh_session_dir "$SESSION_DISCOVERY_DIR" "$TIMESTAMP"
 
     SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
     {
@@ -1779,20 +1779,6 @@ echo "  Consolidated report: $CONSOLIDATED_REPORT" >&2
 echo "  Team coordination: $SESSION_TEAM_HANDOFF_DIR/SESSION_TEAM_COORDINATION.txt" >&2
 }
 
-# ensure_clean_session_dir — offer to remove or reuse an existing session directory,
-# then create it. Args: $1=directory path
-ensure_clean_session_dir() {
-    if [ -d "$1" ] && [ -f "$1/session_metadata.txt" ]; then
-        echo "Found existing auto-discovery session: $1" >&2
-        if confirm_action "Remove existing session and start fresh?"; then
-            echo "Removing existing session..." >&2
-            rm -rf "$1"
-        else
-            echo "Reusing existing session directory." >&2
-        fi
-    fi
-    mkdir -p "$1"
-}
 
 # review_and_confirm_networks — interactive pre-scan review of collected network ranges.
 # Args: $1=path to networks file ("id network" per line)
@@ -1891,7 +1877,7 @@ if [ -x "$discovery_script" ]; then
         if [ -z "$SESSION_DISCOVERY_DIR" ]; then
             DISCOVERY_DIR="$WORKDIR/discovery"
             SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery"
-            ensure_clean_session_dir "$SESSION_DISCOVERY_DIR"
+            ensure_fresh_session_dir "$SESSION_DISCOVERY_DIR" "$TIMESTAMP"
 
             # Create session metadata (L2 mode — L3 metadata was written during network collection)
             SESSION_METADATA="$SESSION_DISCOVERY_DIR/session_metadata.txt"
@@ -2456,9 +2442,11 @@ if [ -x "$discovery_script" ]; then
         fi
         
         # Create session-based discovery structure for main network
-        DISCOVERY_DIR="$WORKDIR/discovery"
-        SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery"
-        ensure_clean_session_dir "$SESSION_DISCOVERY_DIR"
+        if [ -z "$SESSION_DISCOVERY_DIR" ]; then
+            DISCOVERY_DIR="$WORKDIR/discovery"
+            SESSION_DISCOVERY_DIR="$DISCOVERY_DIR/auto_discovery"
+            ensure_fresh_session_dir "$SESSION_DISCOVERY_DIR" "$TIMESTAMP"
+        fi
         MAIN_NETWORK_DIR="$SESSION_DISCOVERY_DIR/main_network"
         mkdir -p "$MAIN_NETWORK_DIR/meta"
 

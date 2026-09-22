@@ -56,7 +56,14 @@ func MoveHostInHostfiles(workspaceDir, ip, newCategory string) error {
 		if walkErr != nil {
 			return nil
 		}
-		if !d.IsDir() || d.Name() != "hostfiles" {
+		if !d.IsDir() {
+			return nil
+		}
+		if d.Name() == "archive" && filepath.Dir(path) == discoveryDir {
+			// Archived sessions are immutable snapshots — never rewritten.
+			return fs.SkipDir
+		}
+		if d.Name() != "hostfiles" {
 			return nil
 		}
 		// Found a hostfiles/ directory — process it

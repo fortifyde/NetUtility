@@ -441,6 +441,36 @@ func TestScanWorkspaceForResultsNoWorkspace(t *testing.T) {
 	}
 }
 
+func TestScanWorkspaceForResults_SkipsDiscoveryArchive(t *testing.T) {
+	tempDir := t.TempDir()
+	parser := NewResultParser(tempDir)
+	nmapLive := "Nmap scan report for 192.168.1.1\n80/tcp open http"
+	nmapArchived := "Nmap scan report for 10.9.9.9\n80/tcp open http"
+	files := map[string]string{
+		filepath.Join(tempDir, "discovery", "live", "scan.nmap"):           nmapLive,
+		filepath.Join(tempDir, "discovery", "archive", "old", "scan.nmap"): nmapArchived,
+	}
+	for filePath, content := range files {
+		if err := os.MkdirAll(filepath.Dir(filePath), 0750); err != nil {
+			t.Fatalf("Failed to create test dir: %v", err)
+		}
+		if err := os.WriteFile(filePath, []byte(content), 0600); err != nil {
+			t.Fatalf("Failed to create test file: %v", err)
+		}
+	}
+
+	results, err := parser.ScanWorkspaceForResults()
+	if err != nil {
+		t.Fatalf("ScanWorkspaceForResults() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected exactly 1 result (archive must be skipped), got %d", len(results))
+	}
+	if len(results[0].Hosts) != 1 || results[0].Hosts[0].IP != "192.168.1.1" {
+		t.Errorf("expected only the live host 192.168.1.1, got %+v", results[0].Hosts)
+	}
+}
+
 func TestParseServiceScan(t *testing.T) {
 	parser := NewResultParser("")
 

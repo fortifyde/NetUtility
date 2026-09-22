@@ -1397,6 +1397,52 @@ cleanup_latest_links() {
     echo "✓ Cleaned up broken symlinks in $latest_dir"
 }
 
+# archive_session_dir — preserve a results directory by moving it into the
+# local archive folder ($WORKDIR/discovery/archive/) under a timestamped name.
+# Args: $1=directory to archive, $2=timestamp for the archive name
+# Returns 0 when the directory is gone afterwards (archived, or never existed);
+# returns 1 with the directory left in place if the archive move fails.
+archive_session_dir() {
+    local dir="$1"
+    local ts="${2:-$(date +%Y%m%d_%H%M%S)}"
+    [ -d "$dir" ] || return 0
+    local archive_root="${NETUTIL_WORKDIR:-$HOME}/discovery/archive"
+    local dest
+    dest="$archive_root/$(basename "$dir")_${ts}"
+    [ -e "$dest" ] && dest="${dest}_$$"
+    mkdir -p "$archive_root" || return 1
+    if ! mv "$dir" "$dest" 2>/dev/null; then
+        echo "⚠ Failed to archive $dir into $archive_root" >&2
+        return 1
+    fi
+    echo "Archived previous session: $dir → $dest" >&2
+    # latest/<category> symlinks that pointed at the archived session now dangle
+    cleanup_latest_links >/dev/null 2>&1 || true
+    return 0
+}
+
+# ensure_fresh_session_dir — if an existing NON-EMPTY session directory is found,
+# offer to archive it (archive_session_dir) and start fresh, or reuse it as-is.
+# Always leaves $1 existing afterwards. Args: $1=session dir, $2=timestamp
+ensure_fresh_session_dir() {
+    local dir="$1"
+    local ts="$2"
+    if [ -d "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+        echo "Found existing session: $dir" >&2
+        if confirm_action "Archive existing session and start fresh?"; then
+            if archive_session_dir "$dir" "$ts"; then
+                echo "Starting fresh session..." >&2
+            else
+                echo "⚠ Archive failed — removing old session to start fresh." >&2
+                rm -rf "$dir"
+            fi
+        else
+            echo "Reusing existing session directory." >&2
+        fi
+    fi
+    mkdir -p "$dir"
+}
+
 # Function to show current latest results
 show_latest_results() {
     local workdir="${NETUTIL_WORKDIR:-$HOME}"
